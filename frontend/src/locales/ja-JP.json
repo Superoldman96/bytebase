@@ -225,7 +225,8 @@
     "text-wrap": "テキストの折り返し",
     "catalog": "カタログ",
     "summary": "まとめ",
-    "errors": "エラー"
+    "errors": "エラー",
+    "removed": "削除されました"
   },
   "error-page": {
     "go-back-home": "ホームページに戻る"
@@ -380,12 +381,8 @@
         "workspace-domain-required": "まずワークスペースドメインを設定してください。"
       },
       "action": {
-        "deactivate": "無効にする",
         "deactivate-confirm-title": "無効にしてもOK",
         "reactivate-confirm-title": "[OK] を有効にします"
-      },
-      "tooltip": {
-        "not-allow-remove": "最後の管理者を削除できません"
       },
       "system-bot": "ロボットアシスタント",
       "service-account": "サービスアカウント",
@@ -407,7 +404,6 @@
         "reset-token": "トークンをリセット",
         "reset-token-warning": "Entra アプリケーションのプロビジョニング設定を更新する必要があります。"
       },
-      "update-user": "ユーザーを更新",
       "search-member": "メンバーを検索",
       "revoked": "取り消されました",
       "view-by-members": "メンバー別に表示",
@@ -1055,6 +1051,9 @@
     },
     "schema": {
       "default": "デフォルト"
+    },
+    "catalog": {
+      "description": "テーブルカタログを編集してアップロードします。"
     }
   },
   "instance": {
@@ -1667,7 +1666,7 @@
     "snowflake-keypair-tip": "キーペア認証",
     "extra-params": {
       "self": "追加のパラメーター",
-      "description": "データベース接続文字列の追加パラメーター。 \nPostgreSQLの場合、ターゲット_session_attrs= read-writeなどのパラメーターを使用して、読み取りワイトインスタンスへの接続を確保できます。"
+      "description": "データベース接続文字列の追加パラメーター"
     },
     "ssl": {
       "ca-cert": "CA証明書",
@@ -1721,11 +1720,9 @@
     "download-as-file": "{file} 形式でダウンロード",
     "only-select-allowed": "{select} ステートメントのみが実行を許可されます",
     "enable-ddl-for-environment": "環境 {environment} に対して DDL/DML ステートメントを有効にすることができます。",
-    "want-to-action": "{want} が必要な場合は、「{action}」ボタン {reaction} をクリックしてください。",
     "and-submit-an-issue": "そしてイシューを提出してください",
     "to-enable-admin-mode": "管理者モードを有効にするには",
     "notify-empty-statement": "エディターに SQL ステートメントを入力してください",
-    "goto-edit-schema-hint": "エディタの上部からデータベース接続を選択してください",
     "can-not-execute-query": "データのロード中にクエリを実行できません",
     "rows": "記録",
     "vertical-display": "縦型表示",
@@ -1843,7 +1840,13 @@
       "contact-the-admin-to-grant-access": "管理者に連絡してアクセスを許可してください。"
     },
     "upload-file": "ファイルをアップロードする",
-    "copy-selected-results": "選択したデータを{action}または{button}でコピーします"
+    "copy-selected-results": "選択したデータを{action}または{button}でコピーします",
+    "binary-format": "バイナリ形式",
+    "format-default": "デフォルト",
+    "hex-format": "16進形式",
+    "text-format": "テキスト形式",
+    "boolean-format": "ブール形式",
+    "column-display-format": "列表示形式"
   },
   "schema-editor": {
     "self": "スキーマエディタ",

@@ -38,6 +38,7 @@ export enum Engine {
   DATABRICKS = "DATABRICKS",
   COCKROACHDB = "COCKROACHDB",
   COSMOSDB = "COSMOSDB",
+  TRINO = "TRINO",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -124,6 +125,9 @@ export function engineFromJSON(object: any): Engine {
     case 26:
     case "COSMOSDB":
       return Engine.COSMOSDB;
+    case 27:
+    case "TRINO":
+      return Engine.TRINO;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -187,6 +191,8 @@ export function engineToJSON(object: Engine): string {
       return "COCKROACHDB";
     case Engine.COSMOSDB:
       return "COSMOSDB";
+    case Engine.TRINO:
+      return "TRINO";
     case Engine.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -249,6 +255,8 @@ export function engineToNumber(object: Engine): number {
       return 25;
     case Engine.COSMOSDB:
       return 26;
+    case Engine.TRINO:
+      return 27;
     case Engine.UNRECOGNIZED:
     default:
       return -1;
@@ -460,8 +468,14 @@ export interface PageToken {
   offset: number;
 }
 
+/**
+ * Position in a text expressed as zero-based line and zero-based column byte
+ * offset.
+ */
 export interface Position {
+  /** Line position in a text (zero-based). */
   line: number;
+  /** Column position in a text (zero-based), equivalent to byte offset. */
   column: number;
 }
 

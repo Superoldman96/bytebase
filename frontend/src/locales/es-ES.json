@@ -225,7 +225,8 @@
     "text-wrap": "Ajuste de texto",
     "catalog": "Catálogo",
     "summary": "Resumen",
-    "errors": "Errores"
+    "errors": "Errores",
+    "removed": "Remoto"
   },
   "error-page": {
     "go-back-home": "Volver al inicio"
@@ -380,12 +381,8 @@
         "workspace-domain-required": "Primero configure un dominio de espacio de trabajo."
       },
       "action": {
-        "deactivate": "Desactivar",
         "deactivate-confirm-title": "¿Estás seguro de que deseas desactivar?",
         "reactivate-confirm-title": "¿Estás seguro de que deseas reactivar?"
-      },
-      "tooltip": {
-        "not-allow-remove": "No se puede eliminar el último administrador"
       },
       "system-bot": "Bot del Sistema",
       "service-account": "Cuenta de Servicio",
@@ -407,7 +404,6 @@
         "reset-token": "Restablecer token",
         "reset-token-warning": "Debe actualizar la configuración de aprovisionamiento de aplicaciones de Entra."
       },
-      "update-user": "Actualizar usuario",
       "search-member": "Buscar miembro",
       "revoked": "Revocado",
       "view-by-members": "Ver por miembros",
@@ -1055,6 +1051,9 @@
     },
     "schema": {
       "default": "Por defecto"
+    },
+    "catalog": {
+      "description": "Editar y cargar el catálogo de tablas."
     }
   },
   "instance": {
@@ -1667,7 +1666,7 @@
     "snowflake-keypair-tip": "Autenticación de par de claves",
     "extra-params": {
       "self": "Parámetros adicionales",
-      "description": "Parámetros adicionales para la cadena de conexión de la base de datos. \nPara PostgreSQL, puede usar parámetros como Target_Session_Attrs = Read-Write para garantizar las conexiones a instancias de lectura-escritura."
+      "description": "Parámetros adicionales para la cadena de conexión de la base de datos"
     },
     "ssl": {
       "ca-cert": "Certificado de CA",
@@ -1721,16 +1720,18 @@
     "download-as-file": "Descargar como {file}",
     "only-select-allowed": "Solo se permiten declaraciones {select} para ejecutar.",
     "enable-ddl-for-environment": "Puede habilitar la declaración DDL/DML para el entorno {environment}.",
-    "want-to-action": "Si desea {want}, haga clic en el botón {action} {reaction}.",
     "and-submit-an-issue": "y enviar un problema",
     "to-enable-admin-mode": "para habilitar el modo administrador",
     "notify-empty-statement": "Ingrese sus declaraciones SQL en el editor",
-    "goto-edit-schema-hint": "Seleccione una conexión de base de datos desde la parte superior del editor",
     "can-not-execute-query": "No se puede ejecutar la consulta al cargar datos.",
     "rows": "fila | filas",
     "vertical-display": "Pantalla vertical",
     "no-history-found": "No se encontró historial",
     "search-history": "Historial de búsqueda",
+    "binary-format": "Formato binario",
+    "hex-format": "Formato hexadecimal",
+    "boolean-format": "Formato booleano",
+    "text-format": "Formato de texto",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "¿Cerrar la hoja no guardada?",
@@ -1843,7 +1844,9 @@
       "contact-the-admin-to-grant-access": "Póngase en contacto con el administrador para otorgar acceso."
     },
     "upload-file": "Subir archivo",
-    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}"
+    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}",
+    "format-default": "Por defecto",
+    "column-display-format": "Formato de visualización de columna"
   },
   "schema-editor": {
     "self": "Editor de esquema",
