@@ -79,6 +79,7 @@ import { isValidProjectName, DEFAULT_PROJECT_NAME } from "@/types";
 import {
   filterProjectV1ListByKeyword,
   hasWorkspacePermissionV2,
+  getDefaultPagination,
 } from "@/utils";
 
 type LocalTabType = "recent" | "all";
@@ -100,7 +101,7 @@ const state = reactive<LocalState>({
   showPopover: false,
   searchText: "",
   selectedTab: "all",
-  loading: false,
+  loading: true,
   allProjects: [],
 });
 const projectStore = useProjectV1Store();
@@ -148,8 +149,10 @@ watch(
     state.loading = true;
     try {
       const { projects } = await projectStore.fetchProjectList({
-        query: state.searchText,
-        showDeleted: false,
+        filter: {
+          query: state.searchText,
+        },
+        pageSize: getDefaultPagination(),
       });
       state.allProjects = [...projects];
     } finally {
@@ -197,12 +200,16 @@ const onProjectSelect = (project: ComposedProject) => {
   record(route.fullPath);
 };
 
-const gotoWorkspace = () => {
+const gotoWorkspace = (e: MouseEvent) => {
   const route = router.resolve({
     name: WORKSPACE_ROUTE_LANDING,
   });
   record(route.fullPath);
-  router.push(route.fullPath);
+  if (e.ctrlKey || e.metaKey) {
+    window.open(route.fullPath, "_blank");
+  } else {
+    router.push(route.fullPath);
+  }
 };
 
 // Close popover when current project changed.

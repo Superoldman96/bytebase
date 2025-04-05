@@ -222,10 +222,11 @@
     "encoding": "Encoding",
     "finish": "Finish",
     "title": "Title",
-    "text-wrap": "Text wrap",
+    "text-wrap": "Text Wrap",
     "catalog": "Catalog",
     "summary": "Summary",
-    "errors": "Errors"
+    "errors": "Errors",
+    "removed": "Removed"
   },
   "error-page": {
     "go-back-home": "Go back home"
@@ -363,8 +364,6 @@
         "self": "Groups",
         "add-group": "Add Group",
         "update-group": "Update Group",
-        "delete-warning": "The group \"{name}\" will be deleted. This action cannot be undone.",
-        "delete-warning-with-resources": "The group \"{name}\" is used by following resources:",
         "form": {
           "email": "Email",
           "email-tips": "The email should be unique, and it cannot be changed after creation.",
@@ -380,12 +379,8 @@
         "workspace-domain-required": "Please set a workspace domain first."
       },
       "action": {
-        "deactivate": "Deactivate",
         "deactivate-confirm-title": "Are you sure to deactivate?",
         "reactivate-confirm-title": "Are you sure to reactivate"
-      },
-      "tooltip": {
-        "not-allow-remove": "Cannot remove the last Admin"
       },
       "system-bot": "System Bot",
       "service-account": "Service Account",
@@ -407,7 +402,6 @@
         "reset-token": "Reset token",
         "reset-token-warning": "You need to update the Entra application provisioning config."
       },
-      "update-user": "Update user",
       "search-member": "Search member",
       "revoked": "Revoked",
       "view-by-members": "View by members",
@@ -1055,6 +1049,9 @@
     },
     "schema": {
       "default": "Default"
+    },
+    "catalog": {
+      "description": "Edit and upload the table catalog."
     }
   },
   "instance": {
@@ -1236,9 +1233,13 @@
     },
     "advanced-search": {
       "scope": {
-        "address": {
-          "title": "Address",
-          "description": "Filter by address"
+        "host": {
+          "title": "Host",
+          "description": "Filter by instance host. Please input the value then press the Enter."
+        },
+        "port": {
+          "title": "Port",
+          "description": "Filter by instance port. Please input the value then press the Enter."
         }
       }
     },
@@ -1667,7 +1668,7 @@
     "snowflake-keypair-tip": "Key-pair authentication",
     "extra-params": {
       "self": "Extra Parameters",
-      "description": "Additional parameters for database connection string. For PostgreSQL, you can use parameters like target_session_attrs=read-write to ensure connections to read-write instances."
+      "description": "Additional parameters for database connection string"
     },
     "ssl": {
       "ca-cert": "CA Certificate",
@@ -1721,16 +1722,18 @@
     "download-as-file": "Download as {file}",
     "only-select-allowed": "Only {select} statements are allowed to execute.",
     "enable-ddl-for-environment": "You can enable the DDL/DML statement for the environment {environment}.",
-    "want-to-action": "If you want to {want}, click the {action} button {reaction}.",
     "and-submit-an-issue": "and submit an issue",
     "to-enable-admin-mode": "to enable the admin mode",
     "notify-empty-statement": "Please input your SQL statements in the editor",
-    "goto-edit-schema-hint": "Please select a database connection from the top of the editor",
     "can-not-execute-query": "Cannot execute query when loading data.",
     "rows": "row | rows",
     "vertical-display": "Vertical display",
     "no-history-found": "No history found",
     "search-history": "Search History",
+    "binary-format": "Binary format",
+    "hex-format": "Hexadecimal format",
+    "boolean-format": "Boolean format",
+    "text-format": "Text format",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "Close the unsaved sheet?",
@@ -1792,8 +1795,6 @@
     },
     "executing-query": "Executing query",
     "request-query": "Request query",
-    "previous-row": "Previous row",
-    "next-row": "Next row",
     "copy-success": "Copy success",
     "connect-in-new-tab": "Connect in new tab",
     "copy-name": "Copy name",
@@ -1843,7 +1844,11 @@
       "contact-the-admin-to-grant-access": "Contact to the admin to grant access."
     },
     "upload-file": "Upload file",
-    "copy-selected-results": "Copy selected data by {action} or {button}"
+    "copy-selected-results": "Copy selected data by {action} or {button}",
+    "format-default": "Default",
+    "column-display-format": "Column Display Format",
+    "next-row": "Next Row",
+    "previous-row": "Previous Row"
   },
   "schema-editor": {
     "self": "Schema Editor",
@@ -2133,7 +2138,10 @@
     "idp": "Identity Provider",
     "database-group": "Database Group",
     "changelist": "Changelist",
-    "review-config": "Review Config"
+    "review-config": "Review Config",
+    "delete-warning": "The \"{name}\" will be deleted. This action cannot be undone.",
+    "delete-warning-with-resources": "The \"{name}\" is used by following resources:",
+    "delete-warning-retry": "Please remove it from these resources then retry again."
   },
   "resource-id": {
     "self": "{resource} ID",
@@ -2390,10 +2398,7 @@
       "add": "Add role",
       "edit": "Edit role",
       "title-placeholder": "Input role title",
-      "description-placeholder": "Input role description",
-      "delete-warning": "The role \"{name}\" will be deleted. This action cannot be undone.",
-      "delete-warning-with-resources": "The role \"{name}\" is assigned to following users:",
-      "delete-warning-retry": "Please remove the role from these users then retry again."
+      "description-placeholder": "Input role description"
     },
     "default-workspace-role": "Users will get the \"Workspace Member\" role by default",
     "title": "Title",
@@ -2452,13 +2457,13 @@
   },
   "database-group": {
     "create": "New database group",
-    "edit": "Edit database group",
     "matched-database": "Matched database",
     "unmatched-database": "Unmatched database",
     "condition": {
       "self": "Condition"
     },
-    "select": "Select database group"
+    "select": "Select database group",
+    "no-matched-databases": "No matched databases"
   },
   "export-center": {
     "self": "Export Center",

@@ -100,6 +100,8 @@ const (
 	Engine_DATABRICKS         Engine = 24
 	Engine_COCKROACHDB        Engine = 25
 	Engine_COSMOSDB           Engine = 26
+	Engine_TRINO              Engine = 27
+	Engine_CASSANDRA          Engine = 28
 )
 
 // Enum value maps for Engine.
@@ -132,6 +134,8 @@ var (
 		24: "DATABRICKS",
 		25: "COCKROACHDB",
 		26: "COSMOSDB",
+		27: "TRINO",
+		28: "CASSANDRA",
 	}
 	Engine_value = map[string]int32{
 		"ENGINE_UNSPECIFIED": 0,
@@ -161,6 +165,8 @@ var (
 		"DATABRICKS":         24,
 		"COCKROACHDB":        25,
 		"COSMOSDB":           26,
+		"TRINO":              27,
+		"CASSANDRA":          28,
 	}
 )
 
@@ -301,10 +307,14 @@ func (ExportFormat) EnumDescriptor() ([]byte, []int) {
 	return file_v1_common_proto_rawDescGZIP(), []int{3}
 }
 
+// Position in a text expressed as zero-based line and zero-based column byte
+// offset.
 type Position struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Line          int32                  `protobuf:"varint,1,opt,name=line,proto3" json:"line,omitempty"`
-	Column        int32                  `protobuf:"varint,2,opt,name=column,proto3" json:"column,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Line position in a text (zero-based).
+	Line int32 `protobuf:"varint,1,opt,name=line,proto3" json:"line,omitempty"`
+	// Column position in a text (zero-based), equivalent to byte offset.
+	Column        int32 `protobuf:"varint,2,opt,name=column,proto3" json:"column,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -420,7 +430,7 @@ const file_v1_common_proto_rawDesc = "" +
 	"\x11STATE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06ACTIVE\x10\x01\x12\v\n" +
-	"\aDELETED\x10\x02*\x84\x03\n" +
+	"\aDELETED\x10\x02*\x9e\x03\n" +
 	"\x06Engine\x12\x16\n" +
 	"\x12ENGINE_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -454,7 +464,9 @@ const file_v1_common_proto_rawDesc = "" +
 	"\n" +
 	"DATABRICKS\x10\x18\x12\x0f\n" +
 	"\vCOCKROACHDB\x10\x19\x12\f\n" +
-	"\bCOSMOSDB\x10\x1a*\\\n" +
+	"\bCOSMOSDB\x10\x1a\x12\t\n" +
+	"\x05TRINO\x10\x1b\x12\r\n" +
+	"\tCASSANDRA\x10\x1c*\\\n" +
 	"\aVCSType\x12\x18\n" +
 	"\x14VCS_TYPE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +

@@ -134,8 +134,8 @@ import {
   featureToRef,
   pushNotification,
   usePolicyV1Store,
-  useInstanceV1List,
   useProjectV1Store,
+  useInstanceV1Store,
 } from "@/store";
 import type { Policy } from "@/types/proto/v1/org_policy_service";
 import {
@@ -143,7 +143,11 @@ import {
   PolicyResourceType,
   MaskingRulePolicy_MaskingRule,
 } from "@/types/proto/v1/org_policy_service";
-import { arraySwap, hasWorkspacePermissionV2 } from "@/utils";
+import {
+  arraySwap,
+  hasWorkspacePermissionV2,
+  getDefaultPagination,
+} from "@/utils";
 import LearnMoreLink from "../LearnMoreLink.vue";
 import { MiniActionButton } from "../v2";
 import MaskingRuleConfig from "./components/MaskingRuleConfig.vue";
@@ -174,7 +178,6 @@ const state = reactive<LocalState>({
   reorderRules: false,
 });
 
-useInstanceV1List();
 const policyStore = usePolicyV1Store();
 const hasPermission = computed(() => {
   return hasWorkspacePermissionV2("bb.policies.update");
@@ -353,16 +356,35 @@ const factorOptionsMap = computed((): Map<Factor, OptionConfig> => {
         options = getEnvironmentIdOptions();
         break;
       case "instance_id":
-        options = getInstanceIdOptions();
-        break;
+        const store = useInstanceV1Store();
+        map.set(factor, {
+          remote: true,
+          options: [],
+          search: async (keyword: string) => {
+            return store
+              .fetchInstanceList({
+                pageSize: getDefaultPagination(),
+                filter: {
+                  query: keyword,
+                },
+              })
+              .then((resp) => getInstanceIdOptions(resp.instances));
+          },
+        });
+        return map;
       case "project_id":
         const projectStore = useProjectV1Store();
         map.set(factor, {
           remote: true,
-          options: getProjectIdOptions(projectStore.getProjectList()),
+          options: [],
           search: async (keyword: string) => {
             return projectStore
-              .fetchProjectList({ query: keyword })
+              .fetchProjectList({
+                pageSize: getDefaultPagination(),
+                filter: {
+                  query: keyword,
+                },
+              })
               .then((resp) => getProjectIdOptions(resp.projects));
           },
         });

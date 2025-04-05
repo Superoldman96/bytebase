@@ -329,8 +329,9 @@ message Advice {
   // The advice column number in the SQL statement.
   int32 column = 6;
 
-  // 1-based Position of the SQL statement.
   // To supersede `line` and `column` above.
+  // The start_position is inclusive and the end_position is exclusive.
+  // TODO: use range instead
   Position start_position = 8;
   Position end_position = 9;
 }
@@ -444,7 +445,8 @@ message DiffMetadataRequest {
   // The database engine of the schema.
   Engine engine = 3;
 
-  // If false, we will build the raw common by classification in database config.
+  // If false, we will build the raw common by classification in database
+  // config.
   bool classification_from_config = 4;
 }
 
@@ -534,6 +536,7 @@ message AICompletionResponse {
     }
     Content content = 1;
   }
-  // candidates is used for results with multiple choices and candidates. Used for OpenAI and Gemini.
+  // candidates is used for results with multiple choices and candidates. Used
+  // for OpenAI and Gemini.
   repeated Candidate candidates = 1;
 }

@@ -56,7 +56,7 @@ type AuthService struct {
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) (*AuthService, error) {
+func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) *AuthService {
 	return &AuthService{
 		store:          store,
 		secret:         secret,
@@ -66,16 +66,13 @@ func NewAuthService(store *store.Store, secret string, licenseService enterprise
 		stateCfg:       stateCfg,
 		iamManager:     iamManager,
 		postCreateUser: postCreateUser,
-	}, nil
+	}
 }
 
 // Login is the auth login method including SSO.
 func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v1pb.LoginResponse, error) {
 	var loginUser *store.UserMessage
-	mfaSecondLogin := false
-	if request.MfaTempToken != nil && *request.MfaTempToken != "" {
-		mfaSecondLogin = true
-	}
+	mfaSecondLogin := request.MfaTempToken != nil && *request.MfaTempToken != ""
 	loginViaIDP := request.GetIdpName() != ""
 
 	response := &v1pb.LoginResponse{}

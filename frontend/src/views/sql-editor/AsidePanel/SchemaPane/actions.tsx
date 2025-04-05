@@ -1,7 +1,8 @@
-import { head } from "lodash-es";
+import { head, cloneDeep } from "lodash-es";
 import {
   CodeIcon,
   CopyIcon,
+  InfoIcon,
   ExternalLinkIcon,
   FileCodeIcon,
   FileDiffIcon,
@@ -11,10 +12,20 @@ import {
   LinkIcon,
   SquarePenIcon,
 } from "lucide-vue-next";
+import {
+  FunctionIcon,
+  TableIcon,
+  ViewIcon,
+  ProcedureIcon,
+  ExternalTableIcon,
+  PackageIcon,
+  SequenceIcon,
+} from "@/components/Icon";
+import { SchemaDiagramIcon } from "@/components/SchemaDiagram";
 import { NButton, useDialog, type DropdownOption } from "naive-ui";
 import { computed, h, nextTick, ref } from "vue";
+import type { VNodeChild } from "vue";
 import { useRouter } from "vue-router";
-import TableIcon from "@/components/Icon/TableIcon.vue";
 import formatSQL from "@/components/MonacoEditor/sqlFormatter";
 import { useExecuteSQL } from "@/composables/useExecuteSQL";
 import { t } from "@/plugins/i18n";
@@ -29,10 +40,8 @@ import {
   type SQLEditorConnection,
 } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
-import type {
-  SchemaMetadata,
-  TableMetadata,
-  ViewMetadata,
+import {
+  GetSchemaStringRequest_ObjectType,
 } from "@/types/proto/v1/database_service";
 import { DataSource, DataSourceType } from "@/types/proto/v1/instance_service";
 import {
@@ -44,13 +53,14 @@ import {
   generateSimpleSelectAllStatement,
   generateSimpleUpdateStatement,
   instanceV1HasAlterSchema,
-  keyForDependencyColumn,
   sortByDictionary,
   supportGetStringSchema,
   toClipboard,
+  defaultSQLEditorTab,
 } from "@/utils";
 import { keyWithPosition } from "../../EditorCommon";
 import {
+  type EditorPanelView,
   useEditorPanelContext,
   type EditorPanelViewState,
 } from "../../EditorPanel";
@@ -152,16 +162,28 @@ export const useActions = () => {
     });
     runQuery(db, schema, tableOrViewName, query);
   };
+
+  const openNewTab = ({ title, view }: { title?: string; view?: EditorPanelView }) => {
+    const tabStore = useSQLEditorTabStore();
+    const fromTab = tabStore.currentTab;
+    const clonedTab = defaultSQLEditorTab();
+    if (fromTab) {
+      clonedTab.connection = cloneDeep(fromTab.connection);
+      clonedTab.treeState = cloneDeep(fromTab.treeState);
+    }
+    clonedTab.status = "CLEAN";
+    clonedTab.title = title ?? "";
+    tabStore.addTab(clonedTab);
+    updateViewState({ view });
+  }
+
   const viewDetail = async (node: TreeNode) => {
     const { type, target } = node.meta;
     const SUPPORTED_TYPES: NodeType[] = [
       "schema",
-      "expandable-text",
       "table",
-      "column",
       "external-table",
       "view",
-      "dependency-column",
       "procedure",
       "package",
       "function",
@@ -174,67 +196,16 @@ export const useActions = () => {
     if (!SUPPORTED_TYPES.includes(type)) {
       return;
     }
+
+    openNewTab({
+      title: "View detail"
+    });
+
     if (type === "schema") {
       const schema = (node.meta.target as NodeTarget<"schema">).schema.name;
       updateViewState({
         schema,
       });
-      return;
-    }
-    if (type === "expandable-text") {
-      const { mockType } = target as NodeTarget<"expandable-text">;
-      if (!mockType) return;
-      try {
-        const view = typeToView(mockType);
-        const schema = schemaForNode(node);
-        const vs: Partial<EditorPanelViewState> = {
-          view,
-        };
-        if (typeof schema !== "undefined") {
-          vs.schema = schema.name;
-        }
-        if (
-          mockType === "column" ||
-          mockType === "index" ||
-          mockType === "foreign-key" ||
-          mockType === "partition-table"
-        ) {
-          const table = tableForNode(node);
-          if (typeof table !== "undefined") {
-            vs.detail = { table: table.name };
-            if (mockType === "column") {
-              vs.detail.column = head(table.columns)?.name;
-            }
-            if (mockType === "index") {
-              vs.detail.index = head(table.indexes)?.name;
-            }
-            if (mockType === "foreign-key") {
-              vs.detail.foreignKey = head(table.foreignKeys)?.name;
-            }
-            if (mockType === "partition-table") {
-              vs.detail.partition = head(table.partitions)?.name;
-            }
-          }
-        }
-        if (mockType === "column" || mockType === "dependency-column") {
-          const view = viewForNode(node);
-          if (typeof view !== "undefined") {
-            vs.detail = { view: view.name };
-            if (mockType === "column") {
-              vs.detail.column = head(view.columns)?.name;
-            }
-            if (mockType === "dependency-column") {
-              const dep = head(view.dependencyColumns);
-              if (dep) {
-                vs.detail.dependencyColumn = keyForDependencyColumn(dep);
-              }
-            }
-          }
-        }
-        updateViewState(vs);
-      } catch {
-        // nothing
-      }
       return;
     }
 
@@ -268,60 +239,12 @@ export const useActions = () => {
     ) {
       detail.table = (target as NodeTarget<"table">).table.name;
     }
-    if (type === "column") {
-      const parentType = node.parent?.parent?.meta.type;
-      if (parentType === "table") {
-        detail.table = (target as NodeTarget<"table">).table.name;
-        detail.column = (target as NodeTarget<"column">).column.name;
-      }
-      if (parentType === "external-table") {
-        detail.externalTable = (
-          target as NodeTarget<"external-table">
-        ).externalTable.name;
-        detail.column = (target as NodeTarget<"column">).column.name;
-        updateViewState({
-          view: "EXTERNAL_TABLES",
-        });
-      }
-      if (parentType === "view") {
-        detail.view = (target as NodeTarget<"view">).view.name;
-        detail.column = (target as NodeTarget<"column">).column.name;
-        updateViewState({
-          view: "VIEWS",
-        });
-      }
-    }
     if (type === "trigger") {
       const { trigger, position } = target as NodeTarget<"trigger">;
       detail.trigger = keyWithPosition(trigger.name, position);
     }
     if (type === "view") {
       detail.view = (target as NodeTarget<"view">).view.name;
-    }
-    if (type === "dependency-column") {
-      const { database, dependencyColumn } =
-        target as NodeTarget<"dependency-column">;
-      const depSchema = database.schemas.find(
-        (s) => s.name === dependencyColumn.schema
-      );
-      if (
-        depSchema &&
-        depSchema.views.find((v) => v.name === dependencyColumn.table)
-      ) {
-        updateViewState({
-          view: "VIEWS",
-          schema: dependencyColumn.schema,
-        });
-        detail.view = dependencyColumn.table;
-        detail.column = dependencyColumn.column;
-      } else {
-        updateViewState({
-          view: "TABLES",
-          schema: dependencyColumn.schema,
-        });
-        detail.table = dependencyColumn.table;
-        detail.column = dependencyColumn.column;
-      }
     }
     if (type === "procedure") {
       const { procedure, position } = target as NodeTarget<"procedure">;
@@ -360,13 +283,13 @@ export const useActions = () => {
     });
   };
 
-  return { selectAllFromTableOrView, viewDetail };
+  return { selectAllFromTableOrView, viewDetail, openNewTab };
 };
 
 export const useDropdown = () => {
   const router = useRouter();
   const { events: editorEvents, schemaViewer } = useSQLEditorContext();
-  const { selectAllFromTableOrView, viewDetail } = useActions();
+  const { selectAllFromTableOrView, viewDetail, openNewTab } = useActions();
   const disallowEditSchema = useAppFeature(
     "bb.feature.sql-editor.disallow-edit-schema"
   );
@@ -395,6 +318,69 @@ export const useDropdown = () => {
     }
 
     const items: DropdownOptionWithTreeNode[] = [];
+    if (type === "database" || type === "schema") {
+      const actions: { view: EditorPanelView; title: string; icon: () => VNodeChild }[] = [
+        {
+          view: "INFO",
+          title: t("common.info"),
+          icon: () => <InfoIcon class="w-4 h-4" />
+        },
+        {
+          view: "TABLES",
+          title: t("db.tables"),
+          icon: () => <TableIcon class="w-4 h-4" />
+        },
+        {
+          view: "VIEWS",
+          title: t("db.views"),
+          icon: () => <ViewIcon class="w-4 h-4" />
+        },
+        {
+          view: "FUNCTIONS",
+          title: t("db.functions"),
+          icon: () => <FunctionIcon class="w-4 h-4" />
+        },
+        {
+          view: "PROCEDURES",
+          title: t("db.procedures"),
+          icon: () => <ProcedureIcon class="w-4 h-4" />
+        },
+        {
+          view: "SEQUENCES",
+          title: t("db.sequences"),
+          icon: () => <SequenceIcon class="w-4 h-4" />
+        },
+        {
+          view: "PACKAGES",
+          title: t("db.packages"),
+          icon: () => <PackageIcon class="w-4 h-4" />
+        },
+        {
+          view: "EXTERNAL_TABLES",
+          title: t("db.external-tables"),
+          icon: () => <ExternalTableIcon class="w-4 h-4" />
+        },
+        {
+          view: "DIAGRAM",
+          title: t("schema-diagram.self"),
+          icon: () => <SchemaDiagramIcon class="w-4 h-4" />
+        },
+      ]
+      for (const action of actions) {
+        items.push({
+          key: action.view,
+          label: action.title,
+          icon: action.icon,
+          onSelect: () => {
+            openNewTab({
+              title: action.title,
+              view: action.view,
+            })
+          }
+        })
+      }
+    }
+
     if (type === "table" || type === "view") {
       const schema = (target as NodeTarget<"table" | "view">).schema.name;
       const tableOrView = tableOrViewNameForNode(node);
@@ -407,6 +393,25 @@ export const useDropdown = () => {
           copyToClipboard(name);
         },
       });
+      if (type === 'view') {
+       const {db, schema, view} = target as NodeTarget<"view">;
+       if (supportGetStringSchema(db.instanceResource.engine)) {
+          items.push({
+            key: "view-schema-text",
+            label: t("sql-editor.view-schema-text"),
+            icon: () => <CodeIcon class="w-4 h-4" />,
+            onSelect: () => {
+              schemaViewer.value = {
+                database: db,
+                schema: schema.name,
+                object: view.name,
+                type: GetSchemaStringRequest_ObjectType.VIEW
+              };
+            },
+          });
+        }
+      }
+
       if (type === "table") {
         const { db, schema, table } = target as NodeTarget<"table">;
 
@@ -429,7 +434,8 @@ export const useDropdown = () => {
               schemaViewer.value = {
                 database: db,
                 schema: schema.name,
-                table: table.name,
+                object: table.name,
+                type: GetSchemaStringRequest_ObjectType.TABLE,
               };
             },
           });
@@ -628,34 +634,6 @@ export const useDropdown = () => {
     handleClickoutside,
     selectAllFromTableOrView,
   };
-};
-
-const schemaForNode = (
-  node: TreeNode | undefined
-): SchemaMetadata | undefined => {
-  if (!node) return undefined;
-  if (node.meta.type === "schema") {
-    return (node.meta.target as NodeTarget<"schema">).schema;
-  }
-  return schemaForNode(node.parent);
-};
-
-const tableForNode = (
-  node: TreeNode | undefined
-): TableMetadata | undefined => {
-  if (!node) return undefined;
-  if (node.meta.type === "table") {
-    return (node.meta.target as NodeTarget<"table">).table;
-  }
-  return tableForNode(node.parent);
-};
-
-const viewForNode = (node: TreeNode | undefined): ViewMetadata | undefined => {
-  if (!node) return undefined;
-  if (node.meta.type === "view") {
-    return (node.meta.target as NodeTarget<"view">).view;
-  }
-  return viewForNode(node.parent);
 };
 
 const tableOrViewNameForNode = (node: TreeNode) => {

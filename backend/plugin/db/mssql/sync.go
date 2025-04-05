@@ -15,9 +15,9 @@ import (
 )
 
 // SyncInstance syncs the instance.
-func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
+func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
 	var version, fullVersion string
-	if err := driver.db.QueryRowContext(ctx, "SELECT SERVERPROPERTY('productversion'), @@VERSION").Scan(&version, &fullVersion); err != nil {
+	if err := d.db.QueryRowContext(ctx, "SELECT SERVERPROPERTY('productversion'), @@VERSION").Scan(&version, &fullVersion); err != nil {
 		return nil, err
 	}
 	tokens := strings.Fields(fullVersion)
@@ -29,7 +29,7 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 	}
 
 	var databases []*storepb.DatabaseSchemaMetadata
-	rows, err := driver.db.QueryContext(ctx, "SELECT name, collation_name FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb', 'rdscore')")
+	rows, err := d.db.QueryContext(ctx, "SELECT name, collation_name FROM sys.databases WHERE name NOT IN ('master', 'model', 'msdb', 'tempdb', 'rdscore')")
 	if err != nil {
 		return nil, err
 	}
@@ -57,8 +57,8 @@ func (driver *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, e
 }
 
 // SyncDBSchema syncs a single database schema.
-func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
-	txn, err := driver.db.BeginTx(ctx, nil)
+func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetadata, error) {
+	txn, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -66,31 +66,31 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchema
 
 	schemaNames, err := getSchemas(txn)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get schemas from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get schemas from database %q", d.databaseName)
 	}
 	columnMap, err := getTableColumns(txn, schemaNames)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get table columns from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get table columns from database %q", d.databaseName)
 	}
 	tableMap, err := getTables(txn, schemaNames, columnMap)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get tables from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get tables from database %q", d.databaseName)
 	}
 	viewMap, err := getViews(txn, columnMap)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get views from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get views from database %q", d.databaseName)
 	}
 	sequenceMap, err := getSequences(txn)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get sequences from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get sequences from database %q", d.databaseName)
 	}
 	functionMap, err := getFunctions(txn)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get functions from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get functions from database %q", d.databaseName)
 	}
 	procedureMap, err := getProcedures(txn)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to get procedures from database %q", driver.databaseName)
+		return nil, errors.Wrapf(err, "failed to get procedures from database %q", d.databaseName)
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -98,7 +98,7 @@ func (driver *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchema
 	}
 
 	databaseMetadata := &storepb.DatabaseSchemaMetadata{
-		Name: driver.databaseName,
+		Name: d.databaseName,
 	}
 	for _, schemaName := range schemaNames {
 		databaseMetadata.Schemas = append(databaseMetadata.Schemas, &storepb.SchemaMetadata{
@@ -467,7 +467,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 func getColumnType(definition, typeName sql.NullString, isComputed, isPersisted sql.NullBool, precision, scale, maxLength sql.NullInt64) (string, error) {
 	var buf strings.Builder
 	if definition.Valid && isComputed.Valid && isComputed.Bool {
-		if _, err := fmt.Fprintf(&buf, " AS %s", definition.String); err != nil {
+		if _, err := fmt.Fprintf(&buf, "AS %s", definition.String); err != nil {
 			return "", err
 		}
 		if isPersisted.Valid && isPersisted.Bool {
@@ -475,14 +475,14 @@ func getColumnType(definition, typeName sql.NullString, isComputed, isPersisted 
 				return "", err
 			}
 		}
-		return "", nil
+		return buf.String(), nil
 	}
 
 	if !typeName.Valid {
 		return "", errors.New("column type name is not valid")
 	}
 
-	if _, err := fmt.Fprintf(&buf, " %s", typeName.String); err != nil {
+	if _, err := fmt.Fprintf(&buf, "%s", typeName.String); err != nil {
 		return "", err
 	}
 
@@ -559,7 +559,7 @@ func getIndexes(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.Index
 	for rows.Next() {
 		var schemaName, tableName, indexName, typeDesc, colName, comment sql.NullString
 		var isDescending sql.NullBool
-		if err := rows.Scan(&schemaName, &tableName, &indexName, &colName, &typeDesc, &isDescending, &comment); err != nil {
+		if err := rows.Scan(&schemaName, &tableName, &indexName, &typeDesc, &colName, &isDescending, &comment); err != nil {
 			return nil, err
 		}
 

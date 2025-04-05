@@ -267,7 +267,6 @@
                     adminDataSource.additionalAddresses[index].host
                   "
                   required
-                  :placeholder="$t('instance.sentence.host.snowflake')"
                   class="mt-1 w-full"
                   :disabled="!allowEdit"
                 />
@@ -496,6 +495,7 @@ import {
   useActuatorV1Store,
   useInstanceV1Store,
   useSubscriptionV1Store,
+  pushNotification,
 } from "@/store";
 import { instanceNamePrefix } from "@/store/modules/v1/common";
 import type { ResourceId, ValidatedMessage, ComposedInstance } from "@/types";
@@ -560,7 +560,7 @@ const availableLicenseCount = computed(() => {
   return Math.max(
     0,
     subscriptionStore.instanceLicenseCount -
-      instanceV1Store.activateInstanceCount
+      actuatorStore.activatedInstanceCount
   );
 });
 
@@ -602,6 +602,9 @@ const currentRedisConnectionType = computed(() => {
 });
 
 const showAdditionalAddresses = computed(() => {
+  if (basicInfo.value.engine === Engine.CASSANDRA) {
+    return true;
+  }
   if (basicInfo.value.engine === Engine.MONGODB && !adminDataSource.value.srv) {
     return true;
   }
@@ -758,6 +761,14 @@ const changeInstanceActivation = async (on: boolean) => {
       activation: on,
     };
     await instanceV1Store.updateInstance(instancePatch, ["activation"]);
+    // refresh activatedInstanceCount
+    await actuatorStore.fetchServerInfo();
+
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: t("common.updated"),
+    });
   }
 };
 

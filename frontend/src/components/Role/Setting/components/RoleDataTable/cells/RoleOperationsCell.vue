@@ -8,15 +8,26 @@
       {{ $t("common.delete") }}
     </NButton>
   </div>
+  <ResourceOccupiedModal
+    ref="resourceOccupiedModalRef"
+    :target="role.name"
+    :resources="resourceOccupied"
+    :show-positive-button="resourceOccupied.length === 0"
+    @on-submit="onRoleRemove"
+    @on-close="resetState"
+  />
 </template>
 
 <script lang="tsx" setup>
-import { NButton, useDialog } from "naive-ui";
-import { computed } from "vue";
+import { NButton } from "naive-ui";
+import { Status } from "nice-grpc-web";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import ResourceOccupiedModal from "@/components/v2/ResourceOccupiedModal/ResourceOccupiedModal.vue";
 import { useRoleStore, useWorkspaceV1Store, pushNotification } from "@/store";
 import type { Role } from "@/types/proto/v1/role_service";
 import { hasWorkspacePermissionV2, isCustomRole } from "@/utils";
+import { getErrorCode, extractGrpcErrorMessage } from "@/utils/grpcweb";
 import { useCustomRoleSettingContext } from "../../../context";
 
 const props = defineProps<{
@@ -30,8 +41,9 @@ defineEmits<{
 const { hasCustomRoleFeature, showFeatureModal } =
   useCustomRoleSettingContext();
 const workspaceStore = useWorkspaceV1Store();
-const $dialog = useDialog();
 const { t } = useI18n();
+const resourceOccupiedModalRef =
+  ref<InstanceType<typeof ResourceOccupiedModal>>();
 
 const allowUpdate = computed(() => hasWorkspacePermissionV2("bb.roles.update"));
 const allowDelete = computed(() => hasWorkspacePermissionV2("bb.roles.delete"));
@@ -42,51 +54,39 @@ const usersWithRole = computed(() => {
   ];
 });
 
-const handleDeleteRole = async () => {
+const resourceOccupied = ref<string[]>([...usersWithRole.value]);
+
+const resetState = () => {
+  resourceOccupied.value = [...usersWithRole.value];
+};
+
+const handleDeleteRole = () => {
   if (!hasCustomRoleFeature.value) {
     showFeatureModal.value = true;
     return;
   }
 
-  $dialog.warning({
-    title: t("common.warning"),
-    style: "z-index: 100000",
-    negativeText: t("common.cancel"),
-    positiveText:
-      usersWithRole.value.length === 0 ? t("common.continue-anyway") : "",
-    content: () => {
-      if (usersWithRole.value.length === 0) {
-        return t("role.setting.delete-warning", {
-          name: props.role.title,
-        });
+  resourceOccupiedModalRef.value?.open();
+};
+
+const onRoleRemove = async () => {
+  try {
+    await useRoleStore().deleteRole(props.role);
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: t("common.deleted"),
+    });
+  } catch (error) {
+    if (getErrorCode(error) === Status.FAILED_PRECONDITION) {
+      const message = extractGrpcErrorMessage(error);
+      const resources =
+        message.split("used by resources: ")[1]?.split(",") ?? [];
+      if (resources.length > 0) {
+        resourceOccupied.value = [...resources];
+        handleDeleteRole();
       }
-      return (
-        <div class="space-y-2">
-          <p>
-            {t("role.setting.delete-warning-with-resources", {
-              name: props.role.title,
-            })}
-          </p>
-          <ul class="list-disc ml-4 textinfolabel">
-            {usersWithRole.value.map((user) => (
-              <li>{user}</li>
-            ))}
-          </ul>
-          <p>{t("role.setting.delete-warning-retry")}</p>
-        </div>
-      );
-    },
-    onPositiveClick: () => {
-      useRoleStore()
-        .deleteRole(props.role)
-        .then(() => {
-          pushNotification({
-            module: "bytebase",
-            style: "SUCCESS",
-            title: t("common.deleted"),
-          });
-        });
-    },
-  });
+    }
+  }
 };
 </script>

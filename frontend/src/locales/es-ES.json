@@ -225,7 +225,8 @@
     "text-wrap": "Ajuste de texto",
     "catalog": "Catálogo",
     "summary": "Resumen",
-    "errors": "Errores"
+    "errors": "Errores",
+    "removed": "Remoto"
   },
   "error-page": {
     "go-back-home": "Volver al inicio"
@@ -363,8 +364,6 @@
         "self": "Grupos",
         "add-group": "Añadir grupo",
         "update-group": "Grupo de actualización",
-        "delete-warning": "Se eliminará el grupo \"{name}\". Esta acción no se puede deshacer.",
-        "delete-warning-with-resources": "El grupo \"{name}\" lo utilizan los siguientes recursos:",
         "form": {
           "email": "Correo electrónico",
           "email-tips": "El correo electrónico debe ser único y no se puede cambiar después de su creación.",
@@ -380,12 +379,8 @@
         "workspace-domain-required": "Primero configure un dominio de espacio de trabajo."
       },
       "action": {
-        "deactivate": "Desactivar",
         "deactivate-confirm-title": "¿Estás seguro de que deseas desactivar?",
         "reactivate-confirm-title": "¿Estás seguro de que deseas reactivar?"
-      },
-      "tooltip": {
-        "not-allow-remove": "No se puede eliminar el último administrador"
       },
       "system-bot": "Bot del Sistema",
       "service-account": "Cuenta de Servicio",
@@ -407,7 +402,6 @@
         "reset-token": "Restablecer token",
         "reset-token-warning": "Debe actualizar la configuración de aprovisionamiento de aplicaciones de Entra."
       },
-      "update-user": "Actualizar usuario",
       "search-member": "Buscar miembro",
       "revoked": "Revocado",
       "view-by-members": "Ver por miembros",
@@ -1055,6 +1049,9 @@
     },
     "schema": {
       "default": "Por defecto"
+    },
+    "catalog": {
+      "description": "Editar y cargar el catálogo de tablas."
     }
   },
   "instance": {
@@ -1236,9 +1233,13 @@
     },
     "advanced-search": {
       "scope": {
-        "address": {
-          "title": "DIRECCIÓN",
-          "description": "Filtrar por dirección"
+        "host": {
+          "title": "Anfitrión",
+          "description": "Filtrar por host de instancia. Introduce el valor y pulsa Intro."
+        },
+        "port": {
+          "title": "Puerto",
+          "description": "Filtrar por puerto de instancia. Ingrese el valor y presione Enter."
         }
       }
     },
@@ -1667,7 +1668,7 @@
     "snowflake-keypair-tip": "Autenticación de par de claves",
     "extra-params": {
       "self": "Parámetros adicionales",
-      "description": "Parámetros adicionales para la cadena de conexión de la base de datos. \nPara PostgreSQL, puede usar parámetros como Target_Session_Attrs = Read-Write para garantizar las conexiones a instancias de lectura-escritura."
+      "description": "Parámetros adicionales para la cadena de conexión de la base de datos"
     },
     "ssl": {
       "ca-cert": "Certificado de CA",
@@ -1721,16 +1722,18 @@
     "download-as-file": "Descargar como {file}",
     "only-select-allowed": "Solo se permiten declaraciones {select} para ejecutar.",
     "enable-ddl-for-environment": "Puede habilitar la declaración DDL/DML para el entorno {environment}.",
-    "want-to-action": "Si desea {want}, haga clic en el botón {action} {reaction}.",
     "and-submit-an-issue": "y enviar un problema",
     "to-enable-admin-mode": "para habilitar el modo administrador",
     "notify-empty-statement": "Ingrese sus declaraciones SQL en el editor",
-    "goto-edit-schema-hint": "Seleccione una conexión de base de datos desde la parte superior del editor",
     "can-not-execute-query": "No se puede ejecutar la consulta al cargar datos.",
     "rows": "fila | filas",
     "vertical-display": "Pantalla vertical",
     "no-history-found": "No se encontró historial",
     "search-history": "Historial de búsqueda",
+    "binary-format": "Formato binario",
+    "hex-format": "Formato hexadecimal",
+    "boolean-format": "Formato booleano",
+    "text-format": "Formato de texto",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "¿Cerrar la hoja no guardada?",
@@ -1792,8 +1795,6 @@
     },
     "executing-query": "Ejecutando consulta",
     "request-query": "Solicitar consulta",
-    "previous-row": "Fila anterior",
-    "next-row": "siguiente fila",
     "copy-success": "Copiado al portapapeles",
     "connect-in-new-tab": "Conéctate en una nueva pestaña",
     "copy-name": "Copiar nombre",
@@ -1843,7 +1844,11 @@
       "contact-the-admin-to-grant-access": "Póngase en contacto con el administrador para otorgar acceso."
     },
     "upload-file": "Subir archivo",
-    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}"
+    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}",
+    "format-default": "Por defecto",
+    "column-display-format": "Formato de visualización de columna",
+    "next-row": "siguiente fila",
+    "previous-row": "Fila anterior"
   },
   "schema-editor": {
     "self": "Editor de esquema",
@@ -2133,7 +2138,10 @@
     "idp": "Proveedor de Identidad",
     "database-group": "grupo de bases de datos",
     "changelist": "Lista de cambios",
-    "review-config": "Revisar configuración"
+    "review-config": "Revisar configuración",
+    "delete-warning": "Se eliminará el elemento \"{name}\". Esta acción no se puede deshacer.",
+    "delete-warning-with-resources": "El \"{name}\" lo utilizan los siguientes recursos:",
+    "delete-warning-retry": "Elimínelo de estos recursos y vuelva a intentarlo."
   },
   "resource-id": {
     "self": "ID de {resource}",
@@ -2390,10 +2398,7 @@
       "add": "Agregar rol",
       "edit": "Editar rol",
       "title-placeholder": "Ingrese el título del rol",
-      "description-placeholder": "Ingrese la descripción del rol",
-      "delete-warning": "Se eliminará el rol \"{name}\". Esta acción no se puede deshacer.",
-      "delete-warning-with-resources": "El rol \"{name}\" está asignado a los siguientes usuarios:",
-      "delete-warning-retry": "Elimine la función de estos usuarios y vuelva a intentarlo."
+      "description-placeholder": "Ingrese la descripción del rol"
     },
     "default-workspace-role": "Los usuarios obtendrán el rol de \"Miembro del espacio de trabajo\" de forma predeterminada.",
     "title": "Título",
@@ -2452,13 +2457,13 @@
   },
   "database-group": {
     "create": "Crear grupo de bases de datos",
-    "edit": "Editar grupo de bases de datos",
     "matched-database": "Base de datos coincidente",
     "unmatched-database": "Base de datos no coincidente",
     "condition": {
       "self": "Condición"
     },
-    "select": "Seleccionar grupo de bases de datos"
+    "select": "Seleccionar grupo de bases de datos",
+    "no-matched-databases": "No hay bases de datos coincidentes"
   },
   "export-center": {
     "self": "centro de exportacion",
