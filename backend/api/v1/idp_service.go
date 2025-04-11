@@ -11,10 +11,10 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/plugin/idp/ldap"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oauth2"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oidc"
@@ -162,15 +162,16 @@ func (s *IdentityProviderService) UpdateIdentityProvider(ctx context.Context, re
 			return nil, status.Error(codes.InvalidArgument, err.Error())
 		}
 		// Don't update client secret if it's empty string.
-		if identityProviderMessage.Type == storepb.IdentityProviderType_OAUTH2 {
+		switch identityProviderMessage.Type {
+		case storepb.IdentityProviderType_OAUTH2:
 			if request.IdentityProvider.Config.GetOauth2Config().ClientSecret == "" {
 				patch.Config.GetOauth2Config().ClientSecret = identityProviderMessage.Config.GetOauth2Config().ClientSecret
 			}
-		} else if identityProviderMessage.Type == storepb.IdentityProviderType_OIDC {
+		case storepb.IdentityProviderType_OIDC:
 			if request.IdentityProvider.Config.GetOidcConfig().ClientSecret == "" {
 				patch.Config.GetOidcConfig().ClientSecret = identityProviderMessage.Config.GetOidcConfig().ClientSecret
 			}
-		} else if identityProviderMessage.Type == storepb.IdentityProviderType_LDAP {
+		case storepb.IdentityProviderType_LDAP:
 			if request.IdentityProvider.Config.GetLdapConfig().BindPassword == "" {
 				patch.Config.GetLdapConfig().BindPassword = identityProviderMessage.Config.GetLdapConfig().BindPassword
 			}
@@ -237,16 +238,16 @@ func (s *IdentityProviderService) UndeleteIdentityProvider(ctx context.Context, 
 }
 
 func (s *IdentityProviderService) checkFeatureAvailable(ssoType v1pb.IdentityProviderType) error {
-	if err := s.licenseService.IsFeatureEnabled(api.FeatureSSO); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(base.FeatureSSO); err != nil {
 		return status.Error(codes.PermissionDenied, err.Error())
 	}
 	plan := s.licenseService.GetEffectivePlan()
 	switch plan {
-	case api.FREE:
+	case base.FREE:
 		return status.Error(codes.PermissionDenied, "feature is not available for free plan")
-	case api.ENTERPRISE:
+	case base.ENTERPRISE:
 		return nil
-	case api.TEAM:
+	case base.TEAM:
 		if ssoType != v1pb.IdentityProviderType_OAUTH2 {
 			return status.Error(codes.PermissionDenied, "only oauth type is available")
 		}
@@ -269,7 +270,8 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 		return nil, status.Errorf(codes.FailedPrecondition, setupExternalURLError)
 	}
 
-	if identityProvider.Type == v1pb.IdentityProviderType_OAUTH2 {
+	switch identityProvider.Type {
+	case v1pb.IdentityProviderType_OAUTH2:
 		// Find client secret for those existed identity providers.
 		if identityProvider.Config.GetOauth2Config().ClientSecret == "" {
 			storedIdentityProvider, err := s.getIdentityProviderMessage(ctx, identityProvider.Name)
@@ -299,7 +301,7 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 		if _, err := oauth2IdentityProvider.UserInfo(token); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "failed to get user info, error: %s", err.Error())
 		}
-	} else if identityProvider.Type == v1pb.IdentityProviderType_OIDC {
+	case v1pb.IdentityProviderType_OIDC:
 		// Find client secret for those existed identity providers.
 		if identityProvider.Config.GetOidcConfig().ClientSecret == "" {
 			storedIdentityProvider, err := s.getIdentityProviderMessage(ctx, identityProvider.Name)
@@ -315,17 +317,8 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 		if oauth2Context == nil {
 			return nil, status.Errorf(codes.InvalidArgument, "missing OAuth2 context")
 		}
-		identityProviderConfig := convertIdentityProviderConfigToStore(identityProvider.Config).GetOidcConfig()
-		oidcIdentityProvider, err := oidc.NewIdentityProvider(
-			ctx,
-			oidc.IdentityProviderConfig{
-				Issuer:        identityProviderConfig.Issuer,
-				ClientID:      identityProviderConfig.ClientId,
-				ClientSecret:  identityProviderConfig.ClientSecret,
-				FieldMapping:  identityProviderConfig.FieldMapping,
-				SkipTLSVerify: identityProviderConfig.SkipTlsVerify,
-				AuthStyle:     identityProviderConfig.GetAuthStyle(),
-			})
+		identityProviderConfig := convertIdentityProviderConfigToStore(identityProvider.Config)
+		oidcIdentityProvider, err := oidc.NewIdentityProvider(ctx, identityProviderConfig.GetOidcConfig())
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create new OIDC identity provider: %v", err)
 		}
@@ -338,7 +331,7 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 		if _, err := oidcIdentityProvider.UserInfo(ctx, token, ""); err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "failed to get user info, error: %s", err.Error())
 		}
-	} else if identityProvider.Type == v1pb.IdentityProviderType_LDAP {
+	case v1pb.IdentityProviderType_LDAP:
 		// Retrieve bind password from stored identity provider if not provided.
 		if identityProvider.Config.GetLdapConfig().BindPassword == "" {
 			storedIdentityProvider, err := s.getIdentityProviderMessage(ctx, identityProvider.Name)
@@ -373,7 +366,7 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 			return nil, status.Errorf(codes.InvalidArgument, "failed to test connection, error: %s", err.Error())
 		}
 		_ = conn.Close()
-	} else {
+	default:
 		return nil, status.Errorf(codes.InvalidArgument, "identity provider type %s not supported", identityProvider.Type.String())
 	}
 	return &v1pb.TestIdentityProviderResponse{}, nil
@@ -419,8 +412,8 @@ func convertIdentityProviderConfigFromStore(identityProviderConfig *storepb.Iden
 		fieldMapping := v1pb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		return &v1pb.IdentityProviderConfig{
 			Config: &v1pb.IdentityProviderConfig_Oauth2Config{
@@ -441,8 +434,8 @@ func convertIdentityProviderConfigFromStore(identityProviderConfig *storepb.Iden
 		fieldMapping := v1pb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		oidcConfig := &v1pb.OIDCIdentityProviderConfig{
 			Issuer:        v.Issuer,
@@ -451,7 +444,7 @@ func convertIdentityProviderConfigFromStore(identityProviderConfig *storepb.Iden
 			FieldMapping:  &fieldMapping,
 			SkipTlsVerify: v.SkipTlsVerify,
 			AuthStyle:     v1pb.OAuth2AuthStyle(v.AuthStyle),
-			Scopes:        oidc.DefaultScopes,
+			Scopes:        v.Scopes,
 			AuthEndpoint:  "", // Leave it empty as it's not stored in the database.
 		}
 
@@ -474,8 +467,8 @@ func convertIdentityProviderConfigFromStore(identityProviderConfig *storepb.Iden
 		fieldMapping := v1pb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		return &v1pb.IdentityProviderConfig{
 			Config: &v1pb.IdentityProviderConfig_LdapConfig{
@@ -501,8 +494,8 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 		fieldMapping := storepb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		return &storepb.IdentityProviderConfig{
 			Config: &storepb.IdentityProviderConfig_Oauth2Config{
@@ -523,8 +516,8 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 		fieldMapping := storepb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		return &storepb.IdentityProviderConfig{
 			Config: &storepb.IdentityProviderConfig_OidcConfig{
@@ -535,6 +528,7 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 					FieldMapping:  &fieldMapping,
 					SkipTlsVerify: v.SkipTlsVerify,
 					AuthStyle:     storepb.OAuth2AuthStyle(v.AuthStyle),
+					Scopes:        v.Scopes,
 				},
 			},
 		}
@@ -542,8 +536,8 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 		fieldMapping := storepb.FieldMapping{
 			Identifier:  v.FieldMapping.Identifier,
 			DisplayName: v.FieldMapping.DisplayName,
-			Email:       v.FieldMapping.Email,
 			Phone:       v.FieldMapping.Phone,
+			Groups:      v.FieldMapping.Groups,
 		}
 		return &storepb.IdentityProviderConfig{
 			Config: &storepb.IdentityProviderConfig_LdapConfig{
@@ -566,19 +560,20 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 
 // validIdentityProviderConfig validates the identity provider's config is a valid JSON.
 func validIdentityProviderConfig(identityProviderType v1pb.IdentityProviderType, identityProviderConfig *v1pb.IdentityProviderConfig) error {
-	if identityProviderType == v1pb.IdentityProviderType_OAUTH2 {
+	switch identityProviderType {
+	case v1pb.IdentityProviderType_OAUTH2:
 		if identityProviderConfig.GetOauth2Config() == nil {
 			return errors.Errorf("unexpected provider config value")
 		}
-	} else if identityProviderType == v1pb.IdentityProviderType_OIDC {
+	case v1pb.IdentityProviderType_OIDC:
 		if identityProviderConfig.GetOidcConfig() == nil {
 			return errors.Errorf("unexpected provider config value")
 		}
-	} else if identityProviderType == v1pb.IdentityProviderType_LDAP {
+	case v1pb.IdentityProviderType_LDAP:
 		if identityProviderConfig.GetLdapConfig() == nil {
 			return errors.Errorf("unexpected provider config value")
 		}
-	} else {
+	default:
 		return errors.Errorf("unexpected provider type %s", identityProviderType)
 	}
 	return nil

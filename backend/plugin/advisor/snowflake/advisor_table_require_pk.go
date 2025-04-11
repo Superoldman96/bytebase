@@ -83,13 +83,11 @@ func (l *tableRequirePkChecker) generateAdvice() ([]*storepb.Advice, error) {
 	for tableName, has := range l.tableHasPrimaryKey {
 		if !has {
 			l.adviceList = append(l.adviceList, &storepb.Advice{
-				Status:  l.level,
-				Code:    advisor.TableNoPK.Int32(),
-				Title:   l.title,
-				Content: fmt.Sprintf("Table %s requires PRIMARY KEY.", l.tableOriginalName[tableName]),
-				StartPosition: &storepb.Position{
-					Line: int32(l.tableLine[tableName]),
-				},
+				Status:        l.level,
+				Code:          advisor.TableNoPK.Int32(),
+				Title:         l.title,
+				Content:       fmt.Sprintf("Table %s requires PRIMARY KEY.", l.tableOriginalName[tableName]),
+				StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 			})
 		}
 	}
@@ -138,9 +136,10 @@ func (l *tableRequirePkChecker) EnterOut_of_line_constraint(ctx *parser.Out_of_l
 	if ctx.PRIMARY() == nil || l.currentNormalizedTableName == "" || l.currentConstraintAction == currentConstraintActionNone {
 		return
 	}
-	if l.currentConstraintAction == currentConstraintActionAdd {
+	switch l.currentConstraintAction {
+	case currentConstraintActionAdd:
 		l.tableHasPrimaryKey[l.currentNormalizedTableName] = true
-	} else if l.currentConstraintAction == currentConstraintActionDrop {
+	case currentConstraintActionDrop:
 		l.tableHasPrimaryKey[l.currentNormalizedTableName] = false
 		l.tableLine[l.currentNormalizedTableName] = ctx.GetStart().GetLine()
 	}

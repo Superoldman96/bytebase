@@ -25,7 +25,7 @@
           required
           :disabled="!allowEditInstance"
           :instance-name="state.instanceName"
-          :filter="instanceV1HasCreateDatabase"
+          :allowed-engine-list="supportedEngines"
           @update:instance-name="selectInstance"
         />
       </div>
@@ -173,7 +173,6 @@ import {
   experimentalCreateIssueByPlan,
   useCurrentUserV1,
   useInstanceResourceByName,
-  useInstanceV1List,
   useProjectByName,
 } from "@/store";
 import {
@@ -191,7 +190,7 @@ import type { Plan_CreateDatabaseConfig } from "@/types/proto/v1/plan_service";
 import { Plan, Plan_Spec } from "@/types/proto/v1/plan_service";
 import {
   instanceV1HasCollationAndCharacterSet,
-  instanceV1HasCreateDatabase,
+  enginesSupportCreateDatabase,
 } from "@/utils";
 import { FeatureModal } from "../FeatureGuard";
 
@@ -224,8 +223,6 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const router = useRouter();
 const currentUserV1 = useCurrentUserV1();
-// Prepare instance list.
-useInstanceV1List();
 
 const state = reactive<LocalState>({
   databaseName: "",
@@ -246,6 +243,8 @@ const { project } = useProjectByName(
 const isReservedName = computed(() => {
   return state.databaseName.toLowerCase() == "bytebase";
 });
+
+const supportedEngines = computed(() => enginesSupportCreateDatabase());
 
 const allowCreate = computed(() => {
   return (
@@ -268,8 +267,8 @@ const allowEditInstance = computed(() => {
   return !props.instanceName;
 });
 
-const selectedInstance = computed(() =>
-  useInstanceResourceByName(state.instanceName ?? "")
+const selectedInstance = computed(
+  () => useInstanceResourceByName(state.instanceName ?? "").instance.value
 );
 
 const showCollationAndCharacterSet = computed((): boolean => {

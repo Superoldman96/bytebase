@@ -3,7 +3,7 @@
     :class="
       twMerge(
         'task',
-        'group px-2 py-1 pt-2 pr-1 cursor-pointer border rounded lg:flex-1 flex justify-between items-stretch overflow-hidden gap-x-1',
+        'group px-1.5 py-1 cursor-pointer border rounded lg:flex-1 flex justify-between items-stretch overflow-hidden gap-x-1',
         taskClass
       )
     "
@@ -14,7 +14,6 @@
       <div class="flex items-start">
         <div class="flex items-center flex-1 gap-x-1">
           <TaskStatusIcon
-            :create="isCreating"
             :status="task.status"
             :task="task"
             class="transform scale-75"

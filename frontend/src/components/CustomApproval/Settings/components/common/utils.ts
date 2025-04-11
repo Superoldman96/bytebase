@@ -19,6 +19,7 @@ import {
   extractEnvironmentResourceName,
   extractProjectResourceName,
   supportedEngineV1List,
+  getDefaultPagination,
 } from "@/utils";
 
 export const sourceText = (source: Risk_Source) => {
@@ -267,10 +268,15 @@ export const getOptionConfigMap = (source: Risk_Source) => {
         const projectStore = useProjectV1Store();
         map.set(factor, {
           remote: true,
-          options: getProjectIdOptions(projectStore.getProjectList()),
+          options: [],
           search: async (keyword: string) => {
             return projectStore
-              .fetchProjectList({ query: keyword })
+              .fetchProjectList({
+                pageSize: getDefaultPagination(),
+                filter: {
+                  query: keyword,
+                },
+              })
               .then((resp) => getProjectIdOptions(resp.projects));
           },
         });

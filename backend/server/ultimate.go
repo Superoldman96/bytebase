@@ -5,6 +5,7 @@ package server
 import (
 	// Drivers.
 	_ "github.com/bytebase/bytebase/backend/plugin/db/bigquery"
+	_ "github.com/bytebase/bytebase/backend/plugin/db/cassandra"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/clickhouse"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/cockroachdb"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/cosmosdb"
@@ -25,10 +26,12 @@ import (
 	_ "github.com/bytebase/bytebase/backend/plugin/db/sqlite"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/starrocks"
 	_ "github.com/bytebase/bytebase/backend/plugin/db/tidb"
+	_ "github.com/bytebase/bytebase/backend/plugin/db/trino"
 
 	// Parsers.
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/bigquery"
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/cosmosdb"
+	_ "github.com/bytebase/bytebase/backend/plugin/parser/elasticsearch"
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/partiql"
 	_ "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
@@ -48,6 +51,7 @@ import (
 
 	// Schema designer.
 	_ "github.com/bytebase/bytebase/backend/plugin/schema/clickhouse"
+	_ "github.com/bytebase/bytebase/backend/plugin/schema/mssql"
 	_ "github.com/bytebase/bytebase/backend/plugin/schema/mysql"
 	_ "github.com/bytebase/bytebase/backend/plugin/schema/oracle"
 	_ "github.com/bytebase/bytebase/backend/plugin/schema/pg"

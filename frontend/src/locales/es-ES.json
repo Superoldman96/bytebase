@@ -98,7 +98,6 @@
     "detail": "Detalle",
     "type": "Tipo",
     "language": "Idioma",
-    "change": "Cambiar",
     "sensitive-placeholder": "Sensible - solo escritura",
     "enabled": "habilitado",
     "default": "predeterminado",
@@ -225,12 +224,14 @@
     "text-wrap": "Ajuste de texto",
     "catalog": "Catálogo",
     "summary": "Resumen",
-    "errors": "Errores"
+    "errors": "Errores",
+    "removed": "Remoto"
   },
   "error-page": {
     "go-back-home": "Volver al inicio"
   },
   "task": {
+    "current-task": "Tarea actual",
     "checking": "Comprobando...",
     "check-result": {
       "title-general": "Comprobar resultado"
@@ -291,7 +292,7 @@
     "status": {
       "enqueued": "Esperando a ser ejecutada.",
       "enqueued-with-rollout-time": "Esperando para ejecutar, {time} para ejecutar.",
-      "waiting-connection": "Esperando conexiones de instancia disponibles. \nEl recuento de conexiones de instancia ha alcanzado el límite.",
+      "waiting-connection": "Esperando conexiones de instancias disponibles. El recuento de conexión de instancia ha alcanzado el límite establecido en Bytebase.",
       "waiting-task": "Esperando a que termine otra tarea."
     }
   },
@@ -363,8 +364,6 @@
         "self": "Grupos",
         "add-group": "Añadir grupo",
         "update-group": "Grupo de actualización",
-        "delete-warning": "Se eliminará el grupo \"{name}\". Esta acción no se puede deshacer.",
-        "delete-warning-with-resources": "El grupo \"{name}\" lo utilizan los siguientes recursos:",
         "form": {
           "email": "Correo electrónico",
           "email-tips": "El correo electrónico debe ser único y no se puede cambiar después de su creación.",
@@ -380,12 +379,8 @@
         "workspace-domain-required": "Primero configure un dominio de espacio de trabajo."
       },
       "action": {
-        "deactivate": "Desactivar",
         "deactivate-confirm-title": "¿Estás seguro de que deseas desactivar?",
         "reactivate-confirm-title": "¿Estás seguro de que deseas reactivar?"
-      },
-      "tooltip": {
-        "not-allow-remove": "No se puede eliminar el último administrador"
       },
       "system-bot": "Bot del Sistema",
       "service-account": "Cuenta de Servicio",
@@ -407,7 +402,6 @@
         "reset-token": "Restablecer token",
         "reset-token-warning": "Debe actualizar la configuración de aprovisionamiento de aplicaciones de Entra."
       },
-      "update-user": "Actualizar usuario",
       "search-member": "Buscar miembro",
       "revoked": "Revocado",
       "view-by-members": "Ver por miembros",
@@ -457,6 +451,7 @@
         "identifier-tips": "Debe ser una cadena única. Y si no está en formato de correo electrónico, se empalmará con el dominio.",
         "display-name": "Nombre para mostrar de usuario de Bytebase",
         "phone": "Número de teléfono de usuario de Bytebase",
+        "groups": "Grupos de usuarios de Bytebase",
         "auth-style": {
           "self": "Estilo de autenticación",
           "in-params": {
@@ -784,6 +779,7 @@
     "advanced-search": {
       "self": "Búsqueda Avanzada",
       "filter": "Filtrar",
+      "search": "Ingrese título o id para buscar",
       "scope": {
         "project": {
           "title": "Proyecto",
@@ -831,7 +827,7 @@
         },
         "database-label": {
           "title": "Etiqueta",
-          "description": "Ingrese la \"key\":\"value\" y luego presione Enter"
+          "description": "Ingrese la \"key:value\" y luego presione Enter"
         },
         "engine": {
           "title": "Motor",
@@ -1055,6 +1051,9 @@
     },
     "schema": {
       "default": "Por defecto"
+    },
+    "catalog": {
+      "description": "Editar y cargar el catálogo de tablas."
     }
   },
   "instance": {
@@ -1236,9 +1235,13 @@
     },
     "advanced-search": {
       "scope": {
-        "address": {
-          "title": "DIRECCIÓN",
-          "description": "Filtrar por dirección"
+        "host": {
+          "title": "Anfitrión",
+          "description": "Filtrar por host de instancia. Introduce el valor y pulsa Intro."
+        },
+        "port": {
+          "title": "Puerto",
+          "description": "Filtrar por puerto de instancia. Ingrese el valor y presione Enter."
         }
       }
     },
@@ -1249,8 +1252,7 @@
   },
   "environment": {
     "select": "Seleccionar entorno",
-    "archive": "Archivar este entorno",
-    "archive-info": "Los entornos archivados no se mostrarán.",
+    "delete": "Eliminar este entorno",
     "create": "Crear entorno",
     "restore": "Restaurar este entorno",
     "successfully-updated-environment": "entorno '{name}' actualizado exitosamente.",
@@ -1667,7 +1669,7 @@
     "snowflake-keypair-tip": "Autenticación de par de claves",
     "extra-params": {
       "self": "Parámetros adicionales",
-      "description": "Parámetros adicionales para la cadena de conexión de la base de datos. \nPara PostgreSQL, puede usar parámetros como Target_Session_Attrs = Read-Write para garantizar las conexiones a instancias de lectura-escritura."
+      "description": "Parámetros adicionales para la cadena de conexión de la base de datos"
     },
     "ssl": {
       "ca-cert": "Certificado de CA",
@@ -1721,16 +1723,18 @@
     "download-as-file": "Descargar como {file}",
     "only-select-allowed": "Solo se permiten declaraciones {select} para ejecutar.",
     "enable-ddl-for-environment": "Puede habilitar la declaración DDL/DML para el entorno {environment}.",
-    "want-to-action": "Si desea {want}, haga clic en el botón {action} {reaction}.",
     "and-submit-an-issue": "y enviar un problema",
     "to-enable-admin-mode": "para habilitar el modo administrador",
     "notify-empty-statement": "Ingrese sus declaraciones SQL en el editor",
-    "goto-edit-schema-hint": "Seleccione una conexión de base de datos desde la parte superior del editor",
     "can-not-execute-query": "No se puede ejecutar la consulta al cargar datos.",
     "rows": "fila | filas",
     "vertical-display": "Pantalla vertical",
     "no-history-found": "No se encontró historial",
     "search-history": "Historial de búsqueda",
+    "binary-format": "Formato binario",
+    "hex-format": "Formato hexadecimal",
+    "boolean-format": "Formato booleano",
+    "text-format": "Formato de texto",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "¿Cerrar la hoja no guardada?",
@@ -1759,6 +1763,7 @@
     "rows-upper-limit": "se ha alcanzado el límite de resultados de la consulta",
     "close-sheet": "Cerrar hoja",
     "connect": "Conectar",
+    "connected": "Conectado",
     "connect-in-admin-mode": "Conectar en modo administrador",
     "admin-mode": {
       "self": "Modo administrador",
@@ -1792,8 +1797,6 @@
     },
     "executing-query": "Ejecutando consulta",
     "request-query": "Solicitar consulta",
-    "previous-row": "Fila anterior",
-    "next-row": "siguiente fila",
     "copy-success": "Copiado al portapapeles",
     "connect-in-new-tab": "Conéctate en una nueva pestaña",
     "copy-name": "Copiar nombre",
@@ -1843,7 +1846,11 @@
       "contact-the-admin-to-grant-access": "Póngase en contacto con el administrador para otorgar acceso."
     },
     "upload-file": "Subir archivo",
-    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}"
+    "copy-selected-results": "Copiar datos seleccionados por {action} o {button}",
+    "format-default": "Por defecto",
+    "column-display-format": "Formato de visualización de columna",
+    "next-row": "siguiente fila",
+    "previous-row": "Fila anterior"
   },
   "schema-editor": {
     "self": "Editor de esquema",
@@ -2133,7 +2140,10 @@
     "idp": "Proveedor de Identidad",
     "database-group": "grupo de bases de datos",
     "changelist": "Lista de cambios",
-    "review-config": "Revisar configuración"
+    "review-config": "Revisar configuración",
+    "delete-warning": "Se eliminará el elemento \"{name}\". Esta acción no se puede deshacer.",
+    "delete-warning-with-resources": "El \"{name}\" lo utilizan los siguientes recursos:",
+    "delete-warning-retry": "Elimínelo de estos recursos y vuelva a intentarlo."
   },
   "resource-id": {
     "self": "ID de {resource}",
@@ -2390,10 +2400,7 @@
       "add": "Agregar rol",
       "edit": "Editar rol",
       "title-placeholder": "Ingrese el título del rol",
-      "description-placeholder": "Ingrese la descripción del rol",
-      "delete-warning": "Se eliminará el rol \"{name}\". Esta acción no se puede deshacer.",
-      "delete-warning-with-resources": "El rol \"{name}\" está asignado a los siguientes usuarios:",
-      "delete-warning-retry": "Elimine la función de estos usuarios y vuelva a intentarlo."
+      "description-placeholder": "Ingrese la descripción del rol"
     },
     "default-workspace-role": "Los usuarios obtendrán el rol de \"Miembro del espacio de trabajo\" de forma predeterminada.",
     "title": "Título",
@@ -2452,13 +2459,13 @@
   },
   "database-group": {
     "create": "Crear grupo de bases de datos",
-    "edit": "Editar grupo de bases de datos",
     "matched-database": "Base de datos coincidente",
     "unmatched-database": "Base de datos no coincidente",
     "condition": {
       "self": "Condición"
     },
-    "select": "Seleccionar grupo de bases de datos"
+    "select": "Seleccionar grupo de bases de datos",
+    "no-matched-databases": "No hay bases de datos coincidentes"
   },
   "export-center": {
     "self": "centro de exportacion",
@@ -2501,7 +2508,6 @@
     "name": "Nombre de la lista de cambios",
     "name-placeholder": "Mi lista de cambios",
     "error": {
-      "project-is-required": "Se requiere proyecto",
       "name-is-required": "El nombre de la lista de cambios es obligatorio",
       "invalid-resource-id": "ID de recurso no válido",
       "nothing-changed": "nada ha cambiado",

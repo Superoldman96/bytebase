@@ -269,14 +269,14 @@ export interface OIDCIdentityProviderConfig {
   issuer: string;
   clientId: string;
   clientSecret: string;
-  fieldMapping: FieldMapping | undefined;
-  skipTlsVerify: boolean;
-  authStyle: OAuth2AuthStyle;
   /**
    * The scopes that the OIDC provider supports.
    * Should be fetched from the well-known configuration file of the OIDC provider.
    */
   scopes: string[];
+  fieldMapping: FieldMapping | undefined;
+  skipTlsVerify: boolean;
+  authStyle: OAuth2AuthStyle;
   /**
    * The authorization endpoint of the OIDC provider.
    * Should be fetched from the well-known configuration file of the OIDC provider.
@@ -312,8 +312,7 @@ export interface LDAPIdentityProviderConfig {
   userFilter: string;
   /**
    * SecurityProtocol is the security protocol to be used for establishing
-   * connections with the LDAP server. It should be either StartTLS or LDAPS, and
-   * cannot be empty.
+   * connections with the LDAP server. It must be StartTLS, LDAPS or None.
    */
   securityProtocol: string;
   /**
@@ -327,21 +326,19 @@ export interface LDAPIdentityProviderConfig {
  * FieldMapping saves the field names from user info API of identity provider.
  * As we save all raw json string of user info response data into `principal.idp_user_info`,
  * we can extract the relevant data based with `FieldMapping`.
- *
- * e.g. For GitHub authenticated user API, it will return `login`, `name` and `email` in response.
- * Then the identifier of FieldMapping will be `login`, display_name will be `name`,
- * and email will be `email`.
- * reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get-the-authenticated-user
  */
 export interface FieldMapping {
   /** Identifier is the field name of the unique identifier in 3rd-party idp user info. Required. */
   identifier: string;
-  /** DisplayName is the field name of display name in 3rd-party idp user info. */
+  /** DisplayName is the field name of display name in 3rd-party idp user info. Optional. */
   displayName: string;
-  /** Email is the field name of primary email in 3rd-party idp user info. */
-  email: string;
-  /** Phone is the field name of primary phone in 3rd-party idp user info. */
+  /** Phone is the field name of primary phone in 3rd-party idp user info. Optional. */
   phone: string;
+  /**
+   * Groups is the field name of groups in 3rd-party idp user info. Optional.
+   * Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/
+   */
+  groups: string;
 }
 
 function createBaseGetIdentityProviderRequest(): GetIdentityProviderRequest {
@@ -1499,10 +1496,10 @@ function createBaseOIDCIdentityProviderConfig(): OIDCIdentityProviderConfig {
     issuer: "",
     clientId: "",
     clientSecret: "",
+    scopes: [],
     fieldMapping: undefined,
     skipTlsVerify: false,
     authStyle: OAuth2AuthStyle.OAUTH2_AUTH_STYLE_UNSPECIFIED,
-    scopes: [],
     authEndpoint: "",
   };
 }
@@ -1518,6 +1515,9 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
     if (message.clientSecret !== "") {
       writer.uint32(26).string(message.clientSecret);
     }
+    for (const v of message.scopes) {
+      writer.uint32(34).string(v!);
+    }
     if (message.fieldMapping !== undefined) {
       FieldMapping.encode(message.fieldMapping, writer.uint32(42).fork()).join();
     }
@@ -1526,9 +1526,6 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
     }
     if (message.authStyle !== OAuth2AuthStyle.OAUTH2_AUTH_STYLE_UNSPECIFIED) {
       writer.uint32(56).int32(oAuth2AuthStyleToNumber(message.authStyle));
-    }
-    for (const v of message.scopes) {
-      writer.uint32(34).string(v!);
     }
     if (message.authEndpoint !== "") {
       writer.uint32(66).string(message.authEndpoint);
@@ -1567,6 +1564,14 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
           message.clientSecret = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.scopes.push(reader.string());
+          continue;
+        }
         case 5: {
           if (tag !== 42) {
             break;
@@ -1591,14 +1596,6 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
           message.authStyle = oAuth2AuthStyleFromJSON(reader.int32());
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.scopes.push(reader.string());
-          continue;
-        }
         case 8: {
           if (tag !== 66) {
             break;
@@ -1621,12 +1618,12 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
       issuer: isSet(object.issuer) ? globalThis.String(object.issuer) : "",
       clientId: isSet(object.clientId) ? globalThis.String(object.clientId) : "",
       clientSecret: isSet(object.clientSecret) ? globalThis.String(object.clientSecret) : "",
+      scopes: globalThis.Array.isArray(object?.scopes) ? object.scopes.map((e: any) => globalThis.String(e)) : [],
       fieldMapping: isSet(object.fieldMapping) ? FieldMapping.fromJSON(object.fieldMapping) : undefined,
       skipTlsVerify: isSet(object.skipTlsVerify) ? globalThis.Boolean(object.skipTlsVerify) : false,
       authStyle: isSet(object.authStyle)
         ? oAuth2AuthStyleFromJSON(object.authStyle)
         : OAuth2AuthStyle.OAUTH2_AUTH_STYLE_UNSPECIFIED,
-      scopes: globalThis.Array.isArray(object?.scopes) ? object.scopes.map((e: any) => globalThis.String(e)) : [],
       authEndpoint: isSet(object.authEndpoint) ? globalThis.String(object.authEndpoint) : "",
     };
   },
@@ -1642,6 +1639,9 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
     if (message.clientSecret !== "") {
       obj.clientSecret = message.clientSecret;
     }
+    if (message.scopes?.length) {
+      obj.scopes = message.scopes;
+    }
     if (message.fieldMapping !== undefined) {
       obj.fieldMapping = FieldMapping.toJSON(message.fieldMapping);
     }
@@ -1650,9 +1650,6 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
     }
     if (message.authStyle !== OAuth2AuthStyle.OAUTH2_AUTH_STYLE_UNSPECIFIED) {
       obj.authStyle = oAuth2AuthStyleToJSON(message.authStyle);
-    }
-    if (message.scopes?.length) {
-      obj.scopes = message.scopes;
     }
     if (message.authEndpoint !== "") {
       obj.authEndpoint = message.authEndpoint;
@@ -1668,12 +1665,12 @@ export const OIDCIdentityProviderConfig: MessageFns<OIDCIdentityProviderConfig> 
     message.issuer = object.issuer ?? "";
     message.clientId = object.clientId ?? "";
     message.clientSecret = object.clientSecret ?? "";
+    message.scopes = object.scopes?.map((e) => e) || [];
     message.fieldMapping = (object.fieldMapping !== undefined && object.fieldMapping !== null)
       ? FieldMapping.fromPartial(object.fieldMapping)
       : undefined;
     message.skipTlsVerify = object.skipTlsVerify ?? false;
     message.authStyle = object.authStyle ?? OAuth2AuthStyle.OAUTH2_AUTH_STYLE_UNSPECIFIED;
-    message.scopes = object.scopes?.map((e) => e) || [];
     message.authEndpoint = object.authEndpoint ?? "";
     return message;
   },
@@ -1880,7 +1877,7 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
 };
 
 function createBaseFieldMapping(): FieldMapping {
-  return { identifier: "", displayName: "", email: "", phone: "" };
+  return { identifier: "", displayName: "", phone: "", groups: "" };
 }
 
 export const FieldMapping: MessageFns<FieldMapping> = {
@@ -1891,11 +1888,11 @@ export const FieldMapping: MessageFns<FieldMapping> = {
     if (message.displayName !== "") {
       writer.uint32(18).string(message.displayName);
     }
-    if (message.email !== "") {
-      writer.uint32(26).string(message.email);
-    }
     if (message.phone !== "") {
       writer.uint32(34).string(message.phone);
+    }
+    if (message.groups !== "") {
+      writer.uint32(42).string(message.groups);
     }
     return writer;
   },
@@ -1923,20 +1920,20 @@ export const FieldMapping: MessageFns<FieldMapping> = {
           message.displayName = reader.string();
           continue;
         }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.email = reader.string();
-          continue;
-        }
         case 4: {
           if (tag !== 34) {
             break;
           }
 
           message.phone = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.groups = reader.string();
           continue;
         }
       }
@@ -1952,8 +1949,8 @@ export const FieldMapping: MessageFns<FieldMapping> = {
     return {
       identifier: isSet(object.identifier) ? globalThis.String(object.identifier) : "",
       displayName: isSet(object.displayName) ? globalThis.String(object.displayName) : "",
-      email: isSet(object.email) ? globalThis.String(object.email) : "",
       phone: isSet(object.phone) ? globalThis.String(object.phone) : "",
+      groups: isSet(object.groups) ? globalThis.String(object.groups) : "",
     };
   },
 
@@ -1965,11 +1962,11 @@ export const FieldMapping: MessageFns<FieldMapping> = {
     if (message.displayName !== "") {
       obj.displayName = message.displayName;
     }
-    if (message.email !== "") {
-      obj.email = message.email;
-    }
     if (message.phone !== "") {
       obj.phone = message.phone;
+    }
+    if (message.groups !== "") {
+      obj.groups = message.groups;
     }
     return obj;
   },
@@ -1981,8 +1978,8 @@ export const FieldMapping: MessageFns<FieldMapping> = {
     const message = createBaseFieldMapping();
     message.identifier = object.identifier ?? "";
     message.displayName = object.displayName ?? "";
-    message.email = object.email ?? "";
     message.phone = object.phone ?? "";
+    message.groups = object.groups ?? "";
     return message;
   },
 };

@@ -2,18 +2,18 @@
   <div class="sql-editor-tree gap-y-1 h-full flex flex-col relative">
     <div class="flex flex-row gap-x-0.5 px-1 items-center">
       <SearchBox
-        :loading="editrStore.loading"
+        :loading="editorStore.loading"
         v-model:search-pattern="searchPattern"
         class="flex-1"
       />
-      <GroupingBar :disabled="editrStore.loading" class="shrink-0" />
+      <GroupingBar :disabled="editorStore.loading" class="shrink-0" />
     </div>
     <div
       v-if="hasMissingQueryDatabases"
       class="flex items-center space-x-2 px-2 py-2"
     >
       <NCheckbox
-        :disabled="editrStore.loading"
+        :disabled="editorStore.loading"
         v-model:checked="showMissingQueryDatabases"
       >
         <span class="textinfolabel text-sm">
@@ -23,24 +23,45 @@
     </div>
     <div
       ref="treeContainerElRef"
-      class="sql-editor-tree--tree flex-1 px-1 pb-1 text-sm overflow-hidden select-none"
+      class="relative sql-editor-tree--tree flex-1 px-1 pb-1 text-sm select-none"
       :data-height="treeContainerHeight"
     >
-      <NTree
+      <div
         v-if="treeStore.state === 'READY'"
-        ref="treeRef"
-        v-model:expanded-keys="expandedKeys"
-        :block-line="true"
-        :data="treeStore.tree"
-        :show-irrelevant-nodes="false"
-        :selected-keys="selectedKeys"
-        :pattern="mounted ? searchPattern : ''"
-        :expand-on-click="true"
-        :node-props="nodeProps"
-        :virtual-scroll="true"
-        :theme-overrides="{ nodeHeight: '21px' }"
-        :render-label="renderLabel"
-      />
+        class="flex flex-col space-y-2 pb-4"
+      >
+        <NTree
+          ref="treeRef"
+          :block-line="true"
+          :data="treeStore.tree"
+          :show-irrelevant-nodes="false"
+          :selected-keys="selectedKeys"
+          :pattern="mounted ? searchPattern : ''"
+          :default-expand-all="true"
+          :expand-on-click="true"
+          :node-props="nodeProps"
+          :theme-overrides="{ nodeHeight: '21px' }"
+          :render-label="renderLabel"
+        />
+        <div
+          v-if="editorStore.canLoadMore"
+          class="w-full flex items-center justify-center"
+        >
+          <NButton
+            quaternary
+            :size="'small'"
+            :loading="editorStore.loading"
+            @click="
+              () =>
+                editorStore
+                  .fetchDatabases(searchPattern)
+                  .then(() => treeStore.buildTree())
+            "
+          >
+            {{ $t("common.load-more") }}
+          </NButton>
+        </div>
+      </div>
     </div>
 
     <NDropdown
@@ -66,36 +87,30 @@
 </template>
 
 <script lang="ts" setup>
-import { computedAsync, useElementSize, useMounted } from "@vueuse/core";
+import { useElementSize, useMounted } from "@vueuse/core";
 import { head } from "lodash-es";
-import { NTree, NDropdown, NCheckbox, type TreeOption } from "naive-ui";
+import {
+  NButton,
+  NTree,
+  NDropdown,
+  NCheckbox,
+  type TreeOption,
+} from "naive-ui";
 import { storeToRefs } from "pinia";
-import { ref, nextTick, watch, h, onMounted } from "vue";
+import { ref, nextTick, watch, h, computed } from "vue";
 import MaskSpinner from "@/components/misc/MaskSpinner.vue";
 import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import {
   useDatabaseV1Store,
-  useIsLoggedIn,
   useSQLEditorTabStore,
   resolveOpeningDatabaseListFromSQLEditorTabList,
   useSQLEditorTreeStore,
   useSQLEditorStore,
   idForSQLEditorTreeNodeTarget,
-  useConnectionOfCurrentSQLEditorTab,
   useInstanceResourceByName,
 } from "@/store";
-import type {
-  ComposedDatabase,
-  SQLEditorTreeNode,
-  SQLEditorTreeNodeTarget,
-  SQLEditorTreeNodeType,
-} from "@/types";
-import {
-  DEFAULT_SQL_EDITOR_TAB_MODE,
-  ExpandableTreeNodeTypes,
-  isValidDatabaseName,
-  isValidInstanceName,
-} from "@/types";
+import type { ComposedDatabase, SQLEditorTreeNode } from "@/types";
+import { DEFAULT_SQL_EDITOR_TAB_MODE } from "@/types";
 import { findAncestor, isDescendantOf, isDatabaseV1Queryable } from "@/utils";
 import { useSQLEditorContext } from "../../context";
 import {
@@ -110,9 +125,8 @@ import { setConnection, useDropdown } from "./actions";
 
 const treeStore = useSQLEditorTreeStore();
 const tabStore = useSQLEditorTabStore();
-const editrStore = useSQLEditorStore();
+const editorStore = useSQLEditorStore();
 const databaseStore = useDatabaseV1Store();
-const isLoggedIn = useIsLoggedIn();
 
 const editorContext = useSQLEditorContext();
 const { events: editorEvents, showConnectionPanel } = editorContext;
@@ -142,14 +156,10 @@ const { height: treeContainerHeight } = useElementSize(
 );
 const treeRef = ref<InstanceType<typeof NTree>>();
 const searchPattern = ref("");
-
-watch(
-  () => searchPattern.value,
-  (search) => editrStore.prepareDatabases(search)
-);
+const selectedKeys = ref<string[]>([]);
 
 // Highlight the current tab's connection node.
-const selectedKeys = computedAsync(async () => {
+const getSelectedKeys = async () => {
   const connection = tabStore.currentTab?.connection;
   if (!connection) {
     return [];
@@ -163,64 +173,19 @@ const selectedKeys = computedAsync(async () => {
     if (!node) return [];
     return [node.key];
   } else if (connection.instance) {
-    const instance = useInstanceResourceByName(connection.instance);
-    const nodes = treeStore.nodesByTarget("instance", instance);
+    const { instance } = useInstanceResourceByName(connection.instance);
+    const nodes = treeStore.nodesByTarget("instance", instance.value);
     return nodes.map((node) => node.key);
   }
   return [];
-}, []);
-const { expandedKeys, hasMissingQueryDatabases, showMissingQueryDatabases } =
+};
+
+const connectedDatabases = computed(() =>
+  resolveOpeningDatabaseListFromSQLEditorTabList()
+);
+
+const { hasMissingQueryDatabases, showMissingQueryDatabases } =
   storeToRefs(treeStore);
-const upsertExpandedKeys = (key: string) => {
-  if (expandedKeys.value.includes(key)) {
-    return;
-  }
-  expandedKeys.value.push(key);
-};
-const expandNode = (
-  node: SQLEditorTreeNode | undefined,
-  keys?: Set<string>
-) => {
-  if (!node) {
-    return;
-  }
-  if (ExpandableTreeNodeTypes.includes(node.meta.type)) {
-    if (keys) {
-      keys.add(node.key);
-    } else {
-      upsertExpandedKeys(node.key);
-    }
-  }
-};
-const expandNodeRecursively = (
-  node: SQLEditorTreeNode | undefined,
-  keys?: Set<string>
-) => {
-  if (!node) {
-    return;
-  }
-  expandNode(node, keys);
-
-  if (node.parent) {
-    expandNodeRecursively(node.parent, keys);
-  }
-};
-const expandNodesByType = <T extends SQLEditorTreeNodeType>(
-  type: T,
-  target: SQLEditorTreeNodeTarget<T>
-) => {
-  const nodes = treeStore.nodesByTarget(type, target);
-
-  nodes.forEach((node) => {
-    expandNodeRecursively(node);
-  });
-
-  return nodes;
-};
-
-const canQueryDatabase = (database: ComposedDatabase): boolean => {
-  return isDatabaseV1Queryable(database);
-};
 
 // dynamic render the highlight keywords
 const renderLabel = ({ option }: { option: TreeOption }) => {
@@ -229,6 +194,7 @@ const renderLabel = ({ option }: { option: TreeOption }) => {
     node,
     factors: treeStore.filteredFactorList,
     keyword: searchPattern.value ?? "",
+    connectedDatabases: connectedDatabases.value,
   });
 };
 
@@ -243,7 +209,7 @@ const nodeProps = ({ option }: { option: TreeOption }) => {
         // Check if clicked on the content part.
         // And ignore the fold/unfold arrow.
         if (type === "database") {
-          if (canQueryDatabase(node.meta.target as ComposedDatabase)) {
+          if (isDatabaseV1Queryable(node.meta.target as ComposedDatabase)) {
             setConnection(node, {
               extra: {
                 worksheet: tabStore.currentTab?.worksheet ?? "",
@@ -312,31 +278,6 @@ const nodeProps = ({ option }: { option: TreeOption }) => {
   };
 };
 
-// Open corresponding tree node when the connection changed.
-const { instance, database } = useConnectionOfCurrentSQLEditorTab();
-watch(
-  [isLoggedIn, instance, database, () => treeStore.state],
-  ([isLoggedIn, instance, database, treeState]) => {
-    if (!isLoggedIn) {
-      // Don't go further and cleanup the state if we signed out.
-      // treeStore.expandedKeys = [];
-      expandedKeys.value = [];
-      return;
-    }
-
-    if (treeState !== "READY") {
-      return;
-    }
-    if (isValidInstanceName(instance.name)) {
-      expandNodesByType("instance", instance);
-    }
-    if (isValidDatabaseName(database.name)) {
-      expandNodesByType("database", database);
-    }
-  },
-  { immediate: true }
-);
-
 watch(
   selectedKeys,
   (keys) => {
@@ -349,53 +290,28 @@ watch(
   { immediate: true }
 );
 
-const calcDefaultExpandKeys = async (override = false) => {
-  await nextTick();
-  if (expandedKeys.value.length > 0 && !override) {
-    // keep as-is
-    return;
-  }
-  const openingDatabaseList = resolveOpeningDatabaseListFromSQLEditorTabList();
-  const keys = new Set<string>();
-  // Recursively expand opening databases' parent nodes
-  openingDatabaseList.forEach((meta) => {
-    const db = meta.target;
-    const nodes = treeStore.nodesByTarget("database", db);
-    nodes.forEach((node) => expandNodeRecursively(node.parent, keys));
-  });
-  if (keys.size === 0) {
-    // Try expand till the first database node
-    const dfsWalk = (node: SQLEditorTreeNode) => {
-      if (node.meta.type === "database") {
-        expandNodeRecursively(node.parent, keys);
-        return true;
-      }
-      if (!node.children) return false;
-      for (let i = 0; i < node.children.length; i++) {
-        const child = node.children[i] as SQLEditorTreeNode;
-        if (dfsWalk(child)) {
-          return true;
-        }
-      }
-      return false;
-    };
-    for (let i = 0; i < treeStore.tree.length; i++) {
-      const node = treeStore.tree[i];
-      if (dfsWalk(node)) {
-        break;
-      }
-    }
-  }
-
-  await nextTick();
-  expandedKeys.value = Array.from(keys);
-};
-
-useEmitteryEventListener(editorEvents, "tree-ready", () => {
-  calcDefaultExpandKeys(true);
+useEmitteryEventListener(editorEvents, "tree-ready", async () => {
+  selectedKeys.value = await getSelectedKeys();
 });
 
-onMounted(() => calcDefaultExpandKeys(false));
+watch(
+  [
+    () => editorStore.project,
+    () => editorStore.projectContextReady,
+    () => searchPattern.value,
+  ],
+  async ([, ready, search]) => {
+    if (!ready) {
+      treeStore.state = "LOADING";
+    } else {
+      await editorStore.prepareDatabases(search);
+      treeStore.buildTree();
+      treeStore.state = "READY";
+      editorEvents.emit("tree-ready");
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <style lang="postcss" scoped>

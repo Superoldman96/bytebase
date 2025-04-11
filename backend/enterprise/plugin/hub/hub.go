@@ -9,12 +9,12 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	"github.com/bytebase/bytebase/backend/enterprise/config"
 	"github.com/bytebase/bytebase/backend/enterprise/plugin"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 )
 
@@ -61,7 +61,7 @@ func (p *Provider) StoreLicense(ctx context.Context, patch *enterprise.Subscript
 		}
 	}
 	if _, err := p.store.UpsertSettingV2(ctx, &store.SetSettingMessage{
-		Name:  api.SettingEnterpriseLicense,
+		Name:  base.SettingEnterpriseLicense,
 		Value: patch.License,
 	}); err != nil {
 		return err
@@ -75,9 +75,9 @@ func (p *Provider) LoadSubscription(ctx context.Context) *enterprise.Subscriptio
 	license := p.loadLicense(ctx)
 	if license == nil {
 		return &enterprise.Subscription{
-			Plan: api.FREE,
+			Plan: base.FREE,
 			// -1 means not expire, just for free plan
-			ExpiresTs: -1,
+			ExpiresTS: -1,
 			// Instance license count.
 			InstanceCount: 0,
 			Seat:          0,
@@ -86,8 +86,8 @@ func (p *Provider) LoadSubscription(ctx context.Context) *enterprise.Subscriptio
 
 	return &enterprise.Subscription{
 		Plan:          license.Plan,
-		ExpiresTs:     license.ExpiresTs,
-		StartedTs:     license.IssuedTs,
+		ExpiresTS:     license.ExpiresTS,
+		StartedTS:     license.IssuedTS,
 		InstanceCount: license.InstanceCount,
 		Seat:          license.Seat,
 		Trialing:      license.Trialing,
@@ -110,7 +110,7 @@ func (p *Provider) fetchLicense(ctx context.Context) (*enterprise.License, error
 	}
 
 	if _, err := p.store.UpsertSettingV2(ctx, &store.SetSettingMessage{
-		Name:  api.SettingEnterpriseLicense,
+		Name:  base.SettingEnterpriseLicense,
 		Value: license,
 	}); err != nil {
 		return nil, errors.Wrapf(err, "failed to store the license")
@@ -154,7 +154,7 @@ func (p *Provider) parseLicense(ctx context.Context, license string) (*enterpris
 
 func (p *Provider) findEnterpriseLicense(ctx context.Context) (*enterprise.License, error) {
 	// Find enterprise license.
-	setting, err := p.store.GetSettingV2(ctx, api.SettingEnterpriseLicense)
+	setting, err := p.store.GetSettingV2(ctx, base.SettingEnterpriseLicense)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to load enterprise license from settings")
 	}
@@ -167,7 +167,7 @@ func (p *Provider) findEnterpriseLicense(ctx context.Context) (*enterprise.Licen
 			slog.Debug(
 				"Load valid license",
 				slog.String("plan", license.Plan.String()),
-				slog.Time("expiresAt", time.Unix(license.ExpiresTs, 0)),
+				slog.Time("expiresAt", time.Unix(license.ExpiresTS, 0)),
 				slog.Int("instanceCount", license.InstanceCount),
 			)
 			return license, nil
@@ -191,7 +191,7 @@ func (p *Provider) parseClaims(ctx context.Context, claim *claims) (*enterprise.
 		return nil, common.Errorf(common.Invalid, "plan type %q is not valid", planType)
 	}
 
-	if claim.WorkspaceID != "" && planType == api.ENTERPRISE && !claim.Trialing {
+	if claim.WorkspaceID != "" && planType == base.ENTERPRISE && !claim.Trialing {
 		workspaceID, err := p.store.GetWorkspaceID(ctx)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get workspace id from setting")
@@ -204,8 +204,8 @@ func (p *Provider) parseClaims(ctx context.Context, claim *claims) (*enterprise.
 	license := &enterprise.License{
 		InstanceCount: claim.InstanceCount,
 		Seat:          claim.Seat,
-		ExpiresTs:     claim.ExpiresAt.Unix(),
-		IssuedTs:      claim.IssuedAt.Unix(),
+		ExpiresTS:     claim.ExpiresAt.Unix(),
+		IssuedTS:      claim.IssuedAt.Unix(),
 		Plan:          planType,
 		Subject:       claim.Subject,
 		Trialing:      claim.Trialing,
@@ -215,15 +215,15 @@ func (p *Provider) parseClaims(ctx context.Context, claim *claims) (*enterprise.
 	return license, nil
 }
 
-func convertPlanType(candidate string) (api.PlanType, error) {
+func convertPlanType(candidate string) (base.PlanType, error) {
 	switch candidate {
-	case api.TEAM.String():
-		return api.TEAM, nil
-	case api.ENTERPRISE.String():
-		return api.ENTERPRISE, nil
-	case api.FREE.String():
-		return api.FREE, nil
+	case base.TEAM.String():
+		return base.TEAM, nil
+	case base.ENTERPRISE.String():
+		return base.ENTERPRISE, nil
+	case base.FREE.String():
+		return base.FREE, nil
 	default:
-		return api.FREE, errors.Errorf("cannot conver plan type %q", candidate)
+		return base.FREE, errors.Errorf("cannot conver plan type %q", candidate)
 	}
 }

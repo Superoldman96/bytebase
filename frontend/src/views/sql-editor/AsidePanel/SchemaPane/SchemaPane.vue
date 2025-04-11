@@ -109,7 +109,7 @@ import {
   findAncestor,
   isDescendantOf,
 } from "@/utils";
-import { useEditorPanelContext } from "../../EditorPanel";
+import { useCurrentTabViewStateContext } from "../../EditorPanel";
 import { useSQLEditorContext } from "../../context";
 import HoverPanel, { provideHoverStateContext } from "./HoverPanel";
 import SyncSchemaButton from "./SyncSchemaButton.vue";
@@ -135,7 +135,7 @@ const { height: treeContainerHeight } = useElementSize(
   }
 );
 const searchPatternByTabId = reactive(new Map<string, string>());
-const { viewState: panelViewState } = useEditorPanelContext();
+const { viewState: panelViewState } = useCurrentTabViewStateContext();
 const { schemaViewer } = useSQLEditorContext();
 const {
   show: showDropdown,
@@ -145,7 +145,7 @@ const {
   handleSelect: handleDropdownSelect,
   handleClickoutside: handleDropdownClickoutside,
 } = useDropdown();
-const { selectAllFromTableOrView, viewDetail } = useActions();
+const { selectAllFromTableOrView } = useActions();
 const { currentTab } = storeToRefs(useSQLEditorTabStore());
 const { database } = useConnectionOfCurrentSQLEditorTab();
 const searchPattern = computed({
@@ -327,7 +327,6 @@ const selectedKeys = computed(() => {
       partition,
       index,
       foreignKey,
-      dependencyColumn,
     },
   } = panelViewState.value;
 
@@ -349,8 +348,6 @@ const selectedKeys = computed(() => {
     parts.push(`views/${view}`);
     if (column) {
       parts.push(`columns/${column}`);
-    } else if (dependencyColumn) {
-      parts.push(`dependencyColumns/${dependencyColumn}`);
     }
   } else if (procedure) {
     parts.push(`procedures/${procedure}`);
@@ -398,7 +395,7 @@ const toggleNode = (node: TreeNode) => {
 };
 
 const singleClick = (node: TreeNode) => {
-  expandNode(node);
+  toggleNode(node);
   if (node.meta.type === "schema") {
     const tab = currentTab.value;
     if (tab) {
@@ -408,7 +405,6 @@ const singleClick = (node: TreeNode) => {
       return;
     }
   }
-  viewDetail(node);
 };
 useEmitteryEventListener(nodeClickEvents, "single-click", ({ node }) => {
   singleClick(node);

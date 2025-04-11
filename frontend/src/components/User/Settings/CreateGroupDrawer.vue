@@ -45,7 +45,6 @@
           <div class="flex flex-col gap-y-2">
             <label class="textlabel block">
               {{ $t("settings.members.groups.form.members") }}
-              <span class="text-red-600">*</span>
             </label>
             <div class="flex flex-col space-y-2">
               <div
@@ -65,10 +64,9 @@
                   :size="'medium'"
                   @update:value="(role) => updateMemberRole(i, role)"
                 />
-                <div class="pl-5 flex justify-end">
+                <div class="flex justify-end">
                   <NButton
                     quaternary
-                    circle
                     size="tiny"
                     :disabled="disallowEditMember"
                     @click="deleteMember(i)"
@@ -106,7 +104,7 @@
             </template>
           </RemoveGroupButton>
 
-          <div class="flex flex-row items-center justify-end gap-x-3">
+          <div class="flex-1 flex flex-row items-center justify-end gap-x-3">
             <NButton @click="$emit('close')">
               {{ $t("common.cancel") }}
             </NButton>
@@ -260,17 +258,6 @@ const errorMessage = computed(() => {
   if (!state.group.title) {
     return "Title is required";
   }
-  if (!validGroup.value.members.length) {
-    return "At least select 1 member for the group";
-  }
-  if (
-    !validGroup.value.members.some(
-      (member) => member.role === GroupMember_Role.OWNER
-    )
-  ) {
-    return "At least has 1 owner in the group";
-  }
-
   return "";
 });
 

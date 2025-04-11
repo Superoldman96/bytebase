@@ -23,12 +23,8 @@ import { useI18n } from "vue-i18n";
 import { useDatabaseV1Store } from "@/store";
 import { workspaceNamePrefix } from "@/store/modules/v1/common";
 import type { ComposedDatabase } from "@/types";
-import {
-  isValidDatabaseName,
-  isValidEnvironmentName,
-  unknownDatabase,
-} from "@/types";
-import { type Engine, engineToJSON } from "@/types/proto/v1/common";
+import { isValidDatabaseName, unknownDatabase } from "@/types";
+import { type Engine } from "@/types/proto/v1/common";
 import {
   instanceV1Name,
   supportedEngineV1List,
@@ -48,7 +44,7 @@ const props = withDefaults(
     databaseNames?: string[];
     environmentName?: string;
     projectName?: string;
-    allowedEngineTypeList?: readonly Engine[];
+    allowedEngineTypeList?: Engine[];
     includeAll?: boolean;
     autoReset?: boolean;
     filter?: (database: ComposedDatabase, index: number) => boolean;
@@ -84,28 +80,25 @@ const state = reactive<LocalState>({
   rawDatabaseList: [],
 });
 
-const filterParams = computed(() => {
-  const list = [];
-  if (isValidEnvironmentName(props.environmentName)) {
-    list.push(`environment == "${props.environmentName}"`);
+const initSelectedDatabases = async (databaseNames: string[]) => {
+  for (const databaseName of databaseNames) {
+    if (isValidDatabaseName(databaseName)) {
+      const db = await databaseStore.getOrFetchDatabaseByName(databaseName);
+      if (!state.rawDatabaseList.find((d) => d.name === db.name)) {
+        state.rawDatabaseList.unshift(db);
+      }
+    }
   }
-  if (props.allowedEngineTypeList.length > 0) {
-    list.push(
-      `engine in [${props.allowedEngineTypeList.map((e) => `"${engineToJSON(e)}"`).join(", ")}]`
-    );
-  }
-
-  return list;
-});
+};
 
 const searchDatabases = async (name: string) => {
-  const dbFilter = [...filterParams.value];
-  if (name) {
-    dbFilter.push(`name.matches("${name}")`);
-  }
   const { databases } = await databaseStore.fetchDatabases({
     parent: props.projectName ?? `${workspaceNamePrefix}-`,
-    filter: dbFilter.join(" && "),
+    filter: {
+      environment: props.environmentName,
+      engines: props.allowedEngineTypeList,
+      query: name,
+    },
     pageSize: getDefaultPagination(),
   });
   return databases;
@@ -116,24 +109,33 @@ const handleSearch = useDebounceFn(async (search: string) => {
   try {
     const databases = await searchDatabases(search);
     state.rawDatabaseList = databases;
-    if (!search && props.includeAll) {
-      const dummyAll = {
-        ...unknownDatabase(),
-        databaseName: t("database.all"),
-      };
-      state.rawDatabaseList.unshift(dummyAll);
+    if (!search) {
+      if (props.includeAll) {
+        const dummyAll = {
+          ...unknownDatabase(),
+          databaseName: t("database.all"),
+        };
+        state.rawDatabaseList.unshift(dummyAll);
+      }
+      if (props.databaseName) {
+        await initSelectedDatabases([props.databaseName]);
+      }
+      if (props.databaseNames) {
+        await initSelectedDatabases(props.databaseNames);
+      }
     }
   } finally {
     state.loading = false;
   }
-}, 500);
+}, 200);
 
 watch(
-  () => filterParams.value,
+  () => [props.environmentName, props.allowedEngineTypeList],
   () => {
     handleSearch("");
   },
   {
+    deep: true,
     immediate: true,
   }
 );

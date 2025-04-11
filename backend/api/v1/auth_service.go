@@ -18,13 +18,13 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bytebase/bytebase/backend/api/auth"
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	"github.com/bytebase/bytebase/backend/component/state"
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	metricapi "github.com/bytebase/bytebase/backend/metric"
 	"github.com/bytebase/bytebase/backend/plugin/idp/ldap"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oauth2"
@@ -56,7 +56,7 @@ type AuthService struct {
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) (*AuthService, error) {
+func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) *AuthService {
 	return &AuthService{
 		store:          store,
 		secret:         secret,
@@ -66,16 +66,13 @@ func NewAuthService(store *store.Store, secret string, licenseService enterprise
 		stateCfg:       stateCfg,
 		iamManager:     iamManager,
 		postCreateUser: postCreateUser,
-	}, nil
+	}
 }
 
 // Login is the auth login method including SSO.
 func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v1pb.LoginResponse, error) {
 	var loginUser *store.UserMessage
-	mfaSecondLogin := false
-	if request.MfaTempToken != nil && *request.MfaTempToken != "" {
-		mfaSecondLogin = true
-	}
+	mfaSecondLogin := request.MfaTempToken != nil && *request.MfaTempToken != ""
 	loginViaIDP := request.GetIdpName() != ""
 
 	response := &v1pb.LoginResponse{}
@@ -133,7 +130,7 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to check user roles, error: %v", err)
 	}
-	if !isWorkspaceAdmin && loginUser.Type == api.EndUser && !mfaSecondLogin {
+	if !isWorkspaceAdmin && loginUser.Type == base.EndUser && !mfaSecondLogin {
 		// Disallow password signin for end users.
 		if setting.DisallowPasswordSignin && !loginViaIDP {
 			return nil, status.Errorf(codes.PermissionDenied, "password signin is disallowed")
@@ -147,7 +144,7 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 	tokenDuration := auth.GetTokenDuration(ctx, s.store)
 	userMFAEnabled := loginUser.MFAConfig != nil && loginUser.MFAConfig.OtpSecret != ""
 	// We only allow MFA login (2-step) when the feature is enabled and user has enabled MFA.
-	if s.licenseService.IsFeatureEnabled(api.Feature2FA) == nil && !mfaSecondLogin && userMFAEnabled {
+	if s.licenseService.IsFeatureEnabled(base.Feature2FA) == nil && !mfaSecondLogin && userMFAEnabled {
 		mfaTempToken, err := auth.GenerateMFATempToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret, tokenDuration)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to generate MFA temp token")
@@ -158,13 +155,13 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 	}
 
 	switch loginUser.Type {
-	case api.EndUser:
+	case base.EndUser:
 		token, err := auth.GenerateAccessToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret, tokenDuration)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to generate API access token")
 		}
 		response.Token = token
-	case api.ServiceAccount:
+	case base.ServiceAccount:
 		token, err := auth.GenerateAPIToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to generate API access token")
@@ -216,10 +213,10 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 
 func (s *AuthService) needResetPassword(ctx context.Context, user *store.UserMessage) bool {
 	// Reset password restriction only works for end user with email & password login.
-	if user.Type != api.EndUser {
+	if user.Type != base.EndUser {
 		return false
 	}
-	if err := s.licenseService.IsFeatureEnabled(api.FeaturePasswordRestriction); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(base.FeaturePasswordRestriction); err != nil {
 		return false
 	}
 
@@ -233,7 +230,7 @@ func (s *AuthService) needResetPassword(ctx context.Context, user *store.UserMes
 		if !passwordRestriction.RequireResetPasswordForFirstLogin {
 			return false
 		}
-		count, err := s.store.CountUsers(ctx, api.EndUser)
+		count, err := s.store.CountUsers(ctx, base.EndUser)
 		if err != nil {
 			slog.Error("failed to count end users", log.BBError(err))
 			return false
@@ -338,18 +335,7 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 			return nil, status.Errorf(codes.InvalidArgument, "missing OAuth2 context")
 		}
 
-		idpConfig := idp.Config.GetOidcConfig()
-		oidcIDP, err := oidc.NewIdentityProvider(
-			ctx,
-			oidc.IdentityProviderConfig{
-				Issuer:        idpConfig.Issuer,
-				ClientID:      idpConfig.ClientId,
-				ClientSecret:  idpConfig.ClientSecret,
-				FieldMapping:  idpConfig.FieldMapping,
-				SkipTLSVerify: idpConfig.SkipTlsVerify,
-				AuthStyle:     idpConfig.GetAuthStyle(),
-			},
-		)
+		oidcIDP, err := oidc.NewIdentityProvider(ctx, idp.Config.GetOidcConfig())
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create new OIDC identity provider: %v", err)
 		}
@@ -422,10 +408,17 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 				return nil, status.Errorf(codes.Internal, "failed to undelete user: %v", err)
 			}
 		}
+		if userInfo.HasGroups {
+			// Sync user groups with the identity provider.
+			// The userInfo.Groups is the groups that the user belongs to in the identity provider.
+			if err := s.syncUserGroups(ctx, user, userInfo.Groups); err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to sync user groups: %v", err)
+			}
+		}
 		return user, nil
 	}
 
-	if err := s.licenseService.IsFeatureEnabled(api.FeatureSSO); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(base.FeatureSSO); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 	// Create new user from identity provider.
@@ -441,11 +434,18 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 		Name:         userInfo.DisplayName,
 		Email:        email,
 		Phone:        userInfo.Phone,
-		Type:         api.EndUser,
+		Type:         base.EndUser,
 		PasswordHash: string(passwordHash),
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create user, error: %v", err)
+	}
+	if userInfo.HasGroups {
+		// Sync user groups with the identity provider.
+		// The userInfo.Groups is the groups that the user belongs to in the identity provider.
+		if err := s.syncUserGroups(ctx, user, userInfo.Groups); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to sync user groups: %v", err)
+		}
 	}
 	return newUser, nil
 }
@@ -480,4 +480,52 @@ func (s *AuthService) challengeRecoveryCode(ctx context.Context, user *store.Use
 // validateWithCodeAndSecret validates the given code against the given secret.
 func validateWithCodeAndSecret(code, secret string) bool {
 	return totp.Validate(code, secret)
+}
+
+// syncUserGroups syncs the user groups with the given groups.
+// The given groups are the groups that the user belongs to in the identity provider.
+// Supported groups format: ["group1", "group2", ...], ["dev@bb.com", ...]
+func (s *AuthService) syncUserGroups(ctx context.Context, user *store.UserMessage, groups []string) error {
+	bbGroups, err := s.store.ListGroups(ctx, &store.FindGroupMessage{})
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to list groups: %v", err)
+	}
+
+	for _, bbGroup := range bbGroups {
+		var isMember bool
+		for _, group := range groups {
+			if bbGroup.Email == group || bbGroup.Title == group {
+				isMember = true
+				break
+			}
+		}
+		var isBBGroupMember bool
+		for _, member := range bbGroup.Payload.Members {
+			if member.Member == common.FormatUserUID(user.ID) {
+				isBBGroupMember = true
+				break
+			}
+		}
+		if isMember != isBBGroupMember {
+			if isMember {
+				// Add the user to the group.
+				bbGroup.Payload.Members = append(bbGroup.Payload.Members, &storepb.GroupMember{
+					Role:   storepb.GroupMember_MEMBER,
+					Member: common.FormatUserUID(user.ID),
+				})
+			} else {
+				// Remove the user from the group.
+				bbGroup.Payload.Members = slices.DeleteFunc(bbGroup.Payload.Members, func(member *storepb.GroupMember) bool {
+					return member.Member == common.FormatUserUID(user.ID)
+				})
+			}
+			if _, err := s.store.UpdateGroup(ctx, bbGroup.Email, &store.UpdateGroupMessage{
+				Payload: bbGroup.Payload,
+			}); err != nil {
+				return status.Errorf(codes.Internal, "failed to update group %q: %v", bbGroup.Email, err)
+			}
+		}
+	}
+
+	return nil
 }

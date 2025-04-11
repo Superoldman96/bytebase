@@ -1,11 +1,10 @@
 import type { MaybeRef } from "@vueuse/core";
 import { watchThrottled } from "@vueuse/core";
-import { head, omit, pick, uniqBy } from "lodash-es";
+import { head, omit, pick } from "lodash-es";
 import { defineStore, storeToRefs } from "pinia";
 import { computed, nextTick, reactive, ref, unref, watch } from "vue";
 import type {
   SQLEditorConnection,
-  SQLEditorTreeNodeMeta,
   CoreSQLEditorTab,
   SQLEditorTab,
 } from "@/types";
@@ -31,6 +30,7 @@ import {
   useExtendedTabStore,
   type ExtendedTab,
 } from "./extendedTab";
+import { useTabViewStateStore } from "./tabViewState";
 import { useWebTerminalStore } from "./webTerminal";
 
 const LOCAL_STORAGE_KEY_PREFIX = "bb.sql-editor-tab";
@@ -61,6 +61,8 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     deleteExtendedTab,
     cleanupExtendedTabs,
   } = useExtendedTabStore();
+  const tabViewStateStore = useTabViewStateStore();
+
   const me = useCurrentUserV1();
   const userUID = computed(() => extractUserId(me.value.name));
   const keyNamespace = computed(
@@ -262,7 +264,10 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
         curr.connection = tab.connection;
         curr.worksheet = tab.worksheet;
         curr.mode = tab.mode;
-        if (defaultTitle) {
+        if (
+          defaultTitle &&
+          tabViewStateStore.getViewState(curr.id).view === "CODE"
+        ) {
           curr.title = defaultTitle;
         }
         return;
@@ -380,8 +385,6 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     selectOrAddSimilarNewTab,
     maybeInitProject,
     reset,
-    tabIdListMapByProject,
-    currentTabIdMapByProject,
     isDisconnected,
     isSwitchingTab,
   };
@@ -444,15 +447,14 @@ export const useConnectionOfCurrentSQLEditorTab = () => {
 export const resolveOpeningDatabaseListFromSQLEditorTabList = () => {
   const { tabList } = useSQLEditorTabStore();
   const databaseStore = useDatabaseV1Store();
-  return uniqBy(
-    tabList.flatMap<SQLEditorTreeNodeMeta<"database">>((tab) => {
-      const { database } = tab.connection;
-      if (database) {
-        const db = databaseStore.getDatabaseByName(database);
-        return [{ type: "database", target: db }];
-      }
-      return [];
-    }),
-    (meta) => meta.target.name
-  );
+  const databaseSet = new Set<string>();
+
+  for (const tab of tabList) {
+    const { database } = tab.connection;
+    if (database) {
+      const db = databaseStore.getDatabaseByName(database);
+      databaseSet.add(db.name);
+    }
+  }
+  return databaseSet;
 };

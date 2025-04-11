@@ -92,8 +92,6 @@ export interface QueryRequest {
 export interface QueryResponse {
   /** The query results. */
   results: QueryResult[];
-  /** The query is allowed to be exported or not. */
-  allowExport: boolean;
 }
 
 export interface QueryOption {
@@ -177,7 +175,11 @@ export interface QueryResult {
     | undefined;
   /** The query statement for the result. */
   statement: string;
-  postgresError?: QueryResult_PostgresError | undefined;
+  postgresError?:
+    | QueryResult_PostgresError
+    | undefined;
+  /** The query result is allowed to be exported or not. */
+  allowExport: boolean;
 }
 
 /**
@@ -282,8 +284,9 @@ export interface Advice {
   /** The advice column number in the SQL statement. */
   column: number;
   /**
-   * 1-based Position of the SQL statement.
    * To supersede `line` and `column` above.
+   * The start_position is inclusive and the end_position is exclusive.
+   * TODO: use range instead
    */
   startPosition: Position | undefined;
   endPosition: Position | undefined;
@@ -513,7 +516,10 @@ export interface DiffMetadataRequest {
     | undefined;
   /** The database engine of the schema. */
   engine: Engine;
-  /** If false, we will build the raw common by classification in database config. */
+  /**
+   * If false, we will build the raw common by classification in database
+   * config.
+   */
   classificationFromConfig: boolean;
 }
 
@@ -643,7 +649,10 @@ export interface AICompletionRequest_Message {
 }
 
 export interface AICompletionResponse {
-  /** candidates is used for results with multiple choices and candidates. Used for OpenAI and Gemini. */
+  /**
+   * candidates is used for results with multiple choices and candidates. Used
+   * for OpenAI and Gemini.
+   */
   candidates: AICompletionResponse_Candidate[];
 }
 
@@ -1028,16 +1037,13 @@ export const QueryRequest: MessageFns<QueryRequest> = {
 };
 
 function createBaseQueryResponse(): QueryResponse {
-  return { results: [], allowExport: false };
+  return { results: [] };
 }
 
 export const QueryResponse: MessageFns<QueryResponse> = {
   encode(message: QueryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     for (const v of message.results) {
       QueryResult.encode(v!, writer.uint32(10).fork()).join();
-    }
-    if (message.allowExport !== false) {
-      writer.uint32(24).bool(message.allowExport);
     }
     return writer;
   },
@@ -1057,14 +1063,6 @@ export const QueryResponse: MessageFns<QueryResponse> = {
           message.results.push(QueryResult.decode(reader, reader.uint32()));
           continue;
         }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.allowExport = reader.bool();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1077,7 +1075,6 @@ export const QueryResponse: MessageFns<QueryResponse> = {
   fromJSON(object: any): QueryResponse {
     return {
       results: globalThis.Array.isArray(object?.results) ? object.results.map((e: any) => QueryResult.fromJSON(e)) : [],
-      allowExport: isSet(object.allowExport) ? globalThis.Boolean(object.allowExport) : false,
     };
   },
 
@@ -1085,9 +1082,6 @@ export const QueryResponse: MessageFns<QueryResponse> = {
     const obj: any = {};
     if (message.results?.length) {
       obj.results = message.results.map((e) => QueryResult.toJSON(e));
-    }
-    if (message.allowExport !== false) {
-      obj.allowExport = message.allowExport;
     }
     return obj;
   },
@@ -1098,7 +1092,6 @@ export const QueryResponse: MessageFns<QueryResponse> = {
   fromPartial(object: DeepPartial<QueryResponse>): QueryResponse {
     const message = createBaseQueryResponse();
     message.results = object.results?.map((e) => QueryResult.fromPartial(e)) || [];
-    message.allowExport = object.allowExport ?? false;
     return message;
   },
 };
@@ -1178,6 +1171,7 @@ function createBaseQueryResult(): QueryResult {
     latency: undefined,
     statement: "",
     postgresError: undefined,
+    allowExport: false,
   };
 }
 
@@ -1216,6 +1210,9 @@ export const QueryResult: MessageFns<QueryResult> = {
     }
     if (message.postgresError !== undefined) {
       QueryResult_PostgresError.encode(message.postgresError, writer.uint32(74).fork()).join();
+    }
+    if (message.allowExport !== false) {
+      writer.uint32(88).bool(message.allowExport);
     }
     return writer;
   },
@@ -1327,6 +1324,14 @@ export const QueryResult: MessageFns<QueryResult> = {
           message.postgresError = QueryResult_PostgresError.decode(reader, reader.uint32());
           continue;
         }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.allowExport = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1354,6 +1359,7 @@ export const QueryResult: MessageFns<QueryResult> = {
       latency: isSet(object.latency) ? Duration.fromJSON(object.latency) : undefined,
       statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
       postgresError: isSet(object.postgresError) ? QueryResult_PostgresError.fromJSON(object.postgresError) : undefined,
+      allowExport: isSet(object.allowExport) ? globalThis.Boolean(object.allowExport) : false,
     };
   },
 
@@ -1389,6 +1395,9 @@ export const QueryResult: MessageFns<QueryResult> = {
     if (message.postgresError !== undefined) {
       obj.postgresError = QueryResult_PostgresError.toJSON(message.postgresError);
     }
+    if (message.allowExport !== false) {
+      obj.allowExport = message.allowExport;
+    }
     return obj;
   },
 
@@ -1413,6 +1422,7 @@ export const QueryResult: MessageFns<QueryResult> = {
     message.postgresError = (object.postgresError !== undefined && object.postgresError !== null)
       ? QueryResult_PostgresError.fromPartial(object.postgresError)
       : undefined;
+    message.allowExport = object.allowExport ?? false;
     return message;
   },
 };

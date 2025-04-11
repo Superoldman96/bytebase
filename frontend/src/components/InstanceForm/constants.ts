@@ -56,7 +56,11 @@ export const defaultPortForEngine = (engine: Engine) => {
       return "26257";
     case Engine.COSMOSDB:
       return "";
-    }
+    case Engine.CASSANDRA:
+      return "9042";
+    case Engine.TRINO:
+      return "8080";
+  }
     throw new Error("engine port unknown");
 };
 
@@ -105,6 +109,8 @@ export const EngineIconPath: Record<string, string> = {
   [Engine.COCKROACHDB]: new URL("@/assets/db/cockroachdb.png", import.meta.url)
     .href,
   [Engine.COSMOSDB]: new URL("@/assets/db/cosmosdb.svg", import.meta.url).href,
+  [Engine.CASSANDRA]: new URL("@/assets/db/cassandra.svg", import.meta.url).href,
+  [Engine.TRINO]: new URL("@/assets/db/trino.svg", import.meta.url).href,
 };
 
 export const MongoDBConnectionStringSchemaList = [

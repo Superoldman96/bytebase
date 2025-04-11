@@ -43,7 +43,7 @@ import {
 import { usePlanContext } from "@/components/Plan/logic";
 import { useSQLCheckContext } from "@/components/SQLCheck";
 import { planServiceClient } from "@/grpcweb";
-import { PROJECT_V1_ROUTE_PLAN_DETAIL } from "@/router/dashboard/projectV1";
+import { PROJECT_V1_ROUTE_REVIEW_CENTER_DETAIL } from "@/router/dashboard/projectV1";
 import { useDatabaseV1Store, useSheetV1Store } from "@/store";
 import { dialectOfEngineV1, languageOfEngineV1 } from "@/types";
 import { type Plan_ChangeDatabaseConfig } from "@/types/proto/v1/plan_service";
@@ -106,7 +106,7 @@ const doCreatePlan = async () => {
 
     nextTick(() => {
       router.push({
-        name: PROJECT_V1_ROUTE_PLAN_DETAIL,
+        name: PROJECT_V1_ROUTE_REVIEW_CENTER_DETAIL,
         params: {
           projectId: extractProjectResourceName(composedPlan.project),
           planSlug: planV1Slug(composedPlan),
@@ -136,10 +136,7 @@ const createSheets = async () => {
     if (uid.startsWith("-")) {
       // The sheet is pending create
       const sheet = getLocalSheetByName(config.sheet);
-      const engine = await databaseEngineForSpec(
-        plan.value.projectEntity,
-        spec
-      );
+      const engine = await databaseEngineForSpec(spec);
       sheet.engine = engine;
       pendingCreateSheetMap.set(sheet.name, sheet);
 

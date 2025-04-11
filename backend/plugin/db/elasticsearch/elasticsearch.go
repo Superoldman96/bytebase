@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
+	parser "github.com/bytebase/bytebase/backend/plugin/parser/elasticsearch"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
@@ -172,17 +173,28 @@ func (d *Driver) Execute(ctx context.Context, statement string, _ db.ExecuteOpti
 }
 
 func (d *Driver) QueryConn(_ context.Context, _ *sql.Conn, statement string, _ db.QueryContext) ([]*v1pb.QueryResult, error) {
-	statements, err := splitElasticsearchStatements(statement)
+	parseResult, err := parser.ParseElasticsearchREST(statement)
 	if err != nil {
 		return nil, err
 	}
+	if len(parseResult.Errors) > 0 {
+		return nil, parseResult.Errors[0]
+	}
+	if parseResult.Requests == nil {
+		return nil, nil
+	}
 
 	var results []*v1pb.QueryResult
-	for _, s := range statements {
+	for _, request := range parseResult.Requests {
 		if err := func() error {
 			startTime := time.Now()
 			// send HTTP request.
-			resp, err := d.basicAuthClient.Do(string(s.method), s.route, s.queryBody)
+			var data []byte
+			for _, item := range request.Data {
+				data = append(data, []byte(item)...)
+				data = append(data, '\n')
+			}
+			resp, err := d.basicAuthClient.Do(request.Method, []byte(request.URL), data)
 			if err != nil {
 				return errors.Wrapf(err, "failed to send HTTP request")
 			}
@@ -220,7 +232,7 @@ func (d *Driver) QueryConn(_ context.Context, _ *sql.Conn, statement string, _ d
 			result.Rows = append(result.Rows, &row)
 			result.Latency = durationpb.New(time.Since(startTime))
 			result.RowsCount = int64(len(result.Rows))
-			result.Statement = fmt.Sprintf("%s %s\n%s", s.method, s.route, s.queryBody)
+			result.Statement = fmt.Sprintf("%s %s\n%s", request.Method, request.URL, string(data))
 			// TODO(d): handle max size.
 			results = append(results, &result)
 			return nil

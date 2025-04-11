@@ -477,9 +477,7 @@ func (x *QueryRequest) GetContainer() string {
 type QueryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The query results.
-	Results []*QueryResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
-	// The query is allowed to be exported or not.
-	AllowExport   bool `protobuf:"varint,3,opt,name=allow_export,json=allowExport,proto3" json:"allow_export,omitempty"`
+	Results       []*QueryResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -519,13 +517,6 @@ func (x *QueryResponse) GetResults() []*QueryResult {
 		return x.Results
 	}
 	return nil
-}
-
-func (x *QueryResponse) GetAllowExport() bool {
-	if x != nil {
-		return x.AllowExport
-	}
-	return false
 }
 
 type QueryOption struct {
@@ -596,6 +587,8 @@ type QueryResult struct {
 	//
 	//	*QueryResult_PostgresError_
 	DetailedError isQueryResult_DetailedError `protobuf_oneof:"detailed_error"`
+	// The query result is allowed to be exported or not.
+	AllowExport   bool `protobuf:"varint,11,opt,name=allow_export,json=allowExport,proto3" json:"allow_export,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -707,6 +700,13 @@ func (x *QueryResult) GetPostgresError() *QueryResult_PostgresError {
 		}
 	}
 	return nil
+}
+
+func (x *QueryResult) GetAllowExport() bool {
+	if x != nil {
+		return x.AllowExport
+	}
+	return false
 }
 
 type isQueryResult_DetailedError interface {
@@ -1043,8 +1043,9 @@ type Advice struct {
 	Line int32 `protobuf:"varint,5,opt,name=line,proto3" json:"line,omitempty"`
 	// The advice column number in the SQL statement.
 	Column int32 `protobuf:"varint,6,opt,name=column,proto3" json:"column,omitempty"`
-	// 1-based Position of the SQL statement.
 	// To supersede `line` and `column` above.
+	// The start_position is inclusive and the end_position is exclusive.
+	// TODO: use range instead
 	StartPosition *Position `protobuf:"bytes,8,opt,name=start_position,json=startPosition,proto3" json:"start_position,omitempty"`
 	EndPosition   *Position `protobuf:"bytes,9,opt,name=end_position,json=endPosition,proto3" json:"end_position,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1619,7 +1620,8 @@ type DiffMetadataRequest struct {
 	TargetCatalog  *DatabaseCatalog  `protobuf:"bytes,6,opt,name=target_catalog,json=targetCatalog,proto3" json:"target_catalog,omitempty"`
 	// The database engine of the schema.
 	Engine Engine `protobuf:"varint,3,opt,name=engine,proto3,enum=bytebase.v1.Engine" json:"engine,omitempty"`
-	// If false, we will build the raw common by classification in database config.
+	// If false, we will build the raw common by classification in database
+	// config.
 	ClassificationFromConfig bool `protobuf:"varint,4,opt,name=classification_from_config,json=classificationFromConfig,proto3" json:"classification_from_config,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
@@ -2024,7 +2026,8 @@ func (x *AICompletionRequest) GetMessages() []*AICompletionRequest_Message {
 
 type AICompletionResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// candidates is used for results with multiple choices and candidates. Used for OpenAI and Gemini.
+	// candidates is used for results with multiple choices and candidates. Used
+	// for OpenAI and Gemini.
 	Candidates    []*AICompletionResponse_Candidate `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2584,16 +2587,15 @@ const file_v1_sql_service_proto_rawDesc = "" +
 	" \x01(\tH\x01R\tcontainer\x88\x01\x01B\t\n" +
 	"\a_schemaB\f\n" +
 	"\n" +
-	"_containerJ\x04\b\x02\x10\x03\"l\n" +
+	"_containerJ\x04\b\x02\x10\x03\"I\n" +
 	"\rQueryResponse\x122\n" +
-	"\aresults\x18\x01 \x03(\v2\x18.bytebase.v1.QueryResultR\aresults\x12!\n" +
-	"\fallow_export\x18\x03 \x01(\bR\vallowExportJ\x04\b\x02\x10\x03\"\xca\x01\n" +
+	"\aresults\x18\x01 \x03(\v2\x18.bytebase.v1.QueryResultR\aresultsJ\x04\b\x02\x10\x03\"\xca\x01\n" +
 	"\vQueryOption\x12^\n" +
 	"\x15redis_run_commands_on\x18\x01 \x01(\x0e2+.bytebase.v1.QueryOption.RedisRunCommandsOnR\x12redisRunCommandsOn\"[\n" +
 	"\x12RedisRunCommandsOn\x12%\n" +
 	"!REDIS_RUN_COMMANDS_ON_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vSINGLE_NODE\x10\x01\x12\r\n" +
-	"\tALL_NODES\x10\x02\"\xa8\a\n" +
+	"\tALL_NODES\x10\x02\"\xcb\a\n" +
 	"\vQueryResult\x12!\n" +
 	"\fcolumn_names\x18\x01 \x03(\tR\vcolumnNames\x12*\n" +
 	"\x11column_type_names\x18\x02 \x03(\tR\x0fcolumnTypeNames\x12)\n" +
@@ -2606,7 +2608,8 @@ const file_v1_sql_service_proto_rawDesc = "" +
 	"\x05error\x18\x06 \x01(\tR\x05error\x123\n" +
 	"\alatency\x18\a \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\x1c\n" +
 	"\tstatement\x18\b \x01(\tR\tstatement\x12O\n" +
-	"\x0epostgres_error\x18\t \x01(\v2&.bytebase.v1.QueryResult.PostgresErrorH\x00R\rpostgresError\x1a\xfd\x03\n" +
+	"\x0epostgres_error\x18\t \x01(\v2&.bytebase.v1.QueryResult.PostgresErrorH\x00R\rpostgresError\x12!\n" +
+	"\fallow_export\x18\v \x01(\bR\vallowExport\x1a\xfd\x03\n" +
 	"\rPostgresError\x12\x1a\n" +
 	"\bseverity\x18\x01 \x01(\tR\bseverity\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +

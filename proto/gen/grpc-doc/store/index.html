@@ -1260,6 +1260,18 @@
                 </li>
               
                 <li>
+                  <a href="#bytebase.store.EnvironmentSetting"><span class="badge">M</span>EnvironmentSetting</a>
+                </li>
+              
+                <li>
+                  <a href="#bytebase.store.EnvironmentSetting.Environment"><span class="badge">M</span>EnvironmentSetting.Environment</a>
+                </li>
+              
+                <li>
+                  <a href="#bytebase.store.EnvironmentSetting.Environment.TagsEntry"><span class="badge">M</span>EnvironmentSetting.Environment.TagsEntry</a>
+                </li>
+              
+                <li>
                   <a href="#bytebase.store.MaximumSQLResultSizeSetting"><span class="badge">M</span>MaximumSQLResultSizeSetting</a>
                 </li>
               
@@ -1552,7 +1564,7 @@
         
       
         <h3 id="bytebase.store.Position">Position</h3>
-        <p></p>
+        <p>Position in a text expressed as zero-based line and zero-based column byte</p><p>offset.</p>
 
         
           <table class="field-table">
@@ -1565,14 +1577,14 @@
                   <td>line</td>
                   <td><a href="#int32">int32</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>Line position in a text (zero-based). </p></td>
                 </tr>
               
                 <tr>
                   <td>column</td>
                   <td><a href="#int32">int32</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>Column position in a text (zero-based), equivalent to byte offset. </p></td>
                 </tr>
               
             </tbody>
@@ -1785,6 +1797,18 @@
                 <td><p></p></td>
               </tr>
             
+              <tr>
+                <td>TRINO</td>
+                <td>27</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>CASSANDRA</td>
+                <td>28</td>
+                <td><p></p></td>
+              </tr>
+            
           </tbody>
         </table>
       
@@ -1959,7 +1983,8 @@
                   <td>start_position</td>
                   <td><a href="#bytebase.store.Position">Position</a></td>
                   <td></td>
-                  <td><p>1-based positions of the sql statment. </p></td>
+                  <td><p>The start_position is inclusive and the end_position is exclusive.
+TODO: use range instead. </p></td>
                 </tr>
               
                 <tr>
@@ -5927,7 +5952,7 @@ Format: users/{userUID}. </p></td>
 
       
         <h3 id="bytebase.store.FieldMapping">FieldMapping</h3>
-        <p>FieldMapping saves the field names from user info API of identity provider.</p><p>As we save all raw json string of user info response data into `principal.idp_user_info`,</p><p>we can extract the relevant data based with `FieldMapping`.</p><p>e.g. For GitHub authenticated user API, it will return `login`, `name` and `email` in response.</p><p>Then the identifier of FieldMapping will be `login`, display_name will be `name`,</p><p>and email will be `email`.</p><p>reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get-the-authenticated-user</p>
+        <p>FieldMapping saves the field names from user info API of identity provider.</p><p>As we save all raw json string of user info response data into `principal.idp_user_info`,</p><p>we can extract the relevant data based with `FieldMapping`.</p>
 
         
           <table class="field-table">
@@ -5951,17 +5976,18 @@ Format: users/{userUID}. </p></td>
                 </tr>
               
                 <tr>
-                  <td>email</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>Email is the field name of primary email in 3rd-party idp user info. Optional. </p></td>
-                </tr>
-              
-                <tr>
                   <td>phone</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
                   <td><p>Phone is the field name of primary phone in 3rd-party idp user info. Optional. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>groups</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>Groups is the field name of groups in 3rd-party idp user info. Optional.
+Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/ </p></td>
                 </tr>
               
             </tbody>
@@ -6034,17 +6060,25 @@ Format: users/{userUID}. </p></td>
                 </tr>
               
                 <tr>
-                  <td>email</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>Email is the value of primary email in 3rd-party idp user info. </p></td>
-                </tr>
-              
-                <tr>
                   <td>phone</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
                   <td><p>Phone is the value of primary phone in 3rd-party idp user info. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>groups</td>
+                  <td><a href="#string">string</a></td>
+                  <td>repeated</td>
+                  <td><p>Groups is the value of groups in 3rd-party idp user info.
+Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/ </p></td>
+                </tr>
+              
+                <tr>
+                  <td>has_groups</td>
+                  <td><a href="#bool">bool</a></td>
+                  <td></td>
+                  <td><p> </p></td>
                 </tr>
               
             </tbody>
@@ -6270,6 +6304,13 @@ server. </p></td>
                   <td>auth_style</td>
                   <td><a href="#bytebase.store.OAuth2AuthStyle">OAuth2AuthStyle</a></td>
                   <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>scopes</td>
+                  <td><a href="#string">string</a></td>
+                  <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
               
@@ -10894,6 +10935,108 @@ and write back to the schema metadata. </p></td>
 
         
       
+        <h3 id="bytebase.store.EnvironmentSetting">EnvironmentSetting</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>environments</td>
+                  <td><a href="#bytebase.store.EnvironmentSetting.Environment">EnvironmentSetting.Environment</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="bytebase.store.EnvironmentSetting.Environment">EnvironmentSetting.Environment</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>title</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>The display name of the environment. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>The resource id of the environment.
+This value should be 4-63 characters, and valid characters
+are /[a-z][0-9]-/. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>tags</td>
+                  <td><a href="#bytebase.store.EnvironmentSetting.Environment.TagsEntry">EnvironmentSetting.Environment.TagsEntry</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>color</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="bytebase.store.EnvironmentSetting.Environment.TagsEntry">EnvironmentSetting.Environment.TagsEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
         <h3 id="bytebase.store.MaximumSQLResultSizeSetting">MaximumSQLResultSizeSetting</h3>
         <p></p>
 
@@ -12230,7 +12373,7 @@ Format: instances/{instance}/databases/{database} </p></td>
         
       
         <h3 id="bytebase.store.TaskRunResult.Position">TaskRunResult.Position</h3>
-        <p>The following fields are used for error reporting.</p>
+        <p>The following fields are used for error reporting.</p><p>TODO(zp): Use common Position instead.</p>
 
         
           <table class="field-table">

@@ -260,7 +260,6 @@ const route = useRoute();
 const context = useIssueContext();
 const { events, isCreating, issue, selectedTask, getPlanCheckRunsForTask } =
   context;
-const project = computed(() => issue.value.projectEntity);
 const dialog = useDialog();
 const editorContainerElRef = ref<HTMLElement>();
 const monacoEditorRef = ref<InstanceType<typeof MonacoEditor>>();
@@ -348,9 +347,13 @@ const isSheetOversize = computed(() => {
   );
 });
 
-const denyEditStatementReasons = computed(() => {
-  return allowUserToEditStatementForTask(issue.value, selectedTask.value);
-});
+const denyEditStatementReasons = computed(() =>
+  allowUserToEditStatementForTask(
+    issue.value,
+    selectedTask.value,
+    context.getPlanCheckRunsForTask(selectedTask.value)
+  )
+);
 
 const shouldShowEditButton = computed(() => {
   // Need not to show "Edit" while the issue is still pending create.
@@ -635,7 +638,7 @@ const updateStatement = async (statement: string) => {
   const sheet = Sheet.fromPartial({
     ...createEmptyLocalSheet(),
     title: issue.value.title,
-    engine: await databaseEngineForSpec(project.value, head(specsToPatch)),
+    engine: await databaseEngineForSpec(head(specsToPatch)),
   });
   setSheetStatement(sheet, statement);
   const createdSheet = await useSheetV1Store().createSheet(

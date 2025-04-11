@@ -20,12 +20,12 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
-	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	parserbase "github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/transform"
 	"github.com/bytebase/bytebase/backend/plugin/schema"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
@@ -123,6 +123,32 @@ func getSubConditionFromExpr(expr celast.Expr, getFilter func(expr celast.Expr) 
 	return strings.Join(args, fmt.Sprintf(" %s ", join)), nil
 }
 
+func parseToEngineSQL(expr celast.Expr, relation string) (string, error) {
+	variable, value := getVariableAndValueFromExpr(expr)
+	if variable != "engine" {
+		return "", status.Errorf(codes.InvalidArgument, `only "engine" support "engine in [xx]"/"!(engine in [xx])" operator`)
+	}
+
+	rawEngineList, ok := value.([]any)
+	if !ok {
+		return "", status.Errorf(codes.InvalidArgument, "invalid engine value %q", value)
+	}
+	if len(rawEngineList) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "empty engine filter")
+	}
+	engineList := []string{}
+	for _, rawEngine := range rawEngineList {
+		v1Engine, ok := v1pb.Engine_value[rawEngine.(string)]
+		if !ok {
+			return "", status.Errorf(codes.InvalidArgument, "invalid engine filter %q", rawEngine)
+		}
+		engine := convertEngine(v1pb.Engine(v1Engine))
+		engineList = append(engineList, fmt.Sprintf(`'%s'`, engine.String()))
+	}
+
+	return fmt.Sprintf("instance.metadata->>'engine' %s (%s)", relation, strings.Join(engineList, ",")), nil
+}
+
 func getListDatabaseFilter(filter string) (*store.ListResourceFilter, error) {
 	if filter == "" {
 		return nil, nil
@@ -189,40 +215,13 @@ func getListDatabaseFilter(filter string) (*store.ListResourceFilter, error) {
 			return fmt.Sprintf("db.metadata->'labels'->>'%s' = ANY($%d)", labelKey, len(positionalArgs)), nil
 		case "exclude_unassigned":
 			if _, ok := value.(bool); ok {
-				positionalArgs = append(positionalArgs, api.DefaultProjectID)
+				positionalArgs = append(positionalArgs, base.DefaultProjectID)
 				return fmt.Sprintf("db.project != $%d", len(positionalArgs)), nil
 			}
 			return "TRUE", nil
 		default:
 			return "", status.Errorf(codes.InvalidArgument, "unsupport variable %q", variable)
 		}
-	}
-
-	parseToEngineSQL := func(expr celast.Expr, relation string) (string, error) {
-		variable, value := getVariableAndValueFromExpr(expr)
-		if variable != "engine" {
-			return "", status.Errorf(codes.InvalidArgument, `only "engine" support "engine in [xx]"/"!(engine in [xx])" operator`)
-		}
-
-		rawEngineList, ok := value.([]any)
-		if !ok {
-			return "", status.Errorf(codes.InvalidArgument, "invalid engine value %q", value)
-		}
-		if len(rawEngineList) == 0 {
-			return "", status.Errorf(codes.InvalidArgument, "empty engine filter")
-		}
-		engineList := []string{}
-		for _, rawEngine := range rawEngineList {
-			v1Engine, ok := v1pb.Engine_value[rawEngine.(string)]
-			if !ok {
-				return "", status.Errorf(codes.InvalidArgument, "invalid engine filter %q", rawEngine)
-			}
-			engine := convertEngine(v1pb.Engine(v1Engine))
-			positionalArgs = append(positionalArgs, engine)
-			engineList = append(engineList, fmt.Sprintf("$%d", len(positionalArgs)))
-		}
-
-		return fmt.Sprintf("instance.metadata->>'engine' %s (%s)", relation, strings.Join(engineList, ",")), nil
 	}
 
 	getFilter = func(expr celast.Expr) (string, error) {
@@ -813,11 +812,8 @@ func (s *DatabaseService) DiffSchema(ctx context.Context, request *v1pb.DiffSche
 		return nil, status.Errorf(codes.Internal, "failed to get parser engine, error: %v", err)
 	}
 
-	strictMode := true
-	if engine == storepb.Engine_ORACLE {
-		strictMode = false
-	}
-	diff, err := base.SchemaDiff(engine, base.DiffContext{
+	strictMode := engine != storepb.Engine_ORACLE
+	diff, err := parserbase.SchemaDiff(engine, parserbase.DiffContext{
 		IgnoreCaseSensitive: false,
 		StrictMode:          strictMode,
 	}, source, target)
@@ -1020,7 +1016,7 @@ func (s *DatabaseService) UpdateSecret(ctx context.Context, request *v1pb.Update
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 
-	if err := s.licenseService.IsFeatureEnabledForInstance(api.FeatureEncryptedSecrets, instance); err != nil {
+	if err := s.licenseService.IsFeatureEnabledForInstance(base.FeatureEncryptedSecrets, instance); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 
@@ -1110,7 +1106,7 @@ func (s *DatabaseService) DeleteSecret(ctx context.Context, request *v1pb.Delete
 		return nil, status.Errorf(codes.NotFound, "instance %q not found", instanceID)
 	}
 
-	if err := s.licenseService.IsFeatureEnabledForInstance(api.FeatureEncryptedSecrets, instance); err != nil {
+	if err := s.licenseService.IsFeatureEnabledForInstance(base.FeatureEncryptedSecrets, instance); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 

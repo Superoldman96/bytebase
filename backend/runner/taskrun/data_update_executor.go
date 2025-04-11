@@ -18,10 +18,10 @@ import (
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 
-	api "github.com/bytebase/bytebase/backend/legacyapi"
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/oracle"
-	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	parserbase "github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	pgrawparser "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 	"github.com/bytebase/bytebase/backend/store"
@@ -82,46 +82,52 @@ func (exec *DataUpdateExecutor) RunOnce(ctx context.Context, driverCtx context.C
 		PriorBackupStart: &storepb.TaskRunLog_PriorBackupStart{},
 	})
 
-	priorBackupDetail, backupErr := exec.backupData(ctx, driverCtx, statement, task.Payload, task, issueN, instance, database)
-	if backupErr != nil {
-		exec.store.CreateTaskRunLogS(ctx, taskRunUID, time.Now(), exec.profile.DeployID, &storepb.TaskRunLog{
-			Type: storepb.TaskRunLog_PRIOR_BACKUP_END,
-			PriorBackupEnd: &storepb.TaskRunLog_PriorBackupEnd{
-				Error: backupErr.Error(),
-			},
-		})
-		// Create issue comment for backup error.
-		if issueN != nil {
-			if _, err := exec.store.CreateIssueComment(ctx, &store.IssueCommentMessage{
-				IssueUID: issueN.UID,
-				Payload: &storepb.IssueCommentPayload{
-					Event: &storepb.IssueCommentPayload_TaskPriorBackup_{
-						TaskPriorBackup: &storepb.IssueCommentPayload_TaskPriorBackup{
-							Task:  common.FormatTask(issueN.Project.ResourceID, task.PipelineID, task.StageID, task.ID),
-							Error: backupErr.Error(),
+	var priorBackupDetail *storepb.PriorBackupDetail
+	// Check if we should skip backup or not.
+	if base.EngineSupportPriorBackup(instance.Metadata.GetEngine()) {
+		var backupErr error
+		priorBackupDetail, backupErr = exec.backupData(ctx, driverCtx, statement, task.Payload, task, issueN, instance, database)
+		if backupErr != nil {
+			exec.store.CreateTaskRunLogS(ctx, taskRunUID, time.Now(), exec.profile.DeployID, &storepb.TaskRunLog{
+				Type: storepb.TaskRunLog_PRIOR_BACKUP_END,
+				PriorBackupEnd: &storepb.TaskRunLog_PriorBackupEnd{
+					Error: backupErr.Error(),
+				},
+			})
+			// Create issue comment for backup error.
+			if issueN != nil {
+				if _, err := exec.store.CreateIssueComment(ctx, &store.IssueCommentMessage{
+					IssueUID: issueN.UID,
+					Payload: &storepb.IssueCommentPayload{
+						Event: &storepb.IssueCommentPayload_TaskPriorBackup_{
+							TaskPriorBackup: &storepb.IssueCommentPayload_TaskPriorBackup{
+								Task:  common.FormatTask(issueN.Project.ResourceID, task.PipelineID, task.StageID, task.ID),
+								Error: backupErr.Error(),
+							},
 						},
 					},
-				},
-			}, api.SystemBotID); err != nil {
-				slog.Warn("failed to create issue comment", "task", task.ID, log.BBError(err), "backup error", backupErr)
+				}, base.SystemBotID); err != nil {
+					slog.Warn("failed to create issue comment", "task", task.ID, log.BBError(err), "backup error", backupErr)
+				}
 			}
+			// Check if we should skip backup error and continue to run migration.
+			skip, err := exec.shouldSkipBackupError(ctx, task)
+			if err != nil {
+				return true, nil, errors.Errorf("failed to check skip backup error or not: %v", err)
+			}
+			if !skip {
+				return true, nil, backupErr
+			}
+		} else {
+			exec.store.CreateTaskRunLogS(ctx, taskRunUID, time.Now(), exec.profile.DeployID, &storepb.TaskRunLog{
+				Type: storepb.TaskRunLog_PRIOR_BACKUP_END,
+				PriorBackupEnd: &storepb.TaskRunLog_PriorBackupEnd{
+					PriorBackupDetail: priorBackupDetail,
+				},
+			})
 		}
-		// Check if we should skip backup error and continue to run migration.
-		skip, err := exec.shouldSkipBackupError(ctx, task)
-		if err != nil {
-			return true, nil, errors.Errorf("failed to check skip backup error or not: %v", err)
-		}
-		if !skip {
-			return true, nil, backupErr
-		}
-	} else {
-		exec.store.CreateTaskRunLogS(ctx, taskRunUID, time.Now(), exec.profile.DeployID, &storepb.TaskRunLog{
-			Type: storepb.TaskRunLog_PRIOR_BACKUP_END,
-			PriorBackupEnd: &storepb.TaskRunLog_PriorBackupEnd{
-				PriorBackupDetail: priorBackupDetail,
-			},
-		})
 	}
+
 	terminated, result, err := runMigration(ctx, driverCtx, exec.store, exec.dbFactory, exec.stateCfg, exec.schemaSyncer, exec.profile, task, taskRunUID, db.Data, statement, task.Payload.GetSchemaVersion(), &sheetID)
 	if result != nil {
 		// Save prior backup detail to task run result.
@@ -200,7 +206,7 @@ func (exec *DataUpdateExecutor) backupData(
 	}
 	defer driver.Close(driverCtx)
 
-	tc := base.TransformContext{
+	tc := parserbase.TransformContext{
 		InstanceID:              instance.ResourceID,
 		GetDatabaseMetadataFunc: BuildGetDatabaseMetadataFunc(exec.store),
 		ListDatabaseNamesFunc:   BuildListDatabaseNamesFunc(exec.store),
@@ -220,7 +226,7 @@ func (exec *DataUpdateExecutor) backupData(
 	}
 
 	prefix := "_" + time.Now().Format("20060102150405")
-	statements, err := base.TransformDMLToSelect(ctx, instance.Metadata.GetEngine(), tc, originStatement, database.DatabaseName, backupDatabaseName, prefix)
+	statements, err := parserbase.TransformDMLToSelect(ctx, instance.Metadata.GetEngine(), tc, originStatement, database.DatabaseName, backupDatabaseName, prefix)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to transform DML to select")
 	}
@@ -315,7 +321,7 @@ func (exec *DataUpdateExecutor) backupData(
 						},
 					},
 				},
-			}, api.SystemBotID); err != nil {
+			}, base.SystemBotID); err != nil {
 				slog.Warn("failed to create issue comment", "task", task.ID, log.BBError(err))
 			}
 		}
@@ -340,7 +346,7 @@ func (exec *DataUpdateExecutor) backupData(
 	return priorBackupDetail, nil
 }
 
-func BuildGetDatabaseMetadataFunc(storeInstance *store.Store) base.GetDatabaseMetadataFunc {
+func BuildGetDatabaseMetadataFunc(storeInstance *store.Store) parserbase.GetDatabaseMetadataFunc {
 	return func(ctx context.Context, instanceID, databaseName string) (string, *model.DatabaseMetadata, error) {
 		database, err := storeInstance.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
 			InstanceID:   &instanceID,
@@ -363,7 +369,7 @@ func BuildGetDatabaseMetadataFunc(storeInstance *store.Store) base.GetDatabaseMe
 	}
 }
 
-func BuildListDatabaseNamesFunc(storeInstance *store.Store) base.ListDatabaseNamesFunc {
+func BuildListDatabaseNamesFunc(storeInstance *store.Store) parserbase.ListDatabaseNamesFunc {
 	return func(ctx context.Context, instanceID string) ([]string, error) {
 		databases, err := storeInstance.ListDatabases(ctx, &store.FindDatabaseMessage{
 			InstanceID: &instanceID,

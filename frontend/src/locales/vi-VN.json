@@ -98,7 +98,6 @@
     "detail": "Chi tiết",
     "type": "Loại",
     "language": "Ngôn ngữ",
-    "change": "Thay đổi",
     "sensitive-placeholder": "Nhạy cảm - Chỉ ghi",
     "enabled": "Đã kích hoạt",
     "default": "Mặc định",
@@ -225,12 +224,14 @@
     "text-wrap": "Ngắt dòng văn bản",
     "catalog": "Danh mục",
     "summary": "Tóm tắt",
-    "errors": "Lỗi"
+    "errors": "Lỗi",
+    "removed": "LOẠI BỎ"
   },
   "error-page": {
     "go-back-home": "Về trang chủ"
   },
   "task": {
+    "current-task": "Nhiệm vụ hiện tại",
     "checking": "Đang kiểm tra...",
     "check-result": {
       "title-general": "Kết quả kiểm tra"
@@ -291,7 +292,7 @@
     "status": {
       "enqueued": "Đang chờ thực thi.",
       "enqueued-with-rollout-time": "Đang chờ thực thi sau {time}.",
-      "waiting-connection": "Đang chờ kết nối phiên làm việc khả dụng. Số lượng kết nối phiên làm việc đã đạt đến giới hạn.",
+      "waiting-connection": "Đang chờ kết nối thể hiện có sẵn. Số lượng kết nối thể hiện đã đạt đến giới hạn được đặt trên Bytebase.",
       "waiting-task": "Đang chờ một tác vụ khác kết thúc."
     }
   },
@@ -363,8 +364,6 @@
         "self": "Nhóm",
         "add-group": "Thêm nhóm",
         "update-group": "Cập nhật nhóm",
-        "delete-warning": "Nhóm \"{name}\" sẽ bị xóa. Hành động này không thể hoàn tác.",
-        "delete-warning-with-resources": "Nhóm \"{name}\" đang được sử dụng bởi các tài nguyên sau:",
         "form": {
           "email": "Email",
           "email-tips": "Email phải là duy nhất, và không thể thay đổi sau khi tạo.",
@@ -380,12 +379,8 @@
         "workspace-domain-required": "Vui lòng thiết lập tên miền không gian làm việc trước."
       },
       "action": {
-        "deactivate": "Vô hiệu hóa",
         "deactivate-confirm-title": "Bạn có chắc muốn vô hiệu hóa?",
         "reactivate-confirm-title": "Bạn có chắc muốn kích hoạt lại?"
-      },
-      "tooltip": {
-        "not-allow-remove": "Không thể xóa Quản trị viên cuối cùng"
       },
       "system-bot": "Bot hệ thống",
       "service-account": "Tài khoản dịch vụ",
@@ -407,7 +402,6 @@
         "reset-token": "Đặt lại mã thông báo",
         "reset-token-warning": "Bạn cần cập nhật cấu hình cung cấp ứng dụng Entra."
       },
-      "update-user": "Cập nhật người dùng",
       "search-member": "Tìm kiếm thành viên",
       "revoked": "Đã thu hồi",
       "view-by-members": "Xem theo thành viên",
@@ -457,6 +451,7 @@
         "identifier-tips": "Nó phải là một chuỗi duy nhất. Và nếu nó không ở định dạng email, nó sẽ được nối với tên miền.",
         "display-name": "Tên hiển thị của người dùng Bytebase",
         "phone": "Số điện thoại của người dùng Bytebase",
+        "groups": "Nhóm người dùng Bytebase",
         "auth-style": {
           "self": "Kiểu xác thực",
           "in-params": {
@@ -784,6 +779,7 @@
     "advanced-search": {
       "self": "Tìm kiếm nâng cao",
       "filter": "Bộ lọc",
+      "search": "Nhập tiêu đề hoặc id để tìm kiếm",
       "scope": {
         "project": {
           "title": "Dự án",
@@ -831,7 +827,7 @@
         },
         "database-label": {
           "title": "Nhãn",
-          "description": "Nhập \"key\":\"value\" rồi nhấn Enter"
+          "description": "Nhập \"key:value\" rồi nhấn Enter"
         },
         "engine": {
           "title": "Động cơ",
@@ -1055,6 +1051,9 @@
     },
     "schema": {
       "default": "Mặc định"
+    },
+    "catalog": {
+      "description": "Chỉnh sửa và tải lên danh mục bảng."
     }
   },
   "instance": {
@@ -1236,9 +1235,13 @@
     },
     "advanced-search": {
       "scope": {
-        "address": {
-          "title": "Địa chỉ",
-          "description": "Lọc theo địa chỉ"
+        "host": {
+          "title": "Chủ nhà",
+          "description": "Lọc theo máy chủ lưu trữ. Vui lòng nhập giá trị rồi nhấn Enter."
+        },
+        "port": {
+          "title": "Cảng",
+          "description": "Lọc theo cổng phiên bản. Vui lòng nhập giá trị rồi nhấn Enter."
         }
       }
     },
@@ -1249,8 +1252,7 @@
   },
   "environment": {
     "select": "Chọn môi trường",
-    "archive": "Lưu trữ môi trường này",
-    "archive-info": "Các môi trường đã lưu trữ sẽ không được hiển thị.",
+    "delete": "Xóa môi trường này",
     "create": "Tạo môi trường",
     "restore": "Khôi phục môi trường này",
     "successfully-updated-environment": "Đã cập nhật thành công môi trường '{name}'.",
@@ -1667,7 +1669,7 @@
     "snowflake-keypair-tip": "Xác thực cặp khóa",
     "extra-params": {
       "self": "Thông số bổ sung",
-      "description": "Các tham số bổ sung cho chuỗi kết nối cơ sở dữ liệu. \nĐối với PostgreSQL, bạn có thể sử dụng các tham số như target_session_attrs = read-write để đảm bảo kết nối với các phiên bản đọc-write."
+      "description": "Các tham số bổ sung cho chuỗi kết nối cơ sở dữ liệu"
     },
     "ssl": {
       "ca-cert": "Chứng chỉ CA",
@@ -1721,16 +1723,18 @@
     "download-as-file": "Tải xuống dưới dạng {file}",
     "only-select-allowed": "Chỉ cho phép câu lệnh {select}.",
     "enable-ddl-for-environment": "Bạn có thể bật câu lệnh DDL/DML cho môi trường {environment}.",
-    "want-to-action": "Nếu bạn muốn {want}, hãy nhấp vào nút {action} {reaction}.",
     "and-submit-an-issue": "và gửi một vấn đề",
     "to-enable-admin-mode": "để bật chế độ quản trị",
     "notify-empty-statement": "Vui lòng nhập câu lệnh SQL của bạn vào trình soạn thảo",
-    "goto-edit-schema-hint": "Vui lòng chọn một kết nối cơ sở dữ liệu từ đầu trình soạn thảo",
     "can-not-execute-query": "Không thể thực hiện truy vấn khi đang tải dữ liệu.",
     "rows": "dòng | dòng",
     "vertical-display": "Hiển thị dọc",
     "no-history-found": "Không tìm thấy lịch sử",
     "search-history": "Tìm kiếm Lịch sử",
+    "binary-format": "Định dạng nhị phân",
+    "hex-format": "Định dạng thập lục phân",
+    "boolean-format": "Định dạng Boolean",
+    "text-format": "Định dạng văn bản",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "Đóng trang tính chưa lưu?",
@@ -1759,6 +1763,7 @@
     "rows-upper-limit": "đã đạt đến giới hạn kết quả truy vấn",
     "close-sheet": "Đóng trang tính",
     "connect": "Kết nối",
+    "connected": "Đã kết nối",
     "connect-in-admin-mode": "Kết nối ở chế độ quản trị",
     "admin-mode": {
       "self": "Chế độ quản trị",
@@ -1792,8 +1797,6 @@
     },
     "executing-query": "Đang thực hiện truy vấn",
     "request-query": "Yêu cầu truy vấn",
-    "previous-row": "Dòng trước",
-    "next-row": "Dòng tiếp theo",
     "copy-success": "Sao chép thành công",
     "connect-in-new-tab": "Kết nối trong tab mới",
     "copy-name": "Sao chép tên",
@@ -1843,7 +1846,11 @@
       "contact-the-admin-to-grant-access": "Liên hệ với quản trị viên để cấp quyền truy cập."
     },
     "upload-file": "Tải lên tệp",
-    "copy-selected-results": "Sao chép dữ liệu đã chọn bằng {action} hoặc {button}"
+    "copy-selected-results": "Sao chép dữ liệu đã chọn bằng {action} hoặc {button}",
+    "format-default": "Mặc định",
+    "column-display-format": "Định dạng hiển thị cột",
+    "next-row": "Dòng tiếp theo",
+    "previous-row": "Dòng trước"
   },
   "schema-editor": {
     "self": "Trình soạn thảo lược đồ",
@@ -2133,7 +2140,10 @@
     "idp": "Nhà cung cấp danh tính",
     "database-group": "Nhóm cơ sở dữ liệu",
     "changelist": "Danh sách thay đổi",
-    "review-config": "Cấu hình đánh giá"
+    "review-config": "Cấu hình đánh giá",
+    "delete-warning": "\"{name}\" sẽ bị xóa. Hành động này không thể hoàn tác.",
+    "delete-warning-with-resources": "\"{name}\" được sử dụng bởi các tài nguyên sau:",
+    "delete-warning-retry": "Vui lòng xóa nó khỏi các tài nguyên này rồi thử lại."
   },
   "resource-id": {
     "self": "ID {resource}",
@@ -2390,10 +2400,7 @@
       "add": "Thêm vai trò",
       "edit": "Chỉnh sửa vai trò",
       "title-placeholder": "Nhập tiêu đề vai trò",
-      "description-placeholder": "Nhập mô tả vai trò",
-      "delete-warning": "Vai trò \"{name}\" sẽ bị xóa. Hành động này không thể hoàn tác.",
-      "delete-warning-with-resources": "Vai trò \"{name}\" được gán cho những người dùng sau:",
-      "delete-warning-retry": "Vui lòng xóa vai trò khỏi những người dùng này rồi thử lại."
+      "description-placeholder": "Nhập mô tả vai trò"
     },
     "default-workspace-role": "Người dùng sẽ nhận được vai trò \"Thành viên không gian làm việc\" theo mặc định",
     "title": "Tiêu đề",
@@ -2452,13 +2459,13 @@
   },
   "database-group": {
     "create": "Nhóm cơ sở dữ liệu mới",
-    "edit": "Chỉnh sửa nhóm cơ sở dữ liệu",
     "matched-database": "Cơ sở dữ liệu phù hợp",
     "unmatched-database": "Cơ sở dữ liệu không phù hợp",
     "condition": {
       "self": "Điều kiện"
     },
-    "select": "Chọn nhóm cơ sở dữ liệu"
+    "select": "Chọn nhóm cơ sở dữ liệu",
+    "no-matched-databases": "Không có cơ sở dữ liệu phù hợp"
   },
   "export-center": {
     "self": "Trung tâm xuất",
@@ -2501,7 +2508,6 @@
     "name": "Tên danh sách thay đổi",
     "name-placeholder": "Danh sách thay đổi của tôi",
     "error": {
-      "project-is-required": "Dự án là bắt buộc",
       "name-is-required": "Tên danh sách thay đổi là bắt buộc",
       "invalid-resource-id": "ID tài nguyên không hợp lệ",
       "nothing-changed": "Không có gì thay đổi",

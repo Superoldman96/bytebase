@@ -98,7 +98,6 @@
     "detail": "详情",
     "type": "类型",
     "language": "语言",
-    "change": "变更",
     "sensitive-placeholder": "敏感数据 - 仅写入",
     "enabled": "开启",
     "default": "默认",
@@ -225,12 +224,14 @@
     "text-wrap": "文本折行",
     "catalog": "Catalog",
     "summary": "总结",
-    "errors": "错误"
+    "errors": "错误",
+    "removed": "已移除"
   },
   "error-page": {
     "go-back-home": "回到主页"
   },
   "task": {
+    "current-task": "当前任务",
     "checking": "检查中…",
     "check-result": {
       "title-general": "检查结果"
@@ -291,7 +292,7 @@
     "status": {
       "enqueued": "等待执行。",
       "enqueued-with-rollout-time": "等待执行，{time}后执行。",
-      "waiting-connection": "等待可用的实例连接。实例连接数已达到限制。",
+      "waiting-connection": "等待可用的实例连接。实例连接数已达到 Bytebase 上设置的限制。",
       "waiting-task": "等待另一个任务完成。"
     }
   },
@@ -363,8 +364,6 @@
         "self": "群组",
         "add-group": "添加组",
         "update-group": "更新组",
-        "delete-warning": "群组“{name}”将被删除。此操作无法撤消。",
-        "delete-warning-with-resources": "以下资源使用了群组“{name}”：",
         "form": {
           "email": "邮箱",
           "email-tips": "邮箱应该是唯一的，并且创建后不能更改。",
@@ -380,12 +379,8 @@
         "workspace-domain-required": "请先设置工作空间的域名。"
       },
       "action": {
-        "deactivate": "禁用",
         "deactivate-confirm-title": "确定禁用",
         "reactivate-confirm-title": "确定启用"
-      },
-      "tooltip": {
-        "not-allow-remove": "不能移除最后一个管理员"
       },
       "system-bot": "机器人助手",
       "service-account": "服务账号",
@@ -407,7 +402,6 @@
         "reset-token": "重置密钥",
         "reset-token-warning": "您需要更新 Entra 应用程序配置。"
       },
-      "update-user": "更新用户",
       "search-member": "搜索成员",
       "revoked": "已撤销",
       "view-by-members": "按成员查看",
@@ -457,6 +451,7 @@
         "identifier-tips": "邮箱应该具有唯一性。如果实际值不是邮箱格式，将会和 domain 进行拼接。",
         "display-name": "Bytebase 用户的昵称",
         "phone": "Bytebase 用户的手机号",
+        "groups": "Bytebase 用户的群组",
         "auth-style": {
           "self": "认证参数传递方式",
           "in-params": {
@@ -784,6 +779,7 @@
     "advanced-search": {
       "self": "高级搜索",
       "filter": "过滤",
+      "search": "输入名称或 ID 来搜索",
       "scope": {
         "project": {
           "title": "项目",
@@ -831,7 +827,7 @@
         },
         "database-label": {
           "title": "标签",
-          "description": "输入\"key\":\"value\"后按下回车"
+          "description": "输入 \"key:value\" 后按下回车"
         },
         "engine": {
           "title": "引擎",
@@ -1055,6 +1051,9 @@
     },
     "schema": {
       "default": "默认"
+    },
+    "catalog": {
+      "description": "编辑并上传表的 Catalog"
     }
   },
   "instance": {
@@ -1236,9 +1235,13 @@
     },
     "advanced-search": {
       "scope": {
-        "address": {
-          "title": "地址",
-          "description": "按地址过滤"
+        "host": {
+          "title": "服务器地址",
+          "description": "按实例服务器地址过滤。请输入值然后按 Enter。"
+        },
+        "port": {
+          "title": "端口",
+          "description": "按实例端口过滤。请输入值然后按 Enter。"
         }
       }
     },
@@ -1249,8 +1252,7 @@
   },
   "environment": {
     "select": "选择环境",
-    "archive": "归档此环境",
-    "archive-info": "已归档环境将不再显示。",
+    "delete": "删除此环境",
     "create": "创建环境",
     "restore": "恢复此环境",
     "successfully-updated-environment": "环境'{name}'更新成功",
@@ -1667,7 +1669,7 @@
     "snowflake-keypair-tip": "密钥对认证",
     "extra-params": {
       "self": "额外的参数",
-      "description": "数据库连接字符串的其他参数。\n对于PostgreSQL，您可以使用诸如target_session_attrs = read-write之类的参数来确保与读取文字实例的连接。"
+      "description": "数据库连接字符串的其他参数"
     },
     "ssl": {
       "ca-cert": "CA 证书",
@@ -1721,16 +1723,18 @@
     "download-as-file": "下载为 {file} 格式",
     "only-select-allowed": "只允许执行 {select} 语句",
     "enable-ddl-for-environment": "您可以为环境 {environment} 启用 DDL/DML 语句。",
-    "want-to-action": "如果您想要{want}，点击“{action}”按钮{reaction}。",
     "and-submit-an-issue": "并提交一个工单",
     "to-enable-admin-mode": "来开启管理员模式",
     "notify-empty-statement": "请在编辑器中输入 SQL 语句",
-    "goto-edit-schema-hint": "请从编辑器顶部选择一个数据库连接",
     "can-not-execute-query": "加载数据时无法执行查询",
     "rows": "条记录",
     "vertical-display": "竖向展示",
     "no-history-found": "暂无历史记录",
     "search-history": "搜索历史记录",
+    "binary-format": "二进制格式",
+    "hex-format": "十六进制格式",
+    "boolean-format": "布尔格式",
+    "text-format": "文本格式",
     "hint-tips": {
       "confirm-to-close-unsaved-sheet": {
         "title": "确定关闭未保存的工作表？",
@@ -1759,6 +1763,7 @@
     "rows-upper-limit": "到达查询结果条数上限",
     "close-sheet": "关闭工作表",
     "connect": "连接",
+    "connected": "已连接",
     "connect-in-admin-mode": "以管理员模式连接",
     "admin-mode": {
       "self": "管理员模式",
@@ -1792,8 +1797,6 @@
     },
     "executing-query": "执行查询",
     "request-query": "请求查询",
-    "previous-row": "上一行",
-    "next-row": "下一行",
     "copy-success": "复制成功",
     "connect-in-new-tab": "在新选项卡中连接",
     "copy-name": "复制名称",
@@ -1843,7 +1846,11 @@
       "contact-the-admin-to-grant-access": "联系管理员以授予访问权限。"
     },
     "upload-file": "上传文件",
-    "copy-selected-results": "通过 {action} 或 {button} 来快速复制选定的数据"
+    "copy-selected-results": "通过 {action} 或 {button} 来快速复制选定的数据",
+    "format-default": "默认",
+    "column-display-format": "列显示格式",
+    "next-row": "下一行",
+    "previous-row": "上一行"
   },
   "schema-editor": {
     "self": "Schema 编辑器",
@@ -2133,7 +2140,10 @@
     "idp": "身份提供商",
     "database-group": "数据库分组",
     "changelist": "变更列表",
-    "review-config": "审查配置"
+    "review-config": "审查配置",
+    "delete-warning": "“{name}”将被删除。此操作无法撤消。",
+    "delete-warning-with-resources": "以下资源使用了“{name}”：",
+    "delete-warning-retry": "请将其从这些资源中删除，然后重试。"
   },
   "resource-id": {
     "self": "{resource} ID",
@@ -2390,10 +2400,7 @@
       "add": "添加角色",
       "edit": "编辑角色",
       "title-placeholder": "输入角色称谓",
-      "description-placeholder": "输入角色描述",
-      "delete-warning": "角色“{name}”将被删除。此操作无法撤消。",
-      "delete-warning-with-resources": "角色“{name}”已分配给以下用户：",
-      "delete-warning-retry": "请从这些用户中删除角色然后重试。"
+      "description-placeholder": "输入角色描述"
     },
     "default-workspace-role": "用户将默认获得“工作区成员”角色",
     "title": "称谓",
@@ -2452,13 +2459,13 @@
   },
   "database-group": {
     "create": "新建数据库分组",
-    "edit": "编辑数据库分组",
     "matched-database": "相匹配的数据库",
     "unmatched-database": "不匹配的数据库",
     "condition": {
       "self": "条件"
     },
-    "select": "选择数据库组"
+    "select": "选择数据库组",
+    "no-matched-databases": "没有匹配的数据库"
   },
   "export-center": {
     "self": "导出中心",
@@ -2501,7 +2508,6 @@
     "name": "变更列表名称",
     "name-placeholder": "我的变更列表",
     "error": {
-      "project-is-required": "项目不能为空",
       "name-is-required": "变更列表名称不能为空",
       "invalid-resource-id": "无效的资源 ID",
       "nothing-changed": "无任何改变",

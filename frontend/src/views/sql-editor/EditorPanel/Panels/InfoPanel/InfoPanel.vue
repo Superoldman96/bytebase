@@ -1,12 +1,5 @@
 <template>
   <div class="px-2 py-2 gap-4 h-full overflow-hidden flex flex-col">
-    <div class="w-full flex flex-row gap-x-2 justify-between items-center">
-      <div class="flex items-center justify-start gap-2">
-        <DatabaseChooser />
-        <SchemaSelectToolbar simple />
-      </div>
-    </div>
-
     <div class="flex-1 overflow-auto flex flex-col gap-4">
       <DatabaseOverviewInfo :database="database" />
 
@@ -227,8 +220,7 @@ import {
   instanceV1SupportsSequence,
 } from "@/utils";
 import { keyWithPosition } from "@/views/sql-editor/EditorCommon";
-import DatabaseChooser from "@/views/sql-editor/EditorCommon/DatabaseChooser.vue";
-import { useEditorPanelContext } from "../../context";
+import { useCurrentTabViewStateContext } from "../../context/viewState";
 import ExternalTablesTable from "../ExternalTablesPanel/ExternalTablesTable.vue";
 import FunctionsTable from "../FunctionsPanel/FunctionsTable.vue";
 import PackagesTable from "../PackagesPanel/PackagesTable.vue";
@@ -236,7 +228,6 @@ import ProceduresTable from "../ProceduresPanel/ProceduresTable.vue";
 import SequencesTable from "../SequencesPanel/SequencesTable.vue";
 import TablesTable from "../TablesPanel/TablesTable.vue";
 import ViewsTable from "../ViewsPanel/ViewsTable.vue";
-import { SchemaSelectToolbar } from "../common";
 
 const state = reactive({
   keywords: {
@@ -251,7 +242,7 @@ const state = reactive({
 });
 
 const { database } = useConnectionOfCurrentSQLEditorTab();
-const { viewState, updateViewState } = useEditorPanelContext();
+const { viewState, updateViewState } = useCurrentTabViewStateContext();
 const databaseMetadata = computed(() => {
   return useDBSchemaV1Store().getDatabaseMetadata(database.value.name);
 });

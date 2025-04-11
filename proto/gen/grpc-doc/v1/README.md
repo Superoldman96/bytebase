@@ -84,6 +84,8 @@
     - [InstanceService](#bytebase-v1-InstanceService)
   
 - [v1/database_service.proto](#v1_database_service-proto)
+    - [BatchGetDatabasesRequest](#bytebase-v1-BatchGetDatabasesRequest)
+    - [BatchGetDatabasesResponse](#bytebase-v1-BatchGetDatabasesResponse)
     - [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest)
     - [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse)
     - [ChangedResourceDatabase](#bytebase-v1-ChangedResourceDatabase)
@@ -241,6 +243,9 @@
     - [DataClassificationSetting.DataClassificationConfig.ClassificationEntry](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-ClassificationEntry)
     - [DataClassificationSetting.DataClassificationConfig.DataClassification](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-DataClassification)
     - [DataClassificationSetting.DataClassificationConfig.Level](#bytebase-v1-DataClassificationSetting-DataClassificationConfig-Level)
+    - [EnvironmentSetting](#bytebase-v1-EnvironmentSetting)
+    - [EnvironmentSetting.Environment](#bytebase-v1-EnvironmentSetting-Environment)
+    - [EnvironmentSetting.Environment.TagsEntry](#bytebase-v1-EnvironmentSetting-Environment-TagsEntry)
     - [GetSettingRequest](#bytebase-v1-GetSettingRequest)
     - [GetSettingResponse](#bytebase-v1-GetSettingResponse)
     - [ListSettingsRequest](#bytebase-v1-ListSettingsRequest)
@@ -272,8 +277,24 @@
   
     - [SettingService](#bytebase-v1-SettingService)
   
+- [v1/user_service.proto](#v1_user_service-proto)
+    - [CreateUserRequest](#bytebase-v1-CreateUserRequest)
+    - [DeleteUserRequest](#bytebase-v1-DeleteUserRequest)
+    - [GetUserRequest](#bytebase-v1-GetUserRequest)
+    - [ListUsersRequest](#bytebase-v1-ListUsersRequest)
+    - [ListUsersResponse](#bytebase-v1-ListUsersResponse)
+    - [UndeleteUserRequest](#bytebase-v1-UndeleteUserRequest)
+    - [UpdateUserRequest](#bytebase-v1-UpdateUserRequest)
+    - [User](#bytebase-v1-User)
+    - [User.Profile](#bytebase-v1-User-Profile)
+  
+    - [UserType](#bytebase-v1-UserType)
+  
+    - [UserService](#bytebase-v1-UserService)
+  
 - [v1/actuator_service.proto](#v1_actuator_service-proto)
     - [ActuatorInfo](#bytebase-v1-ActuatorInfo)
+    - [ActuatorInfo.StatUser](#bytebase-v1-ActuatorInfo-StatUser)
     - [DeleteCacheRequest](#bytebase-v1-DeleteCacheRequest)
     - [GetActuatorInfoRequest](#bytebase-v1-GetActuatorInfoRequest)
     - [GetResourcePackageRequest](#bytebase-v1-GetResourcePackageRequest)
@@ -314,24 +335,6 @@
     - [AuditLog.Severity](#bytebase-v1-AuditLog-Severity)
   
     - [AuditLogService](#bytebase-v1-AuditLogService)
-  
-- [v1/user_service.proto](#v1_user_service-proto)
-    - [CreateUserRequest](#bytebase-v1-CreateUserRequest)
-    - [DeleteUserRequest](#bytebase-v1-DeleteUserRequest)
-    - [GetUserRequest](#bytebase-v1-GetUserRequest)
-    - [ListUsersRequest](#bytebase-v1-ListUsersRequest)
-    - [ListUsersResponse](#bytebase-v1-ListUsersResponse)
-    - [StatUsersRequest](#bytebase-v1-StatUsersRequest)
-    - [StatUsersResponse](#bytebase-v1-StatUsersResponse)
-    - [StatUsersResponse.StatUser](#bytebase-v1-StatUsersResponse-StatUser)
-    - [UndeleteUserRequest](#bytebase-v1-UndeleteUserRequest)
-    - [UpdateUserRequest](#bytebase-v1-UpdateUserRequest)
-    - [User](#bytebase-v1-User)
-    - [User.Profile](#bytebase-v1-User-Profile)
-  
-    - [UserType](#bytebase-v1-UserType)
-  
-    - [UserService](#bytebase-v1-UserService)
   
 - [v1/auth_service.proto](#v1_auth_service-proto)
     - [IdentityProviderContext](#bytebase-v1-IdentityProviderContext)
@@ -768,13 +771,14 @@
 <a name="bytebase-v1-Position"></a>
 
 ### Position
-
+Position in a text expressed as zero-based line and zero-based column byte
+offset.
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| line | [int32](#int32) |  |  |
-| column | [int32](#int32) |  |  |
+| line | [int32](#int32) |  | Line position in a text (zero-based). |
+| column | [int32](#int32) |  | Column position in a text (zero-based), equivalent to byte offset. |
 
 
 
@@ -833,6 +837,8 @@
 | DATABRICKS | 24 |  |
 | COCKROACHDB | 25 |  |
 | COSMOSDB | 26 |  |
+| TRINO | 27 |  |
+| CASSANDRA | 28 |  |
 
 
 
@@ -1569,11 +1575,14 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | Not used. The maximum number of instances to return. The service may return fewer than this value. If unspecified, at most 10 instances will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `ListInstances` call. Provide this to retrieve the subsequent page.
+| page_size | [int32](#int32) |  | The maximum number of instances to return. The service may return fewer than this value. If unspecified, at most 10 instances will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
+| page_token | [string](#string) |  | A page token, received from a previous `ListInstances` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListInstances` must match the call that provided the page token. |
 | show_deleted | [bool](#bool) |  | Show deleted instances if specified. |
+| filter | [string](#string) |  | Filter the project. Supported filters: - name - resource_id - environment - state - engine - host - port - project
+
+For example: name == &#34;sample instance&#34; name.matches(&#34;sample&#34;) resource_id = &#34;sample-instance&#34; resource_id.matches(&#34;sample&#34;) state == &#34;DELETED&#34; environment == &#34;environments/test&#34; engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) host == &#34;127.0.0.1&#34; port == &#34;54321&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;sample&#34;) &amp;&amp; environment == &#34;environments/test&#34; host == &#34;127.0.0.1&#34; &amp;&amp; port == &#34;54321&#34; |
 
 
 
@@ -1825,6 +1834,37 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 <p align="right"><a href="#top">Top</a></p>
 
 ## v1/database_service.proto
+
+
+
+<a name="bytebase-v1-BatchGetDatabasesRequest"></a>
+
+### BatchGetDatabasesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent resource shared by all databases being retrieved. - projects/{project}: batch get databases in a project; - instances/{instances}: batch get databases in a instance; Use &#34;-&#34; as wildcard to batch get databases across parent. |
+| names | [string](#string) | repeated | The list of database names to retrieve. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchGetDatabasesResponse"></a>
+
+### BatchGetDatabasesResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| databases | [Database](#bytebase-v1-Database) | repeated | The databases from the specified request. |
+
+
+
 
 
 
@@ -3206,6 +3246,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | GetDatabase | [GetDatabaseRequest](#bytebase-v1-GetDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
+| BatchGetDatabases | [BatchGetDatabasesRequest](#bytebase-v1-BatchGetDatabasesRequest) | [BatchGetDatabasesResponse](#bytebase-v1-BatchGetDatabasesResponse) |  |
 | ListDatabases | [ListDatabasesRequest](#bytebase-v1-ListDatabasesRequest) | [ListDatabasesResponse](#bytebase-v1-ListDatabasesResponse) |  |
 | UpdateDatabase | [UpdateDatabaseRequest](#bytebase-v1-UpdateDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
 | BatchUpdateDatabases | [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest) | [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse) |  |
@@ -4460,6 +4501,55 @@ ANY means approving any node will proceed.
 
 
 
+<a name="bytebase-v1-EnvironmentSetting"></a>
+
+### EnvironmentSetting
+TODO(p0ny): implement.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| environments | [EnvironmentSetting.Environment](#bytebase-v1-EnvironmentSetting-Environment) | repeated |  |
+
+
+
+
+
+
+<a name="bytebase-v1-EnvironmentSetting-Environment"></a>
+
+### EnvironmentSetting.Environment
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| title | [string](#string) |  | The display name of the environment. |
+| id | [string](#string) |  | The resource id of the environment. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+| tags | [EnvironmentSetting.Environment.TagsEntry](#bytebase-v1-EnvironmentSetting-Environment-TagsEntry) | repeated |  |
+| color | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-EnvironmentSetting-Environment-TagsEntry"></a>
+
+### EnvironmentSetting.Environment.TagsEntry
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| key | [string](#string) |  |  |
+| value | [string](#string) |  |  |
+
+
+
+
+
+
 <a name="bytebase-v1-GetSettingRequest"></a>
 
 ### GetSettingRequest
@@ -4763,6 +4853,7 @@ The data in setting value.
 | scim_setting | [SCIMSetting](#bytebase-v1-SCIMSetting) |  |  |
 | password_restriction_setting | [PasswordRestrictionSetting](#bytebase-v1-PasswordRestrictionSetting) |  |  |
 | ai_setting | [AISetting](#bytebase-v1-AISetting) |  |  |
+| environment_setting | [EnvironmentSetting](#bytebase-v1-EnvironmentSetting) |  |  |
 
 
 
@@ -4950,6 +5041,213 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 
 
+<a name="v1_user_service-proto"></a>
+<p align="right"><a href="#top">Top</a></p>
+
+## v1/user_service.proto
+
+
+
+<a name="bytebase-v1-CreateUserRequest"></a>
+
+### CreateUserRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| user | [User](#bytebase-v1-User) |  | The user to create. |
+
+
+
+
+
+
+<a name="bytebase-v1-DeleteUserRequest"></a>
+
+### DeleteUserRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the user to delete. Format: users/{user} |
+
+
+
+
+
+
+<a name="bytebase-v1-GetUserRequest"></a>
+
+### GetUserRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the user to retrieve. Format: users/{user uid or user email} |
+
+
+
+
+
+
+<a name="bytebase-v1-ListUsersRequest"></a>
+
+### ListUsersRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| page_size | [int32](#int32) |  | The maximum number of users to return. The service may return fewer than this value. If unspecified, at most 10 users will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
+| page_token | [string](#string) |  | A page token, received from a previous `ListUsers` call. Provide this to retrieve the subsequent page.
+
+When paginating, all other parameters provided to `ListUsers` must match the call that provided the page token. |
+| show_deleted | [bool](#bool) |  | Show deleted users if specified. |
+| filter | [string](#string) |  | Filter is used to filter users returned in the list. Supported filter: - name - email - user_type - state - project
+
+For example: name == &#34;ed&#34; name.matches(&#34;ed&#34;) email == &#34;ed@bytebase.com&#34; email.matches(&#34;ed&#34;) user_type == &#34;SERVICE_ACCOUNT&#34; user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;] !(user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;]) state == &#34;DELETED&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;ed&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; (name == &#34;ed&#34; || email == &#34;ed@bytebase.com&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; |
+
+
+
+
+
+
+<a name="bytebase-v1-ListUsersResponse"></a>
+
+### ListUsersResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| users | [User](#bytebase-v1-User) | repeated | The users from the specified request. |
+| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
+
+
+
+
+
+
+<a name="bytebase-v1-UndeleteUserRequest"></a>
+
+### UndeleteUserRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the deleted user. Format: users/{user} |
+
+
+
+
+
+
+<a name="bytebase-v1-UpdateUserRequest"></a>
+
+### UpdateUserRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| user | [User](#bytebase-v1-User) |  | The user to update.
+
+The user&#39;s `name` field is used to identify the user to update. Format: users/{user} |
+| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
+| otp_code | [string](#string) | optional | The otp_code is used to verify the user&#39;s identity by MFA. |
+| regenerate_temp_mfa_secret | [bool](#bool) |  | The regenerate_temp_mfa_secret flag means to regenerate temporary MFA secret for user. This is used for MFA setup. The temporary MFA secret and recovery codes will be returned in the response. |
+| regenerate_recovery_codes | [bool](#bool) |  | The regenerate_recovery_codes flag means to regenerate recovery codes for user. |
+
+
+
+
+
+
+<a name="bytebase-v1-User"></a>
+
+### User
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the user. Format: users/{user}. {user} is a system-generated unique ID. |
+| state | [State](#bytebase-v1-State) |  |  |
+| email | [string](#string) |  |  |
+| title | [string](#string) |  |  |
+| user_type | [UserType](#bytebase-v1-UserType) |  |  |
+| password | [string](#string) |  |  |
+| service_key | [string](#string) |  |  |
+| mfa_enabled | [bool](#bool) |  | The mfa_enabled flag means if the user has enabled MFA. |
+| mfa_secret | [string](#string) |  | The mfa_secret is the temporary secret using in two phase verification. |
+| recovery_codes | [string](#string) | repeated | The recovery_codes is the temporary recovery codes using in two phase verification. |
+| phone | [string](#string) |  | Should be a valid E.164 compliant phone number. Could be empty. |
+| profile | [User.Profile](#bytebase-v1-User-Profile) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-User-Profile"></a>
+
+### User.Profile
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| last_login_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
+| last_change_password_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
+| source | [string](#string) |  | source means where the user comes from. For now we support Entra ID SCIM sync, so the source could be Entra ID. |
+
+
+
+
+
+ 
+
+
+<a name="bytebase-v1-UserType"></a>
+
+### UserType
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| USER_TYPE_UNSPECIFIED | 0 |  |
+| USER | 1 |  |
+| SYSTEM_BOT | 2 |  |
+| SERVICE_ACCOUNT | 3 |  |
+
+
+ 
+
+ 
+
+
+<a name="bytebase-v1-UserService"></a>
+
+### UserService
+
+
+| Method Name | Request Type | Response Type | Description |
+| ----------- | ------------ | ------------- | ------------|
+| GetUser | [GetUserRequest](#bytebase-v1-GetUserRequest) | [User](#bytebase-v1-User) | Get the user. Any authenticated user can get the user. |
+| ListUsers | [ListUsersRequest](#bytebase-v1-ListUsersRequest) | [ListUsersResponse](#bytebase-v1-ListUsersResponse) | List all users. Any authenticated user can list users. |
+| CreateUser | [CreateUserRequest](#bytebase-v1-CreateUserRequest) | [User](#bytebase-v1-User) | Create a user. When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user. Otherwise, any unauthenticated user can create a user. |
+| UpdateUser | [UpdateUserRequest](#bytebase-v1-UpdateUserRequest) | [User](#bytebase-v1-User) | Only the user itself and the user with bb.users.update permission on the workspace can update the user. |
+| DeleteUser | [DeleteUserRequest](#bytebase-v1-DeleteUserRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) | Only the user with bb.users.delete permission on the workspace can delete the user. The last remaining workspace admin cannot be deleted. |
+| UndeleteUser | [UndeleteUserRequest](#bytebase-v1-UndeleteUserRequest) | [User](#bytebase-v1-User) | Only the user with bb.users.undelete permission on the workspace can undelete the user. |
+
+ 
+
+
+
 <a name="v1_actuator_service-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -4984,6 +5282,26 @@ Actuator concept is similar to the Spring Boot Actuator.
 | disallow_password_signin | [bool](#bool) |  | disallow_password_signin is the flag to disallow user signin with email&amp;password. (except workspace admins) |
 | password_restriction | [PasswordRestrictionSetting](#bytebase-v1-PasswordRestrictionSetting) |  |  |
 | docker | [bool](#bool) |  | docker flag means if the Bytebase instance is running in docker. |
+| user_stats | [ActuatorInfo.StatUser](#bytebase-v1-ActuatorInfo-StatUser) | repeated |  |
+| activated_instance_count | [int32](#int32) |  |  |
+| total_instance_count | [int32](#int32) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-ActuatorInfo-StatUser"></a>
+
+### ActuatorInfo.StatUser
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| user_type | [UserType](#bytebase-v1-UserType) |  |  |
+| state | [State](#bytebase-v1-State) |  |  |
+| count | [int32](#int32) |  |  |
 
 
 
@@ -5481,256 +5799,6 @@ For example: - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39;&#
 | ----------- | ------------ | ------------- | ------------|
 | SearchAuditLogs | [SearchAuditLogsRequest](#bytebase-v1-SearchAuditLogsRequest) | [SearchAuditLogsResponse](#bytebase-v1-SearchAuditLogsResponse) |  |
 | ExportAuditLogs | [ExportAuditLogsRequest](#bytebase-v1-ExportAuditLogsRequest) | [ExportAuditLogsResponse](#bytebase-v1-ExportAuditLogsResponse) |  |
-
- 
-
-
-
-<a name="v1_user_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/user_service.proto
-
-
-
-<a name="bytebase-v1-CreateUserRequest"></a>
-
-### CreateUserRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| user | [User](#bytebase-v1-User) |  | The user to create. |
-
-
-
-
-
-
-<a name="bytebase-v1-DeleteUserRequest"></a>
-
-### DeleteUserRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the user to delete. Format: users/{user} |
-
-
-
-
-
-
-<a name="bytebase-v1-GetUserRequest"></a>
-
-### GetUserRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the user to retrieve. Format: users/{user uid or user email} |
-
-
-
-
-
-
-<a name="bytebase-v1-ListUsersRequest"></a>
-
-### ListUsersRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | The maximum number of users to return. The service may return fewer than this value. If unspecified, at most 10 users will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | A page token, received from a previous `ListUsers` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListUsers` must match the call that provided the page token. |
-| show_deleted | [bool](#bool) |  | Show deleted users if specified. |
-| filter | [string](#string) |  | Filter is used to filter users returned in the list. Supported filter: - name - email - user_type - state - project
-
-For example: name == &#34;ed&#34; name.matches(&#34;ed&#34;) email == &#34;ed@bytebase.com&#34; email.matches(&#34;ed&#34;) user_type == &#34;SERVICE_ACCOUNT&#34; user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;] !(user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;]) state == &#34;DELETED&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;ed&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; (name == &#34;ed&#34; || email == &#34;ed@bytebase.com&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; |
-
-
-
-
-
-
-<a name="bytebase-v1-ListUsersResponse"></a>
-
-### ListUsersResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| users | [User](#bytebase-v1-User) | repeated | The users from the specified request. |
-| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
-
-<a name="bytebase-v1-StatUsersRequest"></a>
-
-### StatUsersRequest
-
-
-
-
-
-
-
-<a name="bytebase-v1-StatUsersResponse"></a>
-
-### StatUsersResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| stats | [StatUsersResponse.StatUser](#bytebase-v1-StatUsersResponse-StatUser) | repeated |  |
-
-
-
-
-
-
-<a name="bytebase-v1-StatUsersResponse-StatUser"></a>
-
-### StatUsersResponse.StatUser
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| user_type | [UserType](#bytebase-v1-UserType) |  |  |
-| state | [State](#bytebase-v1-State) |  |  |
-| count | [int32](#int32) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-UndeleteUserRequest"></a>
-
-### UndeleteUserRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the deleted user. Format: users/{user} |
-
-
-
-
-
-
-<a name="bytebase-v1-UpdateUserRequest"></a>
-
-### UpdateUserRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| user | [User](#bytebase-v1-User) |  | The user to update.
-
-The user&#39;s `name` field is used to identify the user to update. Format: users/{user} |
-| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
-| otp_code | [string](#string) | optional | The otp_code is used to verify the user&#39;s identity by MFA. |
-| regenerate_temp_mfa_secret | [bool](#bool) |  | The regenerate_temp_mfa_secret flag means to regenerate temporary MFA secret for user. This is used for MFA setup. The temporary MFA secret and recovery codes will be returned in the response. |
-| regenerate_recovery_codes | [bool](#bool) |  | The regenerate_recovery_codes flag means to regenerate recovery codes for user. |
-
-
-
-
-
-
-<a name="bytebase-v1-User"></a>
-
-### User
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the user. Format: users/{user}. {user} is a system-generated unique ID. |
-| state | [State](#bytebase-v1-State) |  |  |
-| email | [string](#string) |  |  |
-| title | [string](#string) |  |  |
-| user_type | [UserType](#bytebase-v1-UserType) |  |  |
-| password | [string](#string) |  |  |
-| service_key | [string](#string) |  |  |
-| mfa_enabled | [bool](#bool) |  | The mfa_enabled flag means if the user has enabled MFA. |
-| mfa_secret | [string](#string) |  | The mfa_secret is the temporary secret using in two phase verification. |
-| recovery_codes | [string](#string) | repeated | The recovery_codes is the temporary recovery codes using in two phase verification. |
-| phone | [string](#string) |  | Should be a valid E.164 compliant phone number. Could be empty. |
-| profile | [User.Profile](#bytebase-v1-User-Profile) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-User-Profile"></a>
-
-### User.Profile
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| last_login_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
-| last_change_password_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
-| source | [string](#string) |  | source means where the user comes from. For now we support Entra ID SCIM sync, so the source could be Entra ID. |
-
-
-
-
-
- 
-
-
-<a name="bytebase-v1-UserType"></a>
-
-### UserType
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| USER_TYPE_UNSPECIFIED | 0 |  |
-| USER | 1 |  |
-| SYSTEM_BOT | 2 |  |
-| SERVICE_ACCOUNT | 3 |  |
-
-
- 
-
- 
-
-
-<a name="bytebase-v1-UserService"></a>
-
-### UserService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| GetUser | [GetUserRequest](#bytebase-v1-GetUserRequest) | [User](#bytebase-v1-User) | Get the user. Any authenticated user can get the user. |
-| ListUsers | [ListUsersRequest](#bytebase-v1-ListUsersRequest) | [ListUsersResponse](#bytebase-v1-ListUsersResponse) | List all users. Any authenticated user can list users. |
-| StatUsers | [StatUsersRequest](#bytebase-v1-StatUsersRequest) | [StatUsersResponse](#bytebase-v1-StatUsersResponse) | Get user stat. Any authenticated user can get stat. |
-| CreateUser | [CreateUserRequest](#bytebase-v1-CreateUserRequest) | [User](#bytebase-v1-User) | Create a user. When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user. Otherwise, any unauthenticated user can create a user. |
-| UpdateUser | [UpdateUserRequest](#bytebase-v1-UpdateUserRequest) | [User](#bytebase-v1-User) | Only the user itself and the user with bb.users.update permission on the workspace can update the user. |
-| DeleteUser | [DeleteUserRequest](#bytebase-v1-DeleteUserRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) | Only the user with bb.users.delete permission on the workspace can delete the user. The last remaining workspace admin cannot be deleted. |
-| UndeleteUser | [UndeleteUserRequest](#bytebase-v1-UndeleteUserRequest) | [User](#bytebase-v1-User) | Only the user with bb.users.undelete permission on the workspace can undelete the user. |
 
  
 
@@ -6697,18 +6765,13 @@ FieldMapping saves the field names from user info API of identity provider.
 As we save all raw json string of user info response data into `principal.idp_user_info`,
 we can extract the relevant data based with `FieldMapping`.
 
-e.g. For GitHub authenticated user API, it will return `login`, `name` and `email` in response.
-Then the identifier of FieldMapping will be `login`, display_name will be `name`,
-and email will be `email`.
-reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get-the-authenticated-user
-
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | identifier | [string](#string) |  | Identifier is the field name of the unique identifier in 3rd-party idp user info. Required. |
-| display_name | [string](#string) |  | DisplayName is the field name of display name in 3rd-party idp user info. |
-| email | [string](#string) |  | Email is the field name of primary email in 3rd-party idp user info. |
-| phone | [string](#string) |  | Phone is the field name of primary phone in 3rd-party idp user info. |
+| display_name | [string](#string) |  | DisplayName is the field name of display name in 3rd-party idp user info. Optional. |
+| phone | [string](#string) |  | Phone is the field name of primary phone in 3rd-party idp user info. Optional. |
+| groups | [string](#string) |  | Groups is the field name of groups in 3rd-party idp user info. Optional. Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/ |
 
 
 
@@ -6782,7 +6845,7 @@ LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
 | bind_password | [string](#string) |  | BindPassword is the password of the user to bind as a service account. |
 | base_dn | [string](#string) |  | BaseDN is the base DN to search for users, e.g. &#34;ou=users,dc=example,dc=com&#34;. |
 | user_filter | [string](#string) |  | UserFilter is the filter to search for users, e.g. &#34;(uid=%s)&#34;. |
-| security_protocol | [string](#string) |  | SecurityProtocol is the security protocol to be used for establishing connections with the LDAP server. It should be either StartTLS or LDAPS, and cannot be empty. |
+| security_protocol | [string](#string) |  | SecurityProtocol is the security protocol to be used for establishing connections with the LDAP server. It must be StartTLS, LDAPS or None. |
 | field_mapping | [FieldMapping](#bytebase-v1-FieldMapping) |  | FieldMapping is the mapping of the user attributes returned by the LDAP server. |
 
 
@@ -6874,10 +6937,10 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 | issuer | [string](#string) |  |  |
 | client_id | [string](#string) |  |  |
 | client_secret | [string](#string) |  |  |
+| scopes | [string](#string) | repeated | The scopes that the OIDC provider supports. Should be fetched from the well-known configuration file of the OIDC provider. |
 | field_mapping | [FieldMapping](#bytebase-v1-FieldMapping) |  |  |
 | skip_tls_verify | [bool](#bool) |  |  |
 | auth_style | [OAuth2AuthStyle](#bytebase-v1-OAuth2AuthStyle) |  |  |
-| scopes | [string](#string) | repeated | The scopes that the OIDC provider supports. Should be fetched from the well-known configuration file of the OIDC provider. |
 | auth_endpoint | [string](#string) |  | The authorization endpoint of the OIDC provider. Should be fetched from the well-known configuration file of the OIDC provider. |
 
 
@@ -8702,7 +8765,7 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | content | [string](#string) |  | The advice content. |
 | line | [int32](#int32) |  | The advice line number in the SQL statement. |
 | column | [int32](#int32) |  | The advice column number in the SQL statement. |
-| start_position | [Position](#bytebase-v1-Position) |  | 1-based Position of the SQL statement. To supersede `line` and `column` above. |
+| start_position | [Position](#bytebase-v1-Position) |  | To supersede `line` and `column` above. The start_position is inclusive and the end_position is exclusive. TODO: use range instead |
 | end_position | [Position](#bytebase-v1-Position) |  |  |
 
 
@@ -8945,7 +9008,6 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | results | [QueryResult](#bytebase-v1-QueryResult) | repeated | The query results. |
-| allow_export | [bool](#bool) |  | The query is allowed to be exported or not. |
 
 
 
@@ -8970,6 +9032,7 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | latency | [google.protobuf.Duration](#google-protobuf-Duration) |  | The time it takes to execute the query. |
 | statement | [string](#string) |  | The query statement for the result. |
 | postgres_error | [QueryResult.PostgresError](#bytebase-v1-QueryResult-PostgresError) |  |  |
+| allow_export | [bool](#bool) |  | The query result is allowed to be exported or not. |
 
 
 
@@ -9377,7 +9440,7 @@ When paginating, all other parameters provided to `ListReleases` must match the 
 | type | [ReleaseFileType](#bytebase-v1-ReleaseFileType) |  |  |
 | version | [string](#string) |  |  |
 | change_type | [Release.File.ChangeType](#bytebase-v1-Release-File-ChangeType) |  |  |
-| statement | [string](#string) |  | The statement is used for preview or check purpose. |
+| statement | [bytes](#bytes) |  | The statement is used for preview or check purpose. |
 | statement_size | [int64](#int64) |  |  |
 
 

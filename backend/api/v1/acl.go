@@ -17,11 +17,11 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/api/auth"
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/iam"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
@@ -298,7 +298,7 @@ func getResourceFromRequest(request any, method string) ([]*common.Resource, err
 				return nil, errors.Wrapf(err, "failed to get projectID from %q", r.GetDatabase().GetProject())
 			}
 			// Allow to transfer databases to the default project.
-			if projectID == api.DefaultProjectID {
+			if projectID == base.DefaultProjectID {
 				continue
 			}
 			resources = append(resources, &common.Resource{Name: r.GetDatabase().GetProject()})
@@ -316,6 +316,20 @@ func getResourceFromRequest(request any, method string) ([]*common.Resource, err
 	}
 
 	if strings.HasPrefix(shortMethod, "Batch") {
+		// Handle batch get requests.
+		if strings.HasPrefix(shortMethod, "BatchGet") {
+			namesDesc := mr.Descriptor().Fields().ByName("names")
+			if namesDesc != nil {
+				namesValue := mr.Get(namesDesc)
+				namesValueList := namesValue.List()
+				for i := 0; i < namesValueList.Len(); i++ {
+					v := namesValueList.Get(i)
+					resources = append(resources, &common.Resource{Name: v.String()})
+				}
+				return resources, nil
+			}
+		}
+
 		requestsDesc := mr.Descriptor().Fields().ByName("requests")
 		if requestsDesc != nil {
 			requestsValue := mr.Get(requestsDesc)

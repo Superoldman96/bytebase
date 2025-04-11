@@ -17,7 +17,6 @@
           :params="executeParams"
           :database="database"
           :result="resultSet.results[0]"
-          :allow-export="resultSet.allowExport"
           :set-index="0"
         />
       </template>
@@ -52,7 +51,6 @@
               :params="executeParams"
               :database="database"
               :result="result"
-              :allow-export="resultSet.allowExport"
               :set-index="i"
             />
           </NTabPane>
@@ -277,9 +275,32 @@ const filteredResults = computed(() => {
   }
 
   // Skip SET commands when displaying results
-  return props.resultSet.results.filter(result => {
+  return props.resultSet.results.filter((result) => {
     return !result.statement.trim().toUpperCase().startsWith("SET");
   });
+});
+
+// Create a ref for column type names to share via context
+// This needs to update when the user switches result tabs
+const columnTypeNamesRef = computed(() => {
+  // If no result set, return undefined
+  if (!props.resultSet?.results) return undefined;
+
+  // For single result mode, use the first result
+  if (viewMode.value === "SINGLE-RESULT") {
+    return props.resultSet.results[0]?.columnTypeNames;
+  }
+
+  // For multi-result mode, use the active tab's result
+  // The active tab corresponds to the detail.set value
+  if (
+    viewMode.value === "MULTI-RESULT" &&
+    detail.value.set < filteredResults.value.length
+  ) {
+    return filteredResults.value[detail.value.set]?.columnTypeNames;
+  }
+
+  return undefined;
 });
 
 provideSQLResultViewContext({
@@ -287,5 +308,6 @@ provideSQLResultViewContext({
   disallowCopyingData,
   keyword,
   detail,
+  columnTypeNames: columnTypeNamesRef,
 });
 </script>

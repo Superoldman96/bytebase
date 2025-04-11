@@ -1,11 +1,14 @@
-import { keyBy, orderBy } from "lodash-es";
 import { computed, unref } from "vue";
 import { t, locale } from "@/plugins/i18n";
-import { useEnvironmentV1Store, useSubscriptionV1Store } from "@/store";
-import type { ComposedInstance, MaybeRef } from "@/types";
-import { isValidProjectName, languageOfEngineV1 } from "@/types";
+import { useSubscriptionV1Store } from "@/store";
+import type { MaybeRef } from "@/types";
+import {
+  isValidInstanceName,
+  languageOfEngineV1,
+  unknownInstance,
+  emptyInstance,
+} from "@/types";
 import { Engine, State } from "@/types/proto/v1/common";
-import type { Environment } from "@/types/proto/v1/environment_service";
 import type {
   Instance,
   InstanceResource,
@@ -19,11 +22,17 @@ import { PlanType } from "@/types/proto/v1/subscription_service";
 export function instanceV1Name(instance: Instance | InstanceResource) {
   const store = useSubscriptionV1Store();
   let name = instance.title;
-  // instance cannot be deleted and activated at the same time.
+  // For unknown or empty instance, we will use the name as the title.
+  if (
+    instance.title === unknownInstance().title ||
+    instance.title === emptyInstance().title
+  ) {
+    name = extractInstanceResourceName(instance.name);
+  }
   if ((instance as Instance).state === State.DELETED) {
     name += ` (${t("common.archived")})`;
   } else if (
-    isValidProjectName(instance.name) &&
+    isValidInstanceName(instance.name) &&
     !instance.activation &&
     store.currentPlan !== PlanType.FREE
   ) {
@@ -36,22 +45,6 @@ export const extractInstanceResourceName = (name: string) => {
   const pattern = /(?:^|\/)instances\/([^/]+)(?:$|\/)/;
   const matches = name.match(pattern);
   return matches?.[1] ?? "";
-};
-
-export const sortInstanceV1List = (
-  instanceList: (ComposedInstance | InstanceResource)[]
-) => {
-  return orderBy(
-    instanceList,
-    [
-      (instance) =>
-        useEnvironmentV1Store().getEnvironmentByName(instance.environment)
-          .order,
-      (instance) => instance.name,
-      (instance) => instance.title,
-    ],
-    ["desc", "asc", "asc"]
-  );
 };
 
 export const readableDataSourceType = (type: DataSourceType): string => {
@@ -82,21 +75,6 @@ export const hostPortOfInstanceV1 = (instance: Instance | InstanceResource) => {
   return hostPortOfDataSource(ds);
 };
 
-// Sort the list to put prod items first.
-export const sortInstanceV1ListByEnvironmentV1 = <T extends Instance>(
-  list: T[],
-  environmentList: Environment[]
-): T[] => {
-  const environmentMap = keyBy(environmentList, (env) => env.name);
-
-  return list.sort((a, b) => {
-    const aEnvOrder = environmentMap[a.environment]?.order ?? -1;
-    const bEnvOrder = environmentMap[b.environment]?.order ?? -1;
-
-    return -(aEnvOrder - bEnvOrder);
-  });
-};
-
 export const supportedEngineV1List = () => {
   const engines: Engine[] = [
     Engine.MYSQL,
@@ -122,6 +100,8 @@ export const supportedEngineV1List = () => {
     Engine.DATABRICKS,
     Engine.COCKROACHDB,
     Engine.COSMOSDB,
+    Engine.CASSANDRA,
+    Engine.TRINO,
   ];
   if (locale.value === "zh-CN") {
     engines.push(Engine.DM);
@@ -145,19 +125,32 @@ export const instanceV1HasReadonlyMode = (
   return true;
 };
 
+export const enginesSupportCreateDatabase = () => {
+  return [
+    Engine.MYSQL,
+    Engine.POSTGRES,
+    Engine.MSSQL,
+    Engine.SNOWFLAKE,
+    Engine.CLICKHOUSE,
+    Engine.MONGODB,
+    Engine.TIDB,
+    Engine.OCEANBASE,
+    Engine.OCEANBASE_ORACLE,
+    Engine.REDSHIFT,
+    Engine.MARIADB,
+    Engine.STARROCKS,
+    Engine.RISINGWAVE,
+    Engine.HIVE,
+    Engine.COCKROACHDB,
+    Engine.DORIS,
+  ];
+};
+
 export const instanceV1HasCreateDatabase = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ): boolean => {
   const engine = engineOfInstanceV1(instanceOrEngine);
-  if (engine === Engine.REDIS) return false;
-  if (engine === Engine.ORACLE) return false;
-  if (engine === Engine.DM) return false;
-  if (engine === Engine.ELASTICSEARCH) return false;
-  if (engine === Engine.SPANNER) return false;
-  if (engine === Engine.BIGQUERY) return false;
-  if (engine === Engine.DYNAMODB) return false;
-  if (engine == Engine.DATABRICKS) return false;
-  return true;
+  return enginesSupportCreateDatabase().includes(engine);
 };
 
 export const instanceV1HasStructuredQueryResult = (
@@ -188,6 +181,7 @@ export const instanceV1HasSSL = (
     Engine.MONGODB,
     Engine.ELASTICSEARCH,
     Engine.MSSQL,
+    Engine.CASSANDRA,
   ].includes(engine);
 };
 
@@ -205,6 +199,20 @@ export const instanceV1HasSSH = (
   ].includes(engine);
 };
 
+export const instanceV1HasExtraParameters = (
+  instanceOrEngine: Instance | InstanceResource | Engine
+): boolean => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return [
+    Engine.MYSQL,
+    Engine.MARIADB,
+    Engine.OCEANBASE,
+    Engine.POSTGRES,
+    Engine.ORACLE,
+    Engine.MSSQL,
+  ].includes(engine);
+}
+
 export const instanceV1HasCollationAndCharacterSet = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ) => {
@@ -218,6 +226,7 @@ export const instanceV1HasCollationAndCharacterSet = (
     Engine.RISINGWAVE,
     Engine.STARROCKS,
     Engine.DORIS,
+    Engine.COSMOSDB,
   ];
   return !excludedList.includes(engine);
 };
@@ -300,6 +309,27 @@ export const instanceV1SupportsTrigger = (
   return [Engine.MYSQL].includes(engine);
 };
 
+export const instanceV1SupportsColumn = (
+  instanceOrEngine: Instance | InstanceResource | Engine
+) => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return ![Engine.MONGODB, Engine.COSMOSDB].includes(engine);
+};
+
+export const instanceV1SupportsIndex = (
+  instanceOrEngine: Instance | InstanceResource | Engine
+) => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return ![Engine.SNOWFLAKE].includes(engine);
+};
+
+export const instanceV1MaskingForNoSQL = (
+  instanceOrEngine: Instance | InstanceResource | Engine
+) => {
+  const engine = engineOfInstanceV1(instanceOrEngine);
+  return [Engine.MONGODB, Engine.COSMOSDB].includes(engine);
+};
+
 export const engineOfInstanceV1 = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ) => {
@@ -361,6 +391,10 @@ export const engineNameV1 = (type: Engine): string => {
       return "Databricks";
     case Engine.COSMOSDB:
       return "CosmosDB";
+    case Engine.CASSANDRA:
+      return "Cassandra"
+    case Engine.TRINO:
+      return "Trino";
   }
   return "";
 };
@@ -388,26 +422,20 @@ export const hasTableEngineProperty = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ) => {
   const engine = engineOfInstanceV1(instanceOrEngine);
-  return ![Engine.POSTGRES, Engine.COCKROACHDB, Engine.SNOWFLAKE].includes(
-    engine
-  );
+  return ![
+    Engine.POSTGRES,
+    Engine.COCKROACHDB,
+    Engine.SNOWFLAKE,
+    Engine.MONGODB,
+    Engine.COSMOSDB,
+  ].includes(engine);
 };
+
 export const hasIndexSizeProperty = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ) => {
   const engine = engineOfInstanceV1(instanceOrEngine);
   return ![Engine.CLICKHOUSE, Engine.SNOWFLAKE].includes(engine);
-};
-export const hasCollationProperty = (
-  instanceOrEngine: Instance | InstanceResource | Engine
-) => {
-  const engine = engineOfInstanceV1(instanceOrEngine);
-  return ![
-    Engine.POSTGRES,
-    Engine.COCKROACHDB,
-    Engine.CLICKHOUSE,
-    Engine.SNOWFLAKE,
-  ].includes(engine);
 };
 
 export const useInstanceV1EditorLanguage = (

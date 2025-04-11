@@ -46,7 +46,7 @@ func (*DisallowOfflineDdlAdvisor) Check(_ context.Context, checkCtx advisor.Cont
 		level:     level,
 		title:     checkCtx.Rule.Type,
 		driver:    checkCtx.Driver,
-		currentDb: checkCtx.CurrentDatabase,
+		currentDB: checkCtx.CurrentDatabase,
 	}
 
 	for _, stmtNode := range stmtList {
@@ -65,7 +65,7 @@ type disallowOfflineDdlChecker struct {
 	level      storepb.Advice_Status
 	title      string
 	driver     *sql.DB
-	currentDb  string
+	currentDB  string
 }
 
 // EnterAlterTable is called when production alterTable is entered.
@@ -138,7 +138,7 @@ func (checker *disallowOfflineDdlChecker) EnterAlterTable(ctx *mysql.AlterTableC
 			// drop column
 			case item.ColumnInternalRef() != nil:
 				if len(databaseName) == 0 {
-					databaseName = checker.currentDb
+					databaseName = checker.currentDB
 				}
 				columnName := mysqlparser.NormalizeMySQLColumnInternalRef(item.ColumnInternalRef())
 				if checker.isStoredColumn(databaseName, tableName, columnName) {
@@ -242,12 +242,10 @@ func (*disallowOfflineDdlChecker) isPrimaryKeyColumn(ctx mysql.IFieldDefinitionC
 
 func (checker *disallowOfflineDdlChecker) advice(ctx antlr.ParserRuleContext, operation string) {
 	checker.adviceList = append(checker.adviceList, &storepb.Advice{
-		Status:  checker.level,
-		Code:    advisor.StatementOfflineDDL.Int32(),
-		Title:   checker.title,
-		Content: fmt.Sprintf("%s is an offline DDL operation.", operation),
-		StartPosition: &storepb.Position{
-			Line: int32(checker.baseLine + ctx.GetStart().GetLine()),
-		},
+		Status:        checker.level,
+		Code:          advisor.StatementOfflineDDL.Int32(),
+		Title:         checker.title,
+		Content:       fmt.Sprintf("%s is an offline DDL operation.", operation),
+		StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 	})
 }

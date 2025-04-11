@@ -26,19 +26,15 @@ import { useI18n } from "vue-i18n";
 import UserIcon from "~icons/heroicons-outline/user";
 import UserAvatar from "@/components/User/UserAvatar.vue";
 import ServiceAccountTag from "@/components/misc/ServiceAccountTag.vue";
-import { extractUserId, useUserStore } from "@/store";
+import { extractUserId, useUserStore, type UserFilter } from "@/store";
 import {
   SYSTEM_BOT_USER_NAME,
   UNKNOWN_USER_NAME,
   allUsersUser,
-  isValidProjectName,
+  isValidUserName,
 } from "@/types";
-import {
-  UserType,
-  userTypeToJSON,
-  type User,
-} from "@/types/proto/v1/user_service";
-import { getDefaultPagination } from "@/utils";
+import { UserType, type User } from "@/types/proto/v1/user_service";
+import { getDefaultPagination, ensureUserFullName } from "@/utils";
 import ResourceSelect from "./ResourceSelect.vue";
 
 const props = withDefaults(
@@ -51,7 +47,6 @@ const props = withDefaults(
     includeAllUsers?: boolean;
     includeSystemBot?: boolean;
     includeServiceAccount?: boolean;
-    includeArchived?: boolean;
     autoReset?: boolean;
     filter?: (user: User, index: number) => boolean;
     size?: "tiny" | "small" | "medium" | "large";
@@ -64,7 +59,6 @@ const props = withDefaults(
     includeAllUsers: false,
     includeSystemBot: false,
     includeServiceAccount: false,
-    includeArchived: false,
     autoReset: true,
     filter: undefined,
     size: "medium",
@@ -88,7 +82,7 @@ const state = reactive<LocalState>({
   rawUserList: [],
 });
 
-const getFilter = (search: string) => {
+const getFilter = (search: string): UserFilter => {
   const filter = [];
   if (search) {
     filter.push(`(name.matches("${search}") || email.matches("${search}"))`);
@@ -100,25 +94,30 @@ const getFilter = (search: string) => {
   if (props.includeSystemBot) {
     allowedType.push(UserType.SYSTEM_BOT);
   }
-  if (allowedType.length === 1) {
-    filter.push(`user_type == "${userTypeToJSON(allowedType[0])}"`);
-  } else {
-    filter.push(
-      `user_type in [${allowedType.map((t) => `"${userTypeToJSON(t)}"`).join(", ")}]`
-    );
-  }
-  if (props.projectName && isValidProjectName(props.projectName)) {
-    filter.push(`project == "${props.projectName}"`);
-  }
 
-  return filter.join(" && ");
+  return {
+    query: search,
+    project: props.projectName,
+    types: allowedType,
+  };
+};
+
+const initSelectedUsers = async (userIds: string[]) => {
+  for (const userId of userIds) {
+    const userName = ensureUserFullName(userId);
+    if (isValidUserName(userName)) {
+      const user = await userStore.getOrFetchUserByIdentifier(userName);
+      if (!state.rawUserList.find((u) => u.name === user.name)) {
+        state.rawUserList.unshift(user);
+      }
+    }
+  }
 };
 
 const searchUsers = async (search: string) => {
   const { users } = await userStore.fetchUserList({
     filter: getFilter(search),
     pageSize: getDefaultPagination(),
-    showDeleted: props.includeArchived,
   });
   return users;
 };
@@ -128,13 +127,21 @@ const handleSearch = useDebounceFn(async (search: string) => {
   try {
     const users = await searchUsers(search);
     state.rawUserList = users;
-    if (!search && props.includeAllUsers) {
-      state.rawUserList.unshift(allUsersUser());
+    if (!search) {
+      if (props.includeAllUsers) {
+        state.rawUserList.unshift(allUsersUser());
+      }
+      if (props.user) {
+        await initSelectedUsers([props.user]);
+      }
+      if (props.users) {
+        await initSelectedUsers(props.users);
+      }
     }
   } finally {
     state.loading = false;
   }
-}, 500);
+}, 200);
 
 onMounted(async () => {
   await handleSearch("");

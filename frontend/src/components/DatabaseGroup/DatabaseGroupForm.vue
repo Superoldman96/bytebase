@@ -1,85 +1,72 @@
 <template>
-  <FormLayout :title="title">
-    <template #body>
+  <div>
+    <div class="w-full grid grid-cols-3 gap-x-6">
       <div>
-        <FeatureAttentionForInstanceLicense
-          v-if="existMatchedUnactivateInstance"
-          custom-class="mb-4"
-          type="warning"
-          feature="bb.feature.database-grouping"
-        />
-        <div class="w-full grid grid-cols-3 gap-x-6">
-          <div>
-            <p class="font-medium text-main mb-2">{{ $t("common.name") }}</p>
-            <NInput v-model:value="state.placeholder" />
-            <div class="mt-2">
-              <ResourceIdField
-                ref="resourceIdField"
-                editing-class="mt-4"
-                resource-type="database-group"
-                :readonly="!isCreating"
-                :value="state.resourceId"
-                :resource-title="state.placeholder"
-                :validate="validateResourceId"
-              />
-            </div>
-          </div>
-        </div>
-        <NDivider />
-        <div class="w-full grid grid-cols-5 gap-x-6">
-          <div class="col-span-3">
-            <p class="pl-1 font-medium text-main mb-2">
-              {{ $t("database-group.condition.self") }}
-            </p>
-            <ExprEditor
-              :expr="state.expr"
-              :allow-admin="true"
-              :enable-raw-expression="true"
-              :factor-list="FactorList"
-              :factor-support-dropdown="factorSupportDropdown"
-              :option-config-map="getDatabaseGroupOptionConfigMap()"
-            />
-            <p
-              v-if="matchingError"
-              class="mt-2 text-sm border border-red-600 px-2 py-1 rounded-lg bg-red-50 text-red-600"
-            >
-              {{ matchingError }}
-            </p>
-          </div>
-          <div class="col-span-2">
-            <MatchedDatabaseView
-              :loading="state.isRequesting"
-              :matched-database-list="matchedDatabaseList"
-              :unmatched-database-list="unmatchedDatabaseList"
-            />
-          </div>
+        <p class="font-medium text-main mb-2">{{ $t("common.name") }}</p>
+        <NInput v-model:value="state.placeholder" :disabled="readonly" />
+        <div class="mt-2">
+          <ResourceIdField
+            ref="resourceIdField"
+            editing-class="mt-4"
+            resource-type="database-group"
+            :readonly="!isCreating"
+            :value="state.resourceId"
+            :resource-title="state.placeholder"
+            :validate="validateResourceId"
+          />
         </div>
       </div>
-    </template>
-    <template #footer>
-      <div class="w-full flex justify-between items-center">
-        <div>
-          <NButton v-if="!isCreating" text @click="doDelete">
-            <template #icon>
-              <Trash2Icon class="w-4 h-auto" />
-            </template>
-            {{ $t("common.delete") }}
-          </NButton>
-        </div>
-        <div class="flex flex-row justify-end items-center gap-x-2">
+    </div>
+    <NDivider />
+    <div class="w-full grid grid-cols-5 gap-x-6">
+      <div class="col-span-3">
+        <p class="pl-1 font-medium text-main mb-2">
+          {{ $t("database-group.condition.self") }}
+        </p>
+        <ExprEditor
+          :expr="state.expr"
+          :allow-admin="!readonly"
+          :enable-raw-expression="true"
+          :factor-list="FactorList"
+          :factor-support-dropdown="factorSupportDropdown"
+          :option-config-map="getDatabaseGroupOptionConfigMap()"
+        />
+      </div>
+      <div class="col-span-2">
+        <MatchedDatabaseView :project="project.name" :expr="state.expr" />
+      </div>
+    </div>
+
+    <div v-if="!readonly" class="sticky bottom-0 z-10 mt-4">
+      <div
+        class="flex justify-between w-full pt-4 border-t border-block-border bg-white"
+      >
+        <NButton v-if="!isCreating" text @click="doDelete">
+          <template #icon>
+            <Trash2Icon class="w-4 h-auto" />
+          </template>
+          {{ $t("common.delete") }}
+        </NButton>
+        <div class="flex-1 flex flex-row justify-end items-center gap-x-2">
           <NButton @click="$emit('dismiss')">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" :disabled="!allowConfirm" @click="doConfirm">
             {{ isCreating ? $t("common.save") : $t("common.confirm") }}
           </NButton>
         </div>
       </div>
-    </template>
-  </FormLayout>
+    </div>
+  </div>
 </template>
 
 <script lang="ts" setup>
+import { cloneDeep, head, isEqual } from "lodash-es";
+import { Trash2Icon } from "lucide-vue-next";
+import { NButton, NDivider, NInput, useDialog } from "naive-ui";
+import { Status } from "nice-grpc-web";
+import { computed, onMounted, reactive, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import ExprEditor from "@/components/ExprEditor";
-import FormLayout from "@/components/v2/Form/FormLayout.vue";
 import type { ConditionGroupExpr } from "@/plugins/cel";
 import {
   buildCELExpr,
@@ -91,35 +78,17 @@ import {
   PROJECT_V1_ROUTE_DATABASE_GROUPS,
   PROJECT_V1_ROUTE_DATABASE_GROUP_DETAIL,
 } from "@/router/dashboard/projectV1";
-import {
-  pushNotification,
-  useDBGroupStore,
-  useSubscriptionV1Store,
-} from "@/store";
+import { pushNotification, useDBGroupStore } from "@/store";
 import {
   databaseGroupNamePrefix,
   getProjectNameAndDatabaseGroupName,
 } from "@/store/modules/v1/common";
-import type {
-  ComposedDatabase,
-  ComposedProject,
-  ResourceId,
-  ValidatedMessage,
-} from "@/types";
+import type { ComposedProject, ResourceId, ValidatedMessage } from "@/types";
 import { Expr as CELExpr } from "@/types/proto/google/api/expr/v1alpha1/syntax";
 import { Expr } from "@/types/proto/google/type/expr";
 import type { DatabaseGroup } from "@/types/proto/v1/database_group_service";
 import { batchConvertParsedExprToCELString } from "@/utils";
 import { getErrorCode } from "@/utils/grpcweb";
-import { useDebounceFn } from "@vueuse/core";
-import { cloneDeep, head, isEqual } from "lodash-es";
-import { Trash2Icon } from "lucide-vue-next";
-import { NButton, NDivider, NInput, useDialog } from "naive-ui";
-import { ClientError, Status } from "nice-grpc-web";
-import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
-import { FeatureAttentionForInstanceLicense } from "../FeatureGuard";
 import { ResourceIdField } from "../v2";
 import MatchedDatabaseView from "./MatchedDatabaseView.vue";
 import {
@@ -129,9 +98,9 @@ import {
 } from "./utils";
 
 const props = defineProps<{
+  readonly: boolean;
   project: ComposedProject;
   databaseGroup?: DatabaseGroup;
-  title?: string;
 }>();
 
 const emit = defineEmits<{
@@ -140,7 +109,6 @@ const emit = defineEmits<{
 }>();
 
 type LocalState = {
-  isRequesting: boolean;
   resourceId: string;
   placeholder: string;
   selectedDatabaseGroupId?: string;
@@ -149,9 +117,7 @@ type LocalState = {
 
 const { t } = useI18n();
 const dbGroupStore = useDBGroupStore();
-const subscriptionV1Store = useSubscriptionV1Store();
 const state = reactive<LocalState>({
-  isRequesting: false,
   resourceId: "",
   placeholder: "",
   expr: wrapAsGroup(emptySimpleExpr()),
@@ -220,54 +186,6 @@ const validateResourceId = async (
   return [];
 };
 
-const matchingError = ref<string | undefined>(undefined);
-const matchedDatabaseList = ref<ComposedDatabase[]>([]);
-const unmatchedDatabaseList = ref<ComposedDatabase[]>([]);
-const updateDatabaseMatchingState = useDebounceFn(async () => {
-  if (!validateSimpleExpr(state.expr)) {
-    matchingError.value = undefined;
-    matchedDatabaseList.value = [];
-    unmatchedDatabaseList.value = [];
-    return;
-  }
-
-  state.isRequesting = true;
-  try {
-    const result = await dbGroupStore.fetchDatabaseGroupMatchList({
-      projectName: props.project.name,
-      expr: state.expr,
-    });
-
-    matchingError.value = undefined;
-    matchedDatabaseList.value = result.matchedDatabaseList;
-    unmatchedDatabaseList.value = result.unmatchedDatabaseList;
-  } catch (error) {
-    matchingError.value = (error as ClientError).details;
-    matchedDatabaseList.value = [];
-    unmatchedDatabaseList.value = [];
-  }
-  state.isRequesting = false;
-}, 500);
-
-watch(
-  [() => props.project.name, () => state.expr],
-  updateDatabaseMatchingState,
-  {
-    immediate: true,
-    deep: true,
-  }
-);
-
-const existMatchedUnactivateInstance = computed(() => {
-  return matchedDatabaseList.value.some(
-    (database) =>
-      !subscriptionV1Store.hasInstanceFeature(
-        "bb.feature.database-grouping",
-        database.instanceResource
-      )
-  );
-});
-
 const doDelete = () => {
   dialog.error({
     title: "Confirm to delete",
@@ -290,9 +208,6 @@ const doDelete = () => {
 };
 
 const allowConfirm = computed(() => {
-  if (existMatchedUnactivateInstance.value) {
-    return false;
-  }
   return (
     resourceIdField.value?.resourceId &&
     state.placeholder &&
@@ -304,7 +219,6 @@ const doConfirm = async () => {
   const formState = {
     ...state,
     resourceId: resourceIdField.value?.resourceId || "",
-    existMatchedUnactivateInstance: existMatchedUnactivateInstance.value,
   };
   if (!formState || !allowConfirm.value) {
     return;
@@ -389,14 +303,4 @@ const doConfirm = async () => {
   });
   emit("dismiss");
 };
-
-defineExpose({
-  getFormState: () => {
-    return {
-      ...state,
-      resourceId: resourceIdField.value?.resourceId || "",
-      existMatchedUnactivateInstance: existMatchedUnactivateInstance.value,
-    };
-  },
-});
 </script>

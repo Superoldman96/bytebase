@@ -7,7 +7,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	pgquery "github.com/pganalyze/pg_query_go/v5"
+	pgquery "github.com/pganalyze/pg_query_go/v6"
 
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 )
@@ -1192,6 +1192,14 @@ func deparseDataType(_ DeparseContext, in ast.DataType, buf *strings.Builder) er
 		if _, err := buf.WriteString("text"); err != nil {
 			return err
 		}
+	case *ast.JSON:
+		text := "json"
+		if node.JSONB {
+			text = "jsonb"
+		}
+		if _, err := buf.WriteString(text); err != nil {
+			return err
+		}
 	case *ast.UnconvertedDataType:
 		if _, err := buf.WriteString(node.Text()); err != nil {
 			return err
@@ -1662,7 +1670,7 @@ func depraseSequenceDef(ctx DeparseContext, in *ast.SequenceDef, buf *strings.Bu
 		if err := ctx.WriteIndent(buf, deparseIndentString); err != nil {
 			return err
 		}
-		if _, err := buf.WriteString(fmt.Sprintf("MAXVALUE %d", *in.MaxValue)); err != nil {
+		if _, err := fmt.Fprintf(buf, "MAXVALUE %d", *in.MaxValue); err != nil {
 			return err
 		}
 	} else {
@@ -1683,7 +1691,7 @@ func depraseSequenceDef(ctx DeparseContext, in *ast.SequenceDef, buf *strings.Bu
 		if err := ctx.WriteIndent(buf, deparseIndentString); err != nil {
 			return err
 		}
-		if _, err := buf.WriteString(fmt.Sprintf("START WITH %d", *in.StartWith)); err != nil {
+		if _, err := fmt.Fprintf(buf, "START WITH %d", *in.StartWith); err != nil {
 			return err
 		}
 	}
@@ -1694,7 +1702,7 @@ func depraseSequenceDef(ctx DeparseContext, in *ast.SequenceDef, buf *strings.Bu
 		if err := ctx.WriteIndent(buf, deparseIndentString); err != nil {
 			return err
 		}
-		if _, err := buf.WriteString(fmt.Sprintf("CACHE %d", *in.Cache)); err != nil {
+		if _, err := fmt.Fprintf(buf, "CACHE %d", *in.Cache); err != nil {
 			return err
 		}
 	}

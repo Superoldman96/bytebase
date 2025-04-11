@@ -31,13 +31,13 @@ import type {
 import {
   bytesToString,
   getHighlightHTMLByRegExp,
-  hasCollationProperty,
+  instanceV1HasCollationAndCharacterSet,
   hasIndexSizeProperty,
   hasTableEngineProperty,
   useAutoHeightDataTable,
 } from "@/utils";
 import { EllipsisCell } from "../../common";
-import { useEditorPanelContext } from "../../context";
+import { useCurrentTabViewStateContext } from "../../context/viewState";
 
 const props = defineProps<{
   db: ComposedDatabase;
@@ -59,7 +59,7 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const { viewState } = useEditorPanelContext();
+const { viewState } = useCurrentTabViewStateContext();
 const { t } = useI18n();
 const instanceEngine = computed(() => {
   return props.db.instanceResource.engine;
@@ -112,7 +112,7 @@ const columns = computed(() => {
     {
       key: "collation",
       title: t("schema-editor.database.collation"),
-      hide: !hasCollationProperty(instanceEngine.value),
+      hide: !instanceV1HasCollationAndCharacterSet(instanceEngine.value),
       resizable: true,
       minWidth: 120,
       maxWidth: 180,

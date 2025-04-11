@@ -3,15 +3,16 @@ package v1
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
-	api "github.com/bytebase/bytebase/backend/legacyapi"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
@@ -81,7 +82,7 @@ func (s *RoleService) getBuildinRole(roleID string) *store.RoleMessage {
 
 // CreateRole creates a new role.
 func (s *RoleService) CreateRole(ctx context.Context, request *v1pb.CreateRoleRequest) (*v1pb.Role, error) {
-	if err := s.licenseService.IsFeatureEnabled(api.FeatureCustomRole); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(base.FeatureCustomRole); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 
@@ -118,7 +119,7 @@ func (s *RoleService) CreateRole(ctx context.Context, request *v1pb.CreateRoleRe
 
 // UpdateRole updates an existing role.
 func (s *RoleService) UpdateRole(ctx context.Context, request *v1pb.UpdateRoleRequest) (*v1pb.Role, error) {
-	if err := s.licenseService.IsFeatureEnabled(api.FeatureCustomRole); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(base.FeatureCustomRole); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 	if request.UpdateMask == nil {
@@ -194,12 +195,24 @@ func (s *RoleService) DeleteRole(ctx context.Context, request *v1pb.DeleteRoleRe
 		return nil, status.Errorf(codes.NotFound, "role not found: %s", roleID)
 	}
 
-	roleInUse, err := s.store.CheckRoleInUse(ctx, request.Name)
+	usedByResources, err := s.store.GetResourcesUsedByRole(ctx, request.Name)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to check if the role is used: %v", err)
 	}
-	if roleInUse {
-		return nil, status.Errorf(codes.FailedPrecondition, "cannot delete because role %s is used by workspace or project", common.FormatRole(roleID))
+	if len(usedByResources) > 0 {
+		usedBy := []string{}
+		for i, usedResource := range usedByResources {
+			if i >= 10 {
+				// Limit the message length.
+				break
+			}
+			if usedResource.Resource != "" {
+				usedBy = append(usedBy, usedResource.Resource)
+			} else if usedResource.ResourceType == base.PolicyResourceTypeWorkspace {
+				usedBy = append(usedBy, "workspace")
+			}
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "cannot delete because role %s is used by resources: %s", common.FormatRole(roleID), strings.Join(usedBy, ","))
 	}
 
 	if err := s.store.DeleteRole(ctx, roleID); err != nil {

@@ -386,6 +386,22 @@
       </div>
       <div class="w-full flex flex-col justify-start items-start">
         <p class="textlabel">
+          Scopes
+          <span class="text-red-600">*</span>
+        </p>
+        <p class="textinfolabel">
+          {{ $t("settings.sso.form.scopes-description") }}
+        </p>
+        <BBTextField
+          v-model:value="scopesStringOfConfig"
+          required
+          :disabled="!allowEdit"
+          class="mt-1 w-full"
+          placeholder="e.g. user"
+        />
+      </div>
+      <div class="w-full flex flex-col justify-start items-start">
+        <p class="textlabel">
           {{ $t("settings.sso.form.auth-style.self") }}
           <span class="text-red-600">*</span>
         </p>
@@ -560,9 +576,7 @@
           placeholder="e.g. login"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
-          <heroicons-outline:arrow-right
-            class="mx-1 h-auto w-4 text-gray-300"
-          />
+          <ArrowRightIcon class="mx-2 h-auto w-4 text-gray-300" />
           <p class="flex flex-row justify-start items-center">
             {{ $t("settings.sso.form.identifier") }}
             <span class="text-red-600">*</span>
@@ -585,9 +599,7 @@
           placeholder="e.g. name"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
-          <heroicons-outline:arrow-right
-            class="mx-1 h-auto w-4 text-gray-300"
-          />
+          <ArrowRightIcon class="mx-2 h-auto w-4 text-gray-300" />
           <p>
             {{ $t("settings.sso.form.display-name") }}
           </p>
@@ -601,11 +613,26 @@
           placeholder="e.g. phone"
         />
         <div class="w-full flex flex-row justify-start items-center text-sm">
-          <heroicons-outline:arrow-right
-            class="mx-1 h-auto w-4 text-gray-300"
-          />
+          <ArrowRightIcon class="mx-2 h-auto w-4 text-gray-300" />
           <p>
             {{ $t("settings.sso.form.phone") }}
+          </p>
+        </div>
+      </div>
+      <div
+        v-if="state.type === IdentityProviderType.OIDC"
+        class="w-full grid grid-cols-[256px_1fr]"
+      >
+        <BBTextField
+          v-model:value="state.fieldMapping.groups"
+          :disabled="!allowEdit"
+          class="mt-1 w-full"
+          placeholder="e.g. groups"
+        />
+        <div class="w-full flex flex-row justify-start items-center text-sm">
+          <ArrowRightIcon class="mx-2 h-auto w-4 text-gray-300" />
+          <p>
+            {{ $t("settings.sso.form.groups") }}
           </p>
         </div>
       </div>
@@ -682,6 +709,7 @@
 
 <script lang="ts" setup>
 import { cloneDeep, head, isEqual } from "lodash-es";
+import { ArrowRightIcon } from "lucide-vue-next";
 import {
   NRadioGroup,
   NCheckbox,
@@ -868,8 +896,8 @@ const identityProviderTemplateList = computed(
           fieldMapping: {
             identifier: "email",
             displayName: "name",
-            email: "",
             phone: "",
+            groups: "",
           },
         },
       },
@@ -891,8 +919,8 @@ const identityProviderTemplateList = computed(
           fieldMapping: {
             identifier: "email",
             displayName: "name",
-            email: "",
             phone: "",
+            groups: "",
           },
         },
       },
@@ -914,8 +942,8 @@ const identityProviderTemplateList = computed(
           fieldMapping: {
             identifier: "email",
             displayName: "name",
-            email: "",
             phone: "",
+            groups: "",
           },
         },
       },
@@ -939,8 +967,8 @@ const identityProviderTemplateList = computed(
           fieldMapping: {
             identifier: "userPrincipalName",
             displayName: "displayName",
-            email: "",
             phone: "",
+            groups: "",
           },
         },
       },
@@ -962,8 +990,8 @@ const identityProviderTemplateList = computed(
           fieldMapping: {
             identifier: "",
             displayName: "",
-            email: "",
             phone: "",
+            groups: "",
           },
         },
       },
@@ -1083,6 +1111,7 @@ const editedIdentityProvider = computed(() => {
   } else if (tempIdentityProvider.type === IdentityProviderType.OIDC) {
     tempIdentityProvider.config!.oidcConfig = {
       ...configForOIDC.value,
+      scopes: scopesStringOfConfig.value.split(" "),
       fieldMapping: FieldMapping.fromPartial(state.fieldMapping),
     };
   } else if (tempIdentityProvider.type === IdentityProviderType.LDAP) {
@@ -1320,6 +1349,7 @@ const updateEditState = (updatedIdentityProvider: IdentityProvider) => {
     configForOIDC.value =
       tempIdentityProvider.config?.oidcConfig ||
       OIDCIdentityProviderConfig.fromPartial({});
+    scopesStringOfConfig.value = configForOIDC.value.scopes.join(" ");
   } else if (tempIdentityProvider.type === IdentityProviderType.LDAP) {
     state.fieldMapping =
       tempIdentityProvider.config?.ldapConfig?.fieldMapping ??
@@ -1394,6 +1424,12 @@ watch(
       identityProvider.value.title = "";
       identityProvider.value.name = "";
       identityProvider.value.domain = "";
+
+      if (state.type === IdentityProviderType.OIDC) {
+        // Default is a list of scopes that are part of OIDC standard claims, see
+        // https://auth0.com/docs/get-started/apis/scopes/openid-connect-scopes#standard-claims.
+        scopesStringOfConfig.value = "openid profile email";
+      }
     }
   },
   {

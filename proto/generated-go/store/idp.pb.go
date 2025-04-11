@@ -342,6 +342,7 @@ type OIDCIdentityProviderConfig struct {
 	FieldMapping  *FieldMapping          `protobuf:"bytes,4,opt,name=field_mapping,json=fieldMapping,proto3" json:"field_mapping,omitempty"`
 	SkipTlsVerify bool                   `protobuf:"varint,5,opt,name=skip_tls_verify,json=skipTlsVerify,proto3" json:"skip_tls_verify,omitempty"`
 	AuthStyle     OAuth2AuthStyle        `protobuf:"varint,6,opt,name=auth_style,json=authStyle,proto3,enum=bytebase.store.OAuth2AuthStyle" json:"auth_style,omitempty"`
+	Scopes        []string               `protobuf:"bytes,7,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -416,6 +417,13 @@ func (x *OIDCIdentityProviderConfig) GetAuthStyle() OAuth2AuthStyle {
 		return x.AuthStyle
 	}
 	return OAuth2AuthStyle_OAUTH2_AUTH_STYLE_UNSPECIFIED
+}
+
+func (x *OIDCIdentityProviderConfig) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
 }
 
 // LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
@@ -546,21 +554,17 @@ func (x *LDAPIdentityProviderConfig) GetFieldMapping() *FieldMapping {
 // FieldMapping saves the field names from user info API of identity provider.
 // As we save all raw json string of user info response data into `principal.idp_user_info`,
 // we can extract the relevant data based with `FieldMapping`.
-//
-// e.g. For GitHub authenticated user API, it will return `login`, `name` and `email` in response.
-// Then the identifier of FieldMapping will be `login`, display_name will be `name`,
-// and email will be `email`.
-// reference: https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get-the-authenticated-user
 type FieldMapping struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Identifier is the field name of the unique identifier in 3rd-party idp user info. Required.
 	Identifier string `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
 	// DisplayName is the field name of display name in 3rd-party idp user info. Optional.
 	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	// Email is the field name of primary email in 3rd-party idp user info. Optional.
-	Email string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	// Phone is the field name of primary phone in 3rd-party idp user info. Optional.
-	Phone         string `protobuf:"bytes,4,opt,name=phone,proto3" json:"phone,omitempty"`
+	Phone string `protobuf:"bytes,4,opt,name=phone,proto3" json:"phone,omitempty"`
+	// Groups is the field name of groups in 3rd-party idp user info. Optional.
+	// Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/
+	Groups        string `protobuf:"bytes,5,opt,name=groups,proto3" json:"groups,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -609,16 +613,16 @@ func (x *FieldMapping) GetDisplayName() string {
 	return ""
 }
 
-func (x *FieldMapping) GetEmail() string {
+func (x *FieldMapping) GetPhone() string {
 	if x != nil {
-		return x.Email
+		return x.Phone
 	}
 	return ""
 }
 
-func (x *FieldMapping) GetPhone() string {
+func (x *FieldMapping) GetGroups() string {
 	if x != nil {
-		return x.Phone
+		return x.Groups
 	}
 	return ""
 }
@@ -629,10 +633,12 @@ type IdentityProviderUserInfo struct {
 	Identifier string `protobuf:"bytes,1,opt,name=identifier,proto3" json:"identifier,omitempty"`
 	// DisplayName is the value of display name in 3rd-party idp user info.
 	DisplayName string `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	// Email is the value of primary email in 3rd-party idp user info.
-	Email string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	// Phone is the value of primary phone in 3rd-party idp user info.
-	Phone         string `protobuf:"bytes,4,opt,name=phone,proto3" json:"phone,omitempty"`
+	Phone string `protobuf:"bytes,4,opt,name=phone,proto3" json:"phone,omitempty"`
+	// Groups is the value of groups in 3rd-party idp user info.
+	// Mainly used for OIDC: https://developer.okta.com/docs/guides/customize-tokens-groups-claim/main/
+	Groups        []string `protobuf:"bytes,5,rep,name=groups,proto3" json:"groups,omitempty"`
+	HasGroups     bool     `protobuf:"varint,6,opt,name=has_groups,json=hasGroups,proto3" json:"has_groups,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -681,18 +687,25 @@ func (x *IdentityProviderUserInfo) GetDisplayName() string {
 	return ""
 }
 
-func (x *IdentityProviderUserInfo) GetEmail() string {
-	if x != nil {
-		return x.Email
-	}
-	return ""
-}
-
 func (x *IdentityProviderUserInfo) GetPhone() string {
 	if x != nil {
 		return x.Phone
 	}
 	return ""
+}
+
+func (x *IdentityProviderUserInfo) GetGroups() []string {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+func (x *IdentityProviderUserInfo) GetHasGroups() bool {
+	if x != nil {
+		return x.HasGroups
+	}
+	return false
 }
 
 var File_store_idp_proto protoreflect.FileDescriptor
@@ -717,7 +730,7 @@ const file_store_idp_proto_rawDesc = "" +
 	"\rfield_mapping\x18\a \x01(\v2\x1c.bytebase.store.FieldMappingR\ffieldMapping\x12&\n" +
 	"\x0fskip_tls_verify\x18\b \x01(\bR\rskipTlsVerify\x12>\n" +
 	"\n" +
-	"auth_style\x18\t \x01(\x0e2\x1f.bytebase.store.OAuth2AuthStyleR\tauthStyle\"\xa1\x02\n" +
+	"auth_style\x18\t \x01(\x0e2\x1f.bytebase.store.OAuth2AuthStyleR\tauthStyle\"\xb9\x02\n" +
 	"\x1aOIDCIdentityProviderConfig\x12\x16\n" +
 	"\x06issuer\x18\x01 \x01(\tR\x06issuer\x12\x1b\n" +
 	"\tclient_id\x18\x02 \x01(\tR\bclientId\x12#\n" +
@@ -725,7 +738,8 @@ const file_store_idp_proto_rawDesc = "" +
 	"\rfield_mapping\x18\x04 \x01(\v2\x1c.bytebase.store.FieldMappingR\ffieldMapping\x12&\n" +
 	"\x0fskip_tls_verify\x18\x05 \x01(\bR\rskipTlsVerify\x12>\n" +
 	"\n" +
-	"auth_style\x18\x06 \x01(\x0e2\x1f.bytebase.store.OAuth2AuthStyleR\tauthStyle\"\xd4\x02\n" +
+	"auth_style\x18\x06 \x01(\x0e2\x1f.bytebase.store.OAuth2AuthStyleR\tauthStyle\x12\x16\n" +
+	"\x06scopes\x18\a \x03(\tR\x06scopes\"\xd4\x02\n" +
 	"\x1aLDAPIdentityProviderConfig\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12&\n" +
@@ -736,21 +750,23 @@ const file_store_idp_proto_rawDesc = "" +
 	"\vuser_filter\x18\a \x01(\tR\n" +
 	"userFilter\x12+\n" +
 	"\x11security_protocol\x18\b \x01(\tR\x10securityProtocol\x12A\n" +
-	"\rfield_mapping\x18\t \x01(\v2\x1c.bytebase.store.FieldMappingR\ffieldMapping\"}\n" +
+	"\rfield_mapping\x18\t \x01(\v2\x1c.bytebase.store.FieldMappingR\ffieldMapping\"\x85\x01\n" +
 	"\fFieldMapping\x12\x1e\n" +
 	"\n" +
 	"identifier\x18\x01 \x01(\tR\n" +
 	"identifier\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x14\n" +
-	"\x05email\x18\x03 \x01(\tR\x05email\x12\x14\n" +
-	"\x05phone\x18\x04 \x01(\tR\x05phone\"\x89\x01\n" +
+	"\x05phone\x18\x04 \x01(\tR\x05phone\x12\x16\n" +
+	"\x06groups\x18\x05 \x01(\tR\x06groupsJ\x04\b\x03\x10\x04\"\xb0\x01\n" +
 	"\x18IdentityProviderUserInfo\x12\x1e\n" +
 	"\n" +
 	"identifier\x18\x01 \x01(\tR\n" +
 	"identifier\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x14\n" +
-	"\x05email\x18\x03 \x01(\tR\x05email\x12\x14\n" +
-	"\x05phone\x18\x04 \x01(\tR\x05phone*^\n" +
+	"\x05phone\x18\x04 \x01(\tR\x05phone\x12\x16\n" +
+	"\x06groups\x18\x05 \x03(\tR\x06groups\x12\x1d\n" +
+	"\n" +
+	"has_groups\x18\x06 \x01(\bR\thasGroupsJ\x04\b\x03\x10\x04*^\n" +
 	"\x14IdentityProviderType\x12&\n" +
 	"\"IDENTITY_PROVIDER_TYPE_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
