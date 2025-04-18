@@ -135,7 +135,6 @@ export const enginesSupportCreateDatabase = () => {
     Engine.MONGODB,
     Engine.TIDB,
     Engine.OCEANBASE,
-    Engine.OCEANBASE_ORACLE,
     Engine.REDSHIFT,
     Engine.MARIADB,
     Engine.STARROCKS,
@@ -210,8 +209,9 @@ export const instanceV1HasExtraParameters = (
     Engine.POSTGRES,
     Engine.ORACLE,
     Engine.MSSQL,
+    Engine.MONGODB,
   ].includes(engine);
-}
+};
 
 export const instanceV1HasCollationAndCharacterSet = (
   instanceOrEngine: Instance | InstanceResource | Engine
@@ -257,6 +257,7 @@ export const instanceV1AllowsExplain = (
     Engine.COCKROACHDB,
     Engine.DM,
     Engine.HIVE,
+    Engine.MSSQL,
     Engine.OCEANBASE_ORACLE,
     Engine.ORACLE,
     Engine.POSTGRES,
@@ -392,7 +393,7 @@ export const engineNameV1 = (type: Engine): string => {
     case Engine.COSMOSDB:
       return "CosmosDB";
     case Engine.CASSANDRA:
-      return "Cassandra"
+      return "Cassandra";
     case Engine.TRINO:
       return "Trino";
   }
@@ -407,7 +408,8 @@ export const hasSchemaProperty = (databaseEngine: Engine) => {
     databaseEngine === Engine.REDSHIFT ||
     databaseEngine === Engine.RISINGWAVE ||
     databaseEngine === Engine.COCKROACHDB ||
-    databaseEngine === Engine.SPANNER
+    databaseEngine === Engine.SPANNER ||
+    databaseEngine === Engine.TRINO
   );
 };
 

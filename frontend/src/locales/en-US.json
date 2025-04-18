@@ -419,9 +419,7 @@
     "sso": {
       "create": "Create SSO",
       "description": "Single Sign-On (SSO) is an authentication method that enables users to authenticate with multiple applications and websites via a single set of credentials.",
-      "archive": "Archive this SSO",
-      "archive-info": "Archived SSO will not be displayed.",
-      "restore": "Restore this SSO",
+      "delete": "Delete this SSO",
       "form": {
         "type": "Type",
         "learn-more-with-user-doc": "Learn more about the configuration",
@@ -956,14 +954,16 @@
           "task-run-status-update": "Status update",
           "transaction-control": "Transaction control",
           "database-sync": "Database sync",
-          "prior-backup": "Prior backup"
+          "prior-backup": "Prior backup",
+          "retry-info": "Retry information"
         },
         "estimated-affected-rows-n": "Estimated affected rows: {n}",
         "prior-backup-tables": "Prior backup tables",
         "status-update": {
           "waiting": "Ready to be executed",
           "running": "Being executed"
-        }
+        },
+        "retry-info": "Retrying (attempt {n}/{m}) due to lock timeout."
       },
       "task-run-session": {
         "blocking-sessions": {
@@ -1253,7 +1253,6 @@
     "select": "Select environment",
     "delete": "Delete this environment",
     "create": "Create Environment",
-    "restore": "Restore this environment",
     "successfully-updated-environment": "Successfully updated environment '{name}'.",
     "production-environment": "Production environment",
     "access-control": {
@@ -1628,6 +1627,10 @@
         "postgres-database-tenant-mode": {
           "self": "Postgres database tenant mode",
           "description": "The tenant mode for Postgres database. If enable, the issue will be run by the database OWNER. Otherwise, the issue will be run by the instance connection user."
+        },
+        "max-retries": {
+          "self": "Maximum retries count for lock timeout",
+          "description": "The maximum retries count for lock timeout when running the task. The default value is 0."
         }
       }
     },
@@ -2295,12 +2298,7 @@
         "order": "Order",
         "approver": "Approver",
         "add": "Add node",
-        "delete": "Delete approval node",
-        "select-approver": "Select approver",
-        "roles": {
-          "system": "System Roles",
-          "custom": "Custom Roles"
-        }
+        "delete": "Delete approval node"
       },
       "view-approval-flow": "View approval flow",
       "skip": "Skip manual approval",

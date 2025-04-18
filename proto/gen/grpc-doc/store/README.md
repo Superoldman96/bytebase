@@ -18,10 +18,6 @@
   
     - [Advice.Status](#bytebase-store-Advice-Status)
   
-- [store/anomaly.proto](#store_anomaly-proto)
-    - [AnomalyConnectionPayload](#bytebase-store-AnomalyConnectionPayload)
-    - [AnomalyDatabaseSchemaDriftPayload](#bytebase-store-AnomalyDatabaseSchemaDriftPayload)
-  
 - [store/approval.proto](#store_approval-proto)
     - [ApprovalFlow](#bytebase-store-ApprovalFlow)
     - [ApprovalNode](#bytebase-store-ApprovalNode)
@@ -30,7 +26,6 @@
     - [IssuePayloadApproval](#bytebase-store-IssuePayloadApproval)
     - [IssuePayloadApproval.Approver](#bytebase-store-IssuePayloadApproval-Approver)
   
-    - [ApprovalNode.GroupValue](#bytebase-store-ApprovalNode-GroupValue)
     - [ApprovalNode.Type](#bytebase-store-ApprovalNode-Type)
     - [ApprovalStep.Type](#bytebase-store-ApprovalStep-Type)
     - [IssuePayloadApproval.Approver.Status](#bytebase-store-IssuePayloadApproval-Approver-Status)
@@ -222,6 +217,7 @@
 - [store/project.proto](#store_project-proto)
     - [Label](#bytebase-store-Label)
     - [Project](#bytebase-store-Project)
+    - [Project.ExecutionRetryPolicy](#bytebase-store-Project-ExecutionRetryPolicy)
   
 - [store/project_webhook.proto](#store_project_webhook-proto)
     - [ProjectWebhookPayload](#bytebase-store-ProjectWebhookPayload)
@@ -317,6 +313,7 @@
     - [TaskRunLog.DatabaseSyncStart](#bytebase-store-TaskRunLog-DatabaseSyncStart)
     - [TaskRunLog.PriorBackupEnd](#bytebase-store-TaskRunLog-PriorBackupEnd)
     - [TaskRunLog.PriorBackupStart](#bytebase-store-TaskRunLog-PriorBackupStart)
+    - [TaskRunLog.RetryInfo](#bytebase-store-TaskRunLog-RetryInfo)
     - [TaskRunLog.SchemaDumpEnd](#bytebase-store-TaskRunLog-SchemaDumpEnd)
     - [TaskRunLog.SchemaDumpStart](#bytebase-store-TaskRunLog-SchemaDumpStart)
     - [TaskRunLog.TaskRunStatusUpdate](#bytebase-store-TaskRunLog-TaskRunStatusUpdate)
@@ -532,54 +529,6 @@ offset.
 
 
 
-<a name="store_anomaly-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## store/anomaly.proto
-
-
-
-<a name="bytebase-store-AnomalyConnectionPayload"></a>
-
-### AnomalyConnectionPayload
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| detail | [string](#string) |  | Connection failure detail |
-
-
-
-
-
-
-<a name="bytebase-store-AnomalyDatabaseSchemaDriftPayload"></a>
-
-### AnomalyDatabaseSchemaDriftPayload
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| version | [string](#string) |  | The schema version corresponds to the expected schema |
-| expect | [string](#string) |  | The expected latest schema stored in the migration history table |
-| actual | [string](#string) |  | The actual schema dumped from the database |
-
-
-
-
-
- 
-
- 
-
- 
-
- 
-
-
-
 <a name="store_approval-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -611,8 +560,7 @@ offset.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ApprovalNode.Type](#bytebase-store-ApprovalNode-Type) |  |  |
-| group_value | [ApprovalNode.GroupValue](#bytebase-store-ApprovalNode-GroupValue) |  |  |
-| role | [string](#string) |  | Format: roles/{role} |
+| role | [string](#string) |  |  |
 
 
 
@@ -689,25 +637,6 @@ IssuePayloadApproval records the approval template used and the approval history
 
 
  
-
-
-<a name="bytebase-store-ApprovalNode-GroupValue"></a>
-
-### ApprovalNode.GroupValue
-The predefined user groups are:
-- WORKSPACE_OWNER
-- WORKSPACE_DBA
-- PROJECT_OWNER
-- PROJECT_MEMBER
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| GROUP_VALUE_UNSPECIFILED | 0 |  |
-| WORKSPACE_OWNER | 1 |  |
-| WORKSPACE_DBA | 2 |  |
-| PROJECT_OWNER | 3 |  |
-| PROJECT_MEMBER | 4 |  |
-
 
 
 <a name="bytebase-store-ApprovalNode-Type"></a>
@@ -3615,6 +3544,22 @@ RestrictIssueCreationForSQLReviewPolicy is the policy configuration for restrict
 | skip_backup_errors | [bool](#bool) |  | Whether to skip backup errors and continue the data migration. |
 | postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the pre-appended &#34;set role &lt;db_owner&gt;&#34; statement. |
 | allow_self_approval | [bool](#bool) |  | Whether to allow the issue creator to self-approve the issue. |
+| execution_retry_policy | [Project.ExecutionRetryPolicy](#bytebase-store-Project-ExecutionRetryPolicy) |  | Execution retry policy for the task run. |
+
+
+
+
+
+
+<a name="bytebase-store-Project-ExecutionRetryPolicy"></a>
+
+### Project.ExecutionRetryPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| maximum_retries | [int32](#int32) |  | The maximum number of retries for the lock timeout issue. |
 
 
 
@@ -4257,8 +4202,8 @@ RestrictIssueCreationForSQLReviewPolicy is the policy configuration for restrict
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| title | [string](#string) |  | The display name of the environment. |
 | id | [string](#string) |  | The resource id of the environment. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+| title | [string](#string) |  | The display name of the environment. |
 | tags | [EnvironmentSetting.Environment.TagsEntry](#bytebase-store-EnvironmentSetting-Environment-TagsEntry) | repeated |  |
 | color | [string](#string) |  |  |
 
@@ -4901,6 +4846,7 @@ TODO(zp): Use common Position instead.
 | transaction_control | [TaskRunLog.TransactionControl](#bytebase-store-TaskRunLog-TransactionControl) |  |  |
 | prior_backup_start | [TaskRunLog.PriorBackupStart](#bytebase-store-TaskRunLog-PriorBackupStart) |  |  |
 | prior_backup_end | [TaskRunLog.PriorBackupEnd](#bytebase-store-TaskRunLog-PriorBackupEnd) |  |  |
+| retry_info | [TaskRunLog.RetryInfo](#bytebase-store-TaskRunLog-RetryInfo) |  |  |
 
 
 
@@ -4985,6 +4931,23 @@ TODO(zp): Use common Position instead.
 
 ### TaskRunLog.PriorBackupStart
 
+
+
+
+
+
+
+<a name="bytebase-store-TaskRunLog-RetryInfo"></a>
+
+### TaskRunLog.RetryInfo
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| error | [string](#string) |  |  |
+| retry_count | [int32](#int32) |  |  |
+| maximum_retries | [int32](#int32) |  |  |
 
 
 
@@ -5094,6 +5057,7 @@ TODO(zp): Use common Position instead.
 | TRANSACTION_CONTROL | 8 |  |
 | PRIOR_BACKUP_START | 9 |  |
 | PRIOR_BACKUP_END | 10 |  |
+| RETRY_INFO | 11 |  |
 
 
  

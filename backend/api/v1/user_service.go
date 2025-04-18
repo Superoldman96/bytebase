@@ -88,6 +88,15 @@ func (s *UserService) GetUser(ctx context.Context, request *v1pb.GetUserRequest)
 	return convertToUser(user), nil
 }
 
+// GetCurrentUser gets the current authenticated user.
+func (*UserService) GetCurrentUser(ctx context.Context, _ *emptypb.Empty) (*v1pb.User, error) {
+	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
+	if !ok || user == nil {
+		return nil, status.Errorf(codes.Unauthenticated, "authenticated user not found")
+	}
+	return convertToUser(user), nil
+}
+
 // ListUsers lists all users.
 func (s *UserService) ListUsers(ctx context.Context, request *v1pb.ListUsersRequest) (*v1pb.ListUsersResponse, error) {
 	offset, err := parseLimitAndOffset(&pageSize{
@@ -301,7 +310,7 @@ func (s *UserService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 		}
 		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersCreate, callerUser)
 		if err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 		}
 		if !ok {
 			return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersCreate)
@@ -475,7 +484,7 @@ func (s *UserService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 	if callerUser.ID != userID {
 		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersUpdate, callerUser)
 		if err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 		}
 		if !ok {
 			return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersUpdate)
@@ -487,9 +496,6 @@ func (s *UserService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 	for _, path := range request.UpdateMask.Paths {
 		switch path {
 		case "email":
-			if user.Profile.Source != "" {
-				return nil, status.Errorf(codes.InvalidArgument, "cannot change email for external user")
-			}
 			if err := validateEmailWithDomains(ctx, s.licenseService, s.store, request.User.Email, user.Type == base.ServiceAccount, false); err != nil {
 				return nil, err
 			}
@@ -632,7 +638,7 @@ func (s *UserService) DeleteUser(ctx context.Context, request *v1pb.DeleteUserRe
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersDelete, callerUser)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 	}
 	if !ok {
 		return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersDelete)
@@ -730,7 +736,7 @@ func (s *UserService) UndeleteUser(ctx context.Context, request *v1pb.UndeleteUs
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersUndelete, callerUser)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 	}
 	if !ok {
 		return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersUndelete)

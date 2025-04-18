@@ -602,11 +602,8 @@ func (s *SettingService) UpdateSetting(ctx context.Context, request *v1pb.Update
 		if serr := validateEnvironments(request.Setting.Value.GetEnvironmentSetting().GetEnvironments()); serr != nil {
 			return nil, serr.Err()
 		}
-		environmentSetting := &storepb.EnvironmentSetting{}
-		if err := convertProtoToProto(request.Setting.Value.GetEnvironmentSetting(), environmentSetting); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to unmarshal setting value for %s with error: %v", apiSettingName, err)
-		}
 
+		environmentSetting := convertEnvironmentSetting(request.Setting.Value.GetEnvironmentSetting())
 		oldEnvironmentSetting, err := s.store.GetEnvironmentSetting(ctx)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to get old environment setting with error: %v", err)
@@ -625,6 +622,13 @@ func (s *SettingService) UpdateSetting(ctx context.Context, request *v1pb.Update
 				}
 				if count > 0 {
 					return nil, status.Errorf(codes.FailedPrecondition, "all instances in the environment %v should be deleted first", env.Id)
+				}
+				uses, err := s.store.CheckDatabaseUseEnvironment(ctx, env.Id)
+				if err != nil {
+					return nil, status.Error(codes.Internal, err.Error())
+				}
+				if uses {
+					return nil, status.Errorf(codes.FailedPrecondition, "all databases in the environment %v should be deleted first", env.Id)
 				}
 			}
 		}
@@ -894,9 +898,9 @@ func (s *SettingService) convertToSettingMessage(ctx context.Context, setting *s
 			},
 		}, nil
 	case base.SettingEnvironment:
-		v1Value := new(v1pb.EnvironmentSetting)
-		if err := common.ProtojsonUnmarshaler.Unmarshal([]byte(setting.Value), v1Value); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to unmarshal setting value for %s with error: %v", setting.Name, err)
+		v1Value, err := convertToEnvironmentSetting(setting.Value)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to convert setting value for %s with error: %v", setting.Name, err)
 		}
 		return &v1pb.Setting{
 			Name: settingName,
@@ -1351,4 +1355,44 @@ func validateEnvironments(envs []*v1pb.EnvironmentSetting_Environment) *status.S
 		used[env.Id] = true
 	}
 	return nil
+}
+
+func convertToEnvironmentSetting(value string) (*v1pb.EnvironmentSetting, error) {
+	var setting storepb.EnvironmentSetting
+	if err := common.ProtojsonUnmarshaler.Unmarshal([]byte(value), &setting); err != nil {
+		return nil, errors.Wrapf(err, "failed to unmarshal environment setting")
+	}
+	var environments []*v1pb.EnvironmentSetting_Environment
+
+	for _, e := range setting.Environments {
+		environments = append(environments, convertToEnvironment(e))
+	}
+	return &v1pb.EnvironmentSetting{
+		Environments: environments,
+	}, nil
+}
+
+func convertToEnvironment(e *storepb.EnvironmentSetting_Environment) *v1pb.EnvironmentSetting_Environment {
+	return &v1pb.EnvironmentSetting_Environment{
+		Name:  common.FormatEnvironment(e.Id),
+		Id:    e.Id,
+		Title: e.Title,
+		Tags:  e.Tags,
+		Color: e.Color,
+	}
+}
+
+func convertEnvironmentSetting(e *v1pb.EnvironmentSetting) *storepb.EnvironmentSetting {
+	var environments []*storepb.EnvironmentSetting_Environment
+	for _, env := range e.Environments {
+		environments = append(environments, &storepb.EnvironmentSetting_Environment{
+			Id:    env.Id,
+			Title: env.Title,
+			Tags:  env.Tags,
+			Color: env.Color,
+		})
+	}
+	return &storepb.EnvironmentSetting{
+		Environments: environments,
+	}
 }

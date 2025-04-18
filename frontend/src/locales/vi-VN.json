@@ -419,9 +419,7 @@
     "sso": {
       "create": "Tạo SSO",
       "description": "Đăng nhập một lần (SSO) là một phương thức xác thực cho phép người dùng xác thực với nhiều ứng dụng và trang web bằng một thông tin đăng nhập duy nhất.",
-      "archive": "Lưu trữ SSO này",
-      "archive-info": "SSO đã lưu trữ sẽ không được hiển thị.",
-      "restore": "Khôi phục SSO này",
+      "delete": "xóa SSO này đi",
       "form": {
         "type": "Loại",
         "learn-more-with-user-doc": "Tìm hiểu thêm về cấu hình",
@@ -956,14 +954,16 @@
           "task-run-status-update": "Cập nhật trạng thái",
           "transaction-control": "Kiểm soát giao dịch",
           "database-sync": "Đồng bộ cơ sở dữ liệu",
-          "prior-backup": "Sao lưu trước"
+          "prior-backup": "Sao lưu trước",
+          "retry-info": "Thông tin thử lại"
         },
         "estimated-affected-rows-n": "Số dòng bị ảnh hưởng ước tính: {n}",
         "prior-backup-tables": "Bảng sao lưu trước",
         "status-update": {
           "waiting": "Sẵn sàng để thực thi",
           "running": "Đang được thực thi"
-        }
+        },
+        "retry-info": "Thử lại (cố gắng {n}/{m}) do thời gian chờ khóa."
       },
       "task-run-session": {
         "blocking-sessions": {
@@ -1253,7 +1253,6 @@
     "select": "Chọn môi trường",
     "delete": "Xóa môi trường này",
     "create": "Tạo môi trường",
-    "restore": "Khôi phục môi trường này",
     "successfully-updated-environment": "Đã cập nhật thành công môi trường '{name}'.",
     "production-environment": "Môi trường sản xuất",
     "access-control": {
@@ -1318,7 +1317,7 @@
       "title": "Bạn đã đăng nhập với tư cách người dùng khác",
       "content": "Chúng tôi sẽ chuyển hướng bạn đến trang chủ."
     },
-    "token-expired-title": "Mã thông báo hết hạn",
+    "token-expired-title": "Mã thông báo đã hết hạn",
     "token-expired-description": "Mã thông báo đã hết hạn, vui lòng đăng nhập lại"
   },
   "policy": {
@@ -1628,6 +1627,10 @@
         "postgres-database-tenant-mode": {
           "self": "Chế độ đối tượng thuê cơ sở dữ liệu Postgres",
           "description": "Chế độ đối tượng thuê cho cơ sở dữ liệu Postgres. Nếu bật, vấn đề sẽ được chạy bởi CHỦ SỞ HỮU cơ sở dữ liệu. Nếu không, vấn đề sẽ được chạy bởi người dùng kết nối phiên bản."
+        },
+        "max-retries": {
+          "self": "Số lần thử lại tối đa cho thời gian chờ khóa",
+          "description": "Tối đa nhớ lại số lượng thời gian chờ khóa khi chạy tác vụ. Giá trị mặc định là 0."
         }
       }
     },
@@ -2295,12 +2298,7 @@
         "order": "Thứ tự",
         "approver": "Người phê duyệt",
         "add": "Thêm nút",
-        "delete": "Xóa nút phê duyệt",
-        "select-approver": "Chọn người phê duyệt",
-        "roles": {
-          "system": "Vai trò hệ thống",
-          "custom": "Vai trò tùy chỉnh"
-        }
+        "delete": "Xóa nút phê duyệt"
       },
       "view-approval-flow": "Xem quy trình phê duyệt",
       "skip": "Bỏ qua phê duyệt thủ công",

@@ -13,6 +13,7 @@ import (
 
 	parser "github.com/bytebase/postgresql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/pg"
@@ -60,7 +61,7 @@ func (*BuiltinPriorBackupCheckAdvisor) Check(_ context.Context, checkCtx advisor
 				Title:         title,
 				Content:       fmt.Sprintf("Data change can only run DML, \"%s\" is not DML", stmt.Text()),
 				Code:          advisor.BuiltinPriorBackupCheck.Int32(),
-				StartPosition: advisor.ConvertANTLRLineToPosition(stmt.LastLine()),
+				StartPosition: common.ConvertANTLRLineToPosition(stmt.LastLine()),
 			})
 		}
 	}
@@ -68,13 +69,11 @@ func (*BuiltinPriorBackupCheckAdvisor) Check(_ context.Context, checkCtx advisor
 	name := extractDatabaseName(checkCtx.PreUpdateBackupDetail.Database)
 	if !checkCtx.Catalog.Origin.HasSchema(name) {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("Need schema %q to do prior backup but it does not exist", name),
-			Code:    advisor.SchemaNotExists.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 0,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("Need schema %q to do prior backup but it does not exist", name),
+			Code:          advisor.SchemaNotExists.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
@@ -98,13 +97,11 @@ func (*BuiltinPriorBackupCheckAdvisor) Check(_ context.Context, checkCtx advisor
 			}
 			if statementType != item.table.StatementType {
 				adviceList = append(adviceList, &storepb.Advice{
-					Status:  level,
-					Title:   title,
-					Content: fmt.Sprintf("The statement type is not the same for all statements on the same table %q", key),
-					Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-					StartPosition: &storepb.Position{
-						Line: 1,
-					},
+					Status:        level,
+					Title:         title,
+					Content:       fmt.Sprintf("The statement type is not the same for all statements on the same table %q", key),
+					Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+					StartPosition: common.FirstLinePosition,
 				})
 				break
 			}

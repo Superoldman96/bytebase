@@ -247,8 +247,8 @@ func (s *SQLService) Query(ctx context.Context, request *v1pb.QueryRequest) (*v1
 					Status:  v1pb.PlanCheckRun_Result_ERROR,
 					Report: &v1pb.PlanCheckRun_Result_SqlReviewReport_{
 						SqlReviewReport: &v1pb.PlanCheckRun_Result_SqlReviewReport{
-							Line:   int32(syntaxErr.Line),
-							Column: int32(syntaxErr.Column),
+							Line:   int32(syntaxErr.Position.GetLine()),
+							Column: int32(syntaxErr.Position.GetColumn()),
 						},
 					},
 				},
@@ -873,8 +873,10 @@ func DoExport(
 		results = results[len(results)-1:]
 	}
 	if len(results) == 1 {
-		if err := optionalAccessCheck(ctx, instance, database, user, spans, int(results[0].RowsCount), queryContext.Explain, true); err != nil {
-			return nil, duration, err
+		if optionalAccessCheck != nil {
+			if err := optionalAccessCheck(ctx, instance, database, user, spans, int(results[0].RowsCount), queryContext.Explain, true); err != nil {
+				return nil, duration, err
+			}
 		}
 	}
 
@@ -1254,7 +1256,7 @@ func (s *SQLService) accessCheck(
 			if permission != "" {
 				ok, err := s.iamManager.CheckPermission(ctx, permission, user, project.ResourceID)
 				if err != nil {
-					return err
+					return status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 				}
 				if !ok {
 					return status.Errorf(codes.PermissionDenied, "user %q does not have permission %q on project %q", user.Email, permission, project.ResourceID)
@@ -1389,8 +1391,8 @@ func validateQueryRequest(instance *store.InstanceMessage, statement string) err
 					Status:  v1pb.PlanCheckRun_Result_ERROR,
 					Report: &v1pb.PlanCheckRun_Result_SqlReviewReport_{
 						SqlReviewReport: &v1pb.PlanCheckRun_Result_SqlReviewReport{
-							Line:   int32(syntaxErr.Line),
-							Column: int32(syntaxErr.Column),
+							Line:   int32(syntaxErr.Position.GetLine()),
+							Column: int32(syntaxErr.Position.GetColumn()),
 						},
 					},
 				},
@@ -1403,7 +1405,12 @@ func validateQueryRequest(instance *store.InstanceMessage, statement string) err
 		return err
 	}
 	if !ok {
-		return nonSelectSQLError.Err()
+		switch instance.Metadata.GetEngine() {
+		case storepb.Engine_REDIS, storepb.Engine_MONGODB:
+			return nonReadOnlyCommandError.Err()
+		default:
+			return nonSelectSQLError.Err()
+		}
 	}
 	return nil
 }
@@ -1845,7 +1852,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 	}
 
 	var envAdminDataSourceRestriction, projectAdminDataSourceRestriction v1pb.DataSourceQueryPolicy_Restriction
-	environment, err := storeInstance.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &database.EffectiveEnvironmentID})
+	environment, err := storeInstance.GetEnvironmentByID(ctx, database.EffectiveEnvironmentID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get environment")
 	}
@@ -1854,7 +1861,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 	}
 	dataSourceQueryPolicyType := base.PolicyTypeDataSourceQuery
 	environmentResourceType := base.PolicyResourceTypeEnvironment
-	environmentResource := common.FormatEnvironment(environment.ResourceID)
+	environmentResource := common.FormatEnvironment(environment.Id)
 	environmentPolicy, err := storeInstance.GetPolicyV2(ctx, &store.FindPolicyMessage{
 		ResourceType: &environmentResourceType,
 		Resource:     &environmentResource,
@@ -1905,9 +1912,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 }
 
 func checkDataSourceQueryPolicy(ctx context.Context, storeInstance *store.Store, database *store.DatabaseMessage, statementTp parserbase.QueryType) error {
-	environment, err := storeInstance.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &database.EffectiveEnvironmentID,
-	})
+	environment, err := storeInstance.GetEnvironmentByID(ctx, database.EffectiveEnvironmentID)
 	if err != nil {
 		return err
 	}
@@ -1915,7 +1920,7 @@ func checkDataSourceQueryPolicy(ctx context.Context, storeInstance *store.Store,
 		return status.Errorf(codes.NotFound, "environment %q not found", database.EffectiveEnvironmentID)
 	}
 	resourceType := base.PolicyResourceTypeEnvironment
-	environmentResource := common.FormatEnvironment(environment.ResourceID)
+	environmentResource := common.FormatEnvironment(environment.Id)
 	policyType := base.PolicyTypeDataSourceQuery
 	dataSourceQueryPolicy, err := storeInstance.GetPolicyV2(ctx, &store.FindPolicyMessage{
 		ResourceType: &resourceType,

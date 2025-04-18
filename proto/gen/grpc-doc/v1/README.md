@@ -86,6 +86,8 @@
 - [v1/database_service.proto](#v1_database_service-proto)
     - [BatchGetDatabasesRequest](#bytebase-v1-BatchGetDatabasesRequest)
     - [BatchGetDatabasesResponse](#bytebase-v1-BatchGetDatabasesResponse)
+    - [BatchSyncDatabasesRequest](#bytebase-v1-BatchSyncDatabasesRequest)
+    - [BatchSyncDatabasesResponse](#bytebase-v1-BatchSyncDatabasesResponse)
     - [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest)
     - [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse)
     - [ChangedResourceDatabase](#bytebase-v1-ChangedResourceDatabase)
@@ -196,7 +198,6 @@
     - [UpdateIssueCommentRequest](#bytebase-v1-UpdateIssueCommentRequest)
     - [UpdateIssueRequest](#bytebase-v1-UpdateIssueRequest)
   
-    - [ApprovalNode.GroupValue](#bytebase-v1-ApprovalNode-GroupValue)
     - [ApprovalNode.Type](#bytebase-v1-ApprovalNode-Type)
     - [ApprovalStep.Type](#bytebase-v1-ApprovalStep-Type)
     - [Issue.Approver.Status](#bytebase-v1-Issue-Approver-Status)
@@ -303,16 +304,6 @@
   
     - [ActuatorService](#bytebase-v1-ActuatorService)
   
-- [v1/anomaly_service.proto](#v1_anomaly_service-proto)
-    - [Anomaly](#bytebase-v1-Anomaly)
-    - [SearchAnomaliesRequest](#bytebase-v1-SearchAnomaliesRequest)
-    - [SearchAnomaliesResponse](#bytebase-v1-SearchAnomaliesResponse)
-  
-    - [Anomaly.AnomalySeverity](#bytebase-v1-Anomaly-AnomalySeverity)
-    - [Anomaly.AnomalyType](#bytebase-v1-Anomaly-AnomalyType)
-  
-    - [AnomalyService](#bytebase-v1-AnomalyService)
-  
 - [v1/iam_policy.proto](#v1_iam_policy-proto)
     - [Binding](#bytebase-v1-Binding)
     - [BindingDelta](#bytebase-v1-BindingDelta)
@@ -380,20 +371,6 @@
   
     - [DatabaseGroupService](#bytebase-v1-DatabaseGroupService)
   
-- [v1/environment_service.proto](#v1_environment_service-proto)
-    - [CreateEnvironmentRequest](#bytebase-v1-CreateEnvironmentRequest)
-    - [DeleteEnvironmentRequest](#bytebase-v1-DeleteEnvironmentRequest)
-    - [Environment](#bytebase-v1-Environment)
-    - [GetEnvironmentRequest](#bytebase-v1-GetEnvironmentRequest)
-    - [ListEnvironmentsRequest](#bytebase-v1-ListEnvironmentsRequest)
-    - [ListEnvironmentsResponse](#bytebase-v1-ListEnvironmentsResponse)
-    - [UndeleteEnvironmentRequest](#bytebase-v1-UndeleteEnvironmentRequest)
-    - [UpdateEnvironmentRequest](#bytebase-v1-UpdateEnvironmentRequest)
-  
-    - [EnvironmentTier](#bytebase-v1-EnvironmentTier)
-  
-    - [EnvironmentService](#bytebase-v1-EnvironmentService)
-  
 - [v1/group_service.proto](#v1_group_service-proto)
     - [CreateGroupRequest](#bytebase-v1-CreateGroupRequest)
     - [DeleteGroupRequest](#bytebase-v1-DeleteGroupRequest)
@@ -423,7 +400,6 @@
     - [OIDCIdentityProviderConfig](#bytebase-v1-OIDCIdentityProviderConfig)
     - [TestIdentityProviderRequest](#bytebase-v1-TestIdentityProviderRequest)
     - [TestIdentityProviderResponse](#bytebase-v1-TestIdentityProviderResponse)
-    - [UndeleteIdentityProviderRequest](#bytebase-v1-UndeleteIdentityProviderRequest)
     - [UpdateIdentityProviderRequest](#bytebase-v1-UpdateIdentityProviderRequest)
   
     - [IdentityProviderType](#bytebase-v1-IdentityProviderType)
@@ -516,6 +492,7 @@
     - [ListProjectsRequest](#bytebase-v1-ListProjectsRequest)
     - [ListProjectsResponse](#bytebase-v1-ListProjectsResponse)
     - [Project](#bytebase-v1-Project)
+    - [Project.ExecutionRetryPolicy](#bytebase-v1-Project-ExecutionRetryPolicy)
     - [RemoveWebhookRequest](#bytebase-v1-RemoveWebhookRequest)
     - [SearchProjectsRequest](#bytebase-v1-SearchProjectsRequest)
     - [SearchProjectsResponse](#bytebase-v1-SearchProjectsResponse)
@@ -668,6 +645,7 @@
     - [TaskRunLogEntry.CommandExecute.CommandResponse](#bytebase-v1-TaskRunLogEntry-CommandExecute-CommandResponse)
     - [TaskRunLogEntry.DatabaseSync](#bytebase-v1-TaskRunLogEntry-DatabaseSync)
     - [TaskRunLogEntry.PriorBackup](#bytebase-v1-TaskRunLogEntry-PriorBackup)
+    - [TaskRunLogEntry.RetryInfo](#bytebase-v1-TaskRunLogEntry-RetryInfo)
     - [TaskRunLogEntry.SchemaDump](#bytebase-v1-TaskRunLogEntry-SchemaDump)
     - [TaskRunLogEntry.TaskRunStatusUpdate](#bytebase-v1-TaskRunLogEntry-TaskRunStatusUpdate)
     - [TaskRunLogEntry.TransactionControl](#bytebase-v1-TaskRunLogEntry-TransactionControl)
@@ -1580,7 +1558,7 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 When paginating, all other parameters provided to `ListInstances` must match the call that provided the page token. |
 | show_deleted | [bool](#bool) |  | Show deleted instances if specified. |
-| filter | [string](#string) |  | Filter the project. Supported filters: - name - resource_id - environment - state - engine - host - port - project
+| filter | [string](#string) |  | Filter the instance. Supported filters: - name - resource_id - environment - state - engine - host - port - project
 
 For example: name == &#34;sample instance&#34; name.matches(&#34;sample&#34;) resource_id = &#34;sample-instance&#34; resource_id.matches(&#34;sample&#34;) state == &#34;DELETED&#34; environment == &#34;environments/test&#34; engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) host == &#34;127.0.0.1&#34; port == &#34;54321&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;sample&#34;) &amp;&amp; environment == &#34;environments/test&#34; host == &#34;127.0.0.1&#34; &amp;&amp; port == &#34;54321&#34; |
 
@@ -1862,6 +1840,32 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | databases | [Database](#bytebase-v1-Database) | repeated | The databases from the specified request. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchSyncDatabasesRequest"></a>
+
+### BatchSyncDatabasesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent resource shared by all databases being updated. Format: instances/{instance} If the operation spans parents, a dash (-) may be accepted as a wildcard. |
+| names | [string](#string) | repeated | The list of database names to retrieve. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchSyncDatabasesResponse"></a>
+
+### BatchSyncDatabasesResponse
+
 
 
 
@@ -3252,6 +3256,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | UpdateDatabase | [UpdateDatabaseRequest](#bytebase-v1-UpdateDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
 | BatchUpdateDatabases | [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest) | [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse) |  |
 | SyncDatabase | [SyncDatabaseRequest](#bytebase-v1-SyncDatabaseRequest) | [SyncDatabaseResponse](#bytebase-v1-SyncDatabaseResponse) |  |
+| BatchSyncDatabases | [BatchSyncDatabasesRequest](#bytebase-v1-BatchSyncDatabasesRequest) | [BatchSyncDatabasesResponse](#bytebase-v1-BatchSyncDatabasesResponse) |  |
 | GetDatabaseMetadata | [GetDatabaseMetadataRequest](#bytebase-v1-GetDatabaseMetadataRequest) | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |
 | GetDatabaseSchema | [GetDatabaseSchemaRequest](#bytebase-v1-GetDatabaseSchemaRequest) | [DatabaseSchema](#bytebase-v1-DatabaseSchema) |  |
 | DiffSchema | [DiffSchemaRequest](#bytebase-v1-DiffSchemaRequest) | [DiffSchemaResponse](#bytebase-v1-DiffSchemaResponse) |  |
@@ -3301,8 +3306,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ApprovalNode.Type](#bytebase-v1-ApprovalNode-Type) |  |  |
-| group_value | [ApprovalNode.GroupValue](#bytebase-v1-ApprovalNode-GroupValue) |  |  |
-| role | [string](#string) |  | Format: roles/{role} |
+| role | [string](#string) |  |  |
 
 
 
@@ -3827,25 +3831,6 @@ The issue&#39;s `name` field is used to identify the issue to update. Format: pr
 
 
  
-
-
-<a name="bytebase-v1-ApprovalNode-GroupValue"></a>
-
-### ApprovalNode.GroupValue
-The predefined user groups are:
-- WORKSPACE_OWNER
-- WORKSPACE_DBA
-- PROJECT_OWNER
-- PROJECT_MEMBER
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| GROUP_VALUE_UNSPECIFILED | 0 |  |
-| WORKSPACE_OWNER | 1 |  |
-| WORKSPACE_DBA | 2 |  |
-| PROJECT_OWNER | 3 |  |
-| PROJECT_MEMBER | 4 |  |
-
 
 
 <a name="bytebase-v1-ApprovalNode-Type"></a>
@@ -4505,7 +4490,7 @@ ANY means approving any node will proceed.
 <a name="bytebase-v1-EnvironmentSetting"></a>
 
 ### EnvironmentSetting
-TODO(p0ny): implement.
+
 
 
 | Field | Type | Label | Description |
@@ -4525,8 +4510,9 @@ TODO(p0ny): implement.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| title | [string](#string) |  | The display name of the environment. |
+| name | [string](#string) |  | The resource name of the environment. Format: environments/{environment}. Output only. |
 | id | [string](#string) |  | The resource id of the environment. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+| title | [string](#string) |  | The display name of the environment. |
 | tags | [EnvironmentSetting.Environment.TagsEntry](#bytebase-v1-EnvironmentSetting-Environment-TagsEntry) | repeated |  |
 | color | [string](#string) |  |  |
 
@@ -5239,6 +5225,7 @@ The user&#39;s `name` field is used to identify the user to update. Format: user
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | GetUser | [GetUserRequest](#bytebase-v1-GetUserRequest) | [User](#bytebase-v1-User) | Get the user. Any authenticated user can get the user. |
+| GetCurrentUser | [.google.protobuf.Empty](#google-protobuf-Empty) | [User](#bytebase-v1-User) | Get the current authenticated user. |
 | ListUsers | [ListUsersRequest](#bytebase-v1-ListUsersRequest) | [ListUsersResponse](#bytebase-v1-ListUsersResponse) | List all users. Any authenticated user can list users. |
 | CreateUser | [CreateUserRequest](#bytebase-v1-CreateUserRequest) | [User](#bytebase-v1-User) | Create a user. When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user. Otherwise, any unauthenticated user can create a user. |
 | UpdateUser | [UpdateUserRequest](#bytebase-v1-UpdateUserRequest) | [User](#bytebase-v1-User) | Only the user itself and the user with bb.users.update permission on the workspace can update the user. |
@@ -5387,115 +5374,6 @@ The theme resources.
 | UpdateActuatorInfo | [UpdateActuatorInfoRequest](#bytebase-v1-UpdateActuatorInfoRequest) | [ActuatorInfo](#bytebase-v1-ActuatorInfo) |  |
 | DeleteCache | [DeleteCacheRequest](#bytebase-v1-DeleteCacheRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 | GetResourcePackage | [GetResourcePackageRequest](#bytebase-v1-GetResourcePackageRequest) | [ResourcePackage](#bytebase-v1-ResourcePackage) |  |
-
- 
-
-
-
-<a name="v1_anomaly_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/anomaly_service.proto
-
-
-
-<a name="bytebase-v1-Anomaly"></a>
-
-### Anomaly
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| resource | [string](#string) |  | The resource that is the target of the operation. Format: - Database: instances/{instance}/databases/{database} |
-| type | [Anomaly.AnomalyType](#bytebase-v1-Anomaly-AnomalyType) |  | type is the type of the anomaly. |
-| severity | [Anomaly.AnomalySeverity](#bytebase-v1-Anomaly-AnomalySeverity) |  | severity is the severity of the anomaly. |
-| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchAnomaliesRequest"></a>
-
-### SearchAnomaliesRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The parent resource whose anomalies are to be listed. Format: projects/{project} |
-| filter | [string](#string) |  | filter is the filter to apply on the search anomaly request, follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax. Only support filter by resource and type for now. For example: Search the anomalies of a specific resource: &#39;resource=&#34;instances/{instance}/databases/{database}&#34;.&#39; Search the specified types of anomalies: &#39;type=&#34;MIGRATION_SCHEMA&#34;.&#39; |
-| page_size | [int32](#int32) |  | Not used. The maximum number of anomalies to return. The service may return fewer than this value. If unspecified, at most 10 anomalies will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `SearchAnomalies` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `SearchAnomalies` must match the call that provided the page token. |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchAnomaliesResponse"></a>
-
-### SearchAnomaliesResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| anomalies | [Anomaly](#bytebase-v1-Anomaly) | repeated | anomalies is the list of anomalies. |
-| next_page_token | [string](#string) |  | Not used. A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
- 
-
-
-<a name="bytebase-v1-Anomaly-AnomalySeverity"></a>
-
-### Anomaly.AnomalySeverity
-AnomalySeverity is the severity of the anomaly.
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ANOMALY_SEVERITY_UNSPECIFIED | 0 | Unspecified anomaly severity. |
-| MEDIUM | 1 | MEDIUM is the info level anomaly severity. |
-| HIGH | 2 | HIGH is the warning level anomaly severity. |
-| CRITICAL | 3 | CRITICAL is the critical level anomaly severity. |
-
-
-
-<a name="bytebase-v1-Anomaly-AnomalyType"></a>
-
-### Anomaly.AnomalyType
-AnomalyType is the type of the anomaly.
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ANOMALY_TYPE_UNSPECIFIED | 0 | Unspecified anomaly type. |
-| DATABASE_CONNECTION | 5 | Database level anomaly.
-
-DATABASE_CONNECTION is the anomaly type for database connection, e.g. the database had been deleted. |
-| DATABASE_SCHEMA_DRIFT | 6 | DATABASE_SCHEMA_DRIFT is the anomaly type for database schema drift, e.g. the database schema had been changed without bytebase migration. |
-
-
- 
-
- 
-
-
-<a name="bytebase-v1-AnomalyService"></a>
-
-### AnomalyService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| SearchAnomalies | [SearchAnomaliesRequest](#bytebase-v1-SearchAnomaliesRequest) | [SearchAnomaliesResponse](#bytebase-v1-SearchAnomaliesResponse) |  |
 
  
 
@@ -6359,186 +6237,6 @@ The database group&#39;s `name` field is used to identify the database group to 
 
 
 
-<a name="v1_environment_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/environment_service.proto
-
-
-
-<a name="bytebase-v1-CreateEnvironmentRequest"></a>
-
-### CreateEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environment | [Environment](#bytebase-v1-Environment) |  | The environment to create. |
-| environment_id | [string](#string) |  | The ID to use for the environment, which will become the final component of the environment&#39;s resource name.
-
-This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
-
-
-
-
-
-
-<a name="bytebase-v1-DeleteEnvironmentRequest"></a>
-
-### DeleteEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment to delete. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-Environment"></a>
-
-### Environment
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment. Format: environments/{environment} |
-| state | [State](#bytebase-v1-State) |  |  |
-| title | [string](#string) |  |  |
-| order | [int32](#int32) |  |  |
-| tier | [EnvironmentTier](#bytebase-v1-EnvironmentTier) |  |  |
-| color | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-GetEnvironmentRequest"></a>
-
-### GetEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment to retrieve. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-ListEnvironmentsRequest"></a>
-
-### ListEnvironmentsRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | Not used. The maximum number of environments to return. The service may return fewer than this value. If unspecified, at most 10 environments will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `ListEnvironments` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListEnvironments` must match the call that provided the page token. |
-| show_deleted | [bool](#bool) |  | Show deleted environments if specified. |
-
-
-
-
-
-
-<a name="bytebase-v1-ListEnvironmentsResponse"></a>
-
-### ListEnvironmentsResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environments | [Environment](#bytebase-v1-Environment) | repeated | The environments from the specified request. |
-| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
-
-<a name="bytebase-v1-UndeleteEnvironmentRequest"></a>
-
-### UndeleteEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the deleted environment. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-UpdateEnvironmentRequest"></a>
-
-### UpdateEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environment | [Environment](#bytebase-v1-Environment) |  | The environment to update.
-
-The environment&#39;s `name` field is used to identify the environment to update. Format: environments/{environment} |
-| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
-
-
-
-
-
- 
-
-
-<a name="bytebase-v1-EnvironmentTier"></a>
-
-### EnvironmentTier
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ENVIRONMENT_TIER_UNSPECIFIED | 0 |  |
-| PROTECTED | 1 |  |
-| UNPROTECTED | 2 |  |
-
-
- 
-
- 
-
-
-<a name="bytebase-v1-EnvironmentService"></a>
-
-### EnvironmentService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| GetEnvironment | [GetEnvironmentRequest](#bytebase-v1-GetEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| ListEnvironments | [ListEnvironmentsRequest](#bytebase-v1-ListEnvironmentsRequest) | [ListEnvironmentsResponse](#bytebase-v1-ListEnvironmentsResponse) |  |
-| CreateEnvironment | [CreateEnvironmentRequest](#bytebase-v1-CreateEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| UpdateEnvironment | [UpdateEnvironmentRequest](#bytebase-v1-UpdateEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| DeleteEnvironment | [DeleteEnvironmentRequest](#bytebase-v1-DeleteEnvironmentRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-| UndeleteEnvironment | [UndeleteEnvironmentRequest](#bytebase-v1-UndeleteEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-
- 
-
-
-
 <a name="v1_group_service-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -6803,7 +6501,6 @@ we can extract the relevant data based with `FieldMapping`.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the identity provider. Format: idps/{idp} |
-| state | [State](#bytebase-v1-State) |  |  |
 | title | [string](#string) |  |  |
 | domain | [string](#string) |  |  |
 | type | [IdentityProviderType](#bytebase-v1-IdentityProviderType) |  |  |
@@ -6866,7 +6563,6 @@ LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
 | page_token | [string](#string) |  | Not used. A page token, received from a previous `ListIdentityProviders` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListIdentityProviders` must match the call that provided the page token. |
-| show_deleted | [bool](#bool) |  | Show deleted identity providers if specified. |
 
 
 
@@ -6975,21 +6671,6 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 
 
 
-<a name="bytebase-v1-UndeleteIdentityProviderRequest"></a>
-
-### UndeleteIdentityProviderRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the deleted identity provider. Format: idps/{identity_provider} |
-
-
-
-
-
-
 <a name="bytebase-v1-UpdateIdentityProviderRequest"></a>
 
 ### UpdateIdentityProviderRequest
@@ -7053,7 +6734,6 @@ The identity provider&#39;s `name` field is used to identify the identity provid
 | CreateIdentityProvider | [CreateIdentityProviderRequest](#bytebase-v1-CreateIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | UpdateIdentityProvider | [UpdateIdentityProviderRequest](#bytebase-v1-UpdateIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | DeleteIdentityProvider | [DeleteIdentityProviderRequest](#bytebase-v1-DeleteIdentityProviderRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-| UndeleteIdentityProvider | [UndeleteIdentityProviderRequest](#bytebase-v1-UndeleteIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | TestIdentityProvider | [TestIdentityProviderRequest](#bytebase-v1-TestIdentityProviderRequest) | [TestIdentityProviderResponse](#bytebase-v1-TestIdentityProviderResponse) |  |
 
  
@@ -8371,6 +8051,22 @@ When paginating, all other parameters provided to `ListProjects` must match the 
 | skip_backup_errors | [bool](#bool) |  | Whether to skip backup errors and continue the data migration. |
 | postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the pre-appended &#34;set role &lt;db_owner&gt;&#34; statement. |
 | allow_self_approval | [bool](#bool) |  | Whether to allow the issue creator to self-approve the issue. |
+| execution_retry_policy | [Project.ExecutionRetryPolicy](#bytebase-v1-Project-ExecutionRetryPolicy) |  | Execution retry policy for the task run. |
+
+
+
+
+
+
+<a name="bytebase-v1-Project-ExecutionRetryPolicy"></a>
+
+### Project.ExecutionRetryPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| maximum_retries | [int32](#int32) |  | The maximum number of retries for the lock timeout issue. |
 
 
 
@@ -10607,6 +10303,7 @@ When paginating, all other parameters provided to `ListTaskRuns` must match the 
 | task_run_status_update | [TaskRunLogEntry.TaskRunStatusUpdate](#bytebase-v1-TaskRunLogEntry-TaskRunStatusUpdate) |  |  |
 | transaction_control | [TaskRunLogEntry.TransactionControl](#bytebase-v1-TaskRunLogEntry-TransactionControl) |  |  |
 | prior_backup | [TaskRunLogEntry.PriorBackup](#bytebase-v1-TaskRunLogEntry-PriorBackup) |  |  |
+| retry_info | [TaskRunLogEntry.RetryInfo](#bytebase-v1-TaskRunLogEntry-RetryInfo) |  |  |
 
 
 
@@ -10677,6 +10374,23 @@ When paginating, all other parameters provided to `ListTaskRuns` must match the 
 | end_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | prior_backup_detail | [TaskRun.PriorBackupDetail](#bytebase-v1-TaskRun-PriorBackupDetail) |  |  |
 | error | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-TaskRunLogEntry-RetryInfo"></a>
+
+### TaskRunLogEntry.RetryInfo
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| error | [string](#string) |  |  |
+| retry_count | [int32](#int32) |  |  |
+| maximum_retries | [int32](#int32) |  |  |
 
 
 
@@ -10901,6 +10615,7 @@ Read from `pg_stat_activity`
 | TASK_RUN_STATUS_UPDATE | 4 |  |
 | TRANSACTION_CONTROL | 5 |  |
 | PRIOR_BACKUP | 6 |  |
+| RETRY_INFO | 7 |  |
 
 
  

@@ -260,168 +260,6 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
-    /v1/environments:
-        get:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_ListEnvironments
-            parameters:
-                - name: pageSize
-                  in: query
-                  description: |-
-                    Not used.
-                     The maximum number of environments to return. The service may return fewer than
-                     this value.
-                     If unspecified, at most 10 environments will be returned.
-                     The maximum value is 1000; values above 1000 will be coerced to 1000.
-                  schema:
-                    type: integer
-                    format: int32
-                - name: pageToken
-                  in: query
-                  description: |-
-                    Not used.
-                     A page token, received from a previous `ListEnvironments` call.
-                     Provide this to retrieve the subsequent page.
-
-                     When paginating, all other parameters provided to `ListEnvironments` must match
-                     the call that provided the page token.
-                  schema:
-                    type: string
-                - name: showDeleted
-                  in: query
-                  description: Show deleted environments if specified.
-                  schema:
-                    type: boolean
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/ListEnvironmentsResponse'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
-        post:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_CreateEnvironment
-            parameters:
-                - name: environmentId
-                  in: query
-                  description: |-
-                    The ID to use for the environment, which will become the final component of
-                     the environment's resource name.
-
-                     This value should be 4-63 characters, and valid characters
-                     are /[a-z][0-9]-/.
-                  schema:
-                    type: string
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/Environment'
-                required: true
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Environment'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
-    /v1/environments/{environment}:
-        get:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_GetEnvironment
-            parameters:
-                - name: environment
-                  in: path
-                  description: The environment id.
-                  required: true
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Environment'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
-        delete:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_DeleteEnvironment
-            parameters:
-                - name: environment
-                  in: path
-                  description: The environment id.
-                  required: true
-                  schema:
-                    type: string
-            responses:
-                "200":
-                    description: OK
-                    content: {}
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
-        patch:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_UpdateEnvironment
-            parameters:
-                - name: environment
-                  in: path
-                  description: The environment id.
-                  required: true
-                  schema:
-                    type: string
-                - name: updateMask
-                  in: query
-                  description: The list of fields to update.
-                  schema:
-                    type: string
-                    format: field-mask
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/Environment'
-                required: true
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Environment'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
     /v1/environments/{environment}/policies:
         get:
             tags:
@@ -643,37 +481,6 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
-    /v1/environments/{environment}:undelete:
-        post:
-            tags:
-                - EnvironmentService
-            operationId: EnvironmentService_UndeleteEnvironment
-            parameters:
-                - name: environment
-                  in: path
-                  description: The environment id.
-                  required: true
-                  schema:
-                    type: string
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/UndeleteEnvironmentRequest'
-                required: true
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Environment'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
     /v1/feature:
         get:
             tags:
@@ -884,11 +691,6 @@ paths:
                      the call that provided the page token.
                   schema:
                     type: string
-                - name: showDeleted
-                  in: query
-                  description: Show deleted identity providers if specified.
-                  schema:
-                    type: boolean
             responses:
                 "200":
                     description: OK
@@ -1047,37 +849,6 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
-    /v1/idps/{idp}:undelete:
-        post:
-            tags:
-                - IdentityProviderService
-            operationId: IdentityProviderService_UndeleteIdentityProvider
-            parameters:
-                - name: idp
-                  in: path
-                  description: The idp id.
-                  required: true
-                  schema:
-                    type: string
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/UndeleteIdentityProviderRequest'
-                required: true
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/IdentityProvider'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
     /v1/instances:
         get:
             tags:
@@ -1112,7 +883,7 @@ paths:
                 - name: filter
                   in: query
                   description: |-
-                    Filter the project.
+                    Filter the instance.
                      Supported filters:
                      - name
                      - resource_id
@@ -2580,6 +2351,37 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /v1/instances/{instance}/databases:batchSync:
+        post:
+            tags:
+                - DatabaseService
+            operationId: DatabaseService_BatchSyncDatabases
+            parameters:
+                - name: instance
+                  in: path
+                  description: The instance id.
+                  required: true
+                  schema:
+                    type: string
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BatchSyncDatabasesRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/BatchSyncDatabasesResponse'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /v1/instances/{instance}/databases:batchUpdate:
         post:
             tags:
@@ -3561,37 +3363,6 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Project'
-                default:
-                    description: Default error response
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/Status'
-    /v1/projects/{project}/anomalies:search:
-        post:
-            tags:
-                - AnomalyService
-            operationId: AnomalyService_SearchAnomalies
-            parameters:
-                - name: project
-                  in: path
-                  description: The project id.
-                  required: true
-                  schema:
-                    type: string
-            requestBody:
-                content:
-                    application/json:
-                        schema:
-                            $ref: '#/components/schemas/SearchAnomaliesRequest'
-                required: true
-            responses:
-                "200":
-                    description: OK
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/SearchAnomaliesResponse'
                 default:
                     description: Default error response
                     content:
@@ -7274,6 +7045,25 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/Status'
+    /v1/users/me:
+        get:
+            tags:
+                - UserService
+            description: Get the current authenticated user.
+            operationId: UserService_GetCurrentUser
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/User'
+                default:
+                    description: Default error response
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/Status'
     /v1/users/{user}:
         get:
             tags:
@@ -8111,38 +7901,6 @@ components:
                 link:
                     type: string
                     description: The optional link, user can follow the link to check extra details
-        Anomaly:
-            required:
-                - resource
-            type: object
-            properties:
-                resource:
-                    type: string
-                    description: |-
-                        The resource that is the target of the operation.
-                         Format:
-                         - Database: instances/{instance}/databases/{database}
-                type:
-                    enum:
-                        - ANOMALY_TYPE_UNSPECIFIED
-                        - DATABASE_CONNECTION
-                        - DATABASE_SCHEMA_DRIFT
-                    type: string
-                    description: type is the type of the anomaly.
-                    format: enum
-                severity:
-                    enum:
-                        - ANOMALY_SEVERITY_UNSPECIFIED
-                        - MEDIUM
-                        - HIGH
-                        - CRITICAL
-                    type: string
-                    description: severity is the severity of the anomaly.
-                    format: enum
-                createTime:
-                    readOnly: true
-                    type: string
-                    format: date-time
         AppIMSetting:
             type: object
             properties:
@@ -8219,18 +7977,8 @@ components:
                         - ANY_IN_GROUP
                     type: string
                     format: enum
-                groupValue:
-                    enum:
-                        - GROUP_VALUE_UNSPECIFILED
-                        - WORKSPACE_OWNER
-                        - WORKSPACE_DBA
-                        - PROJECT_OWNER
-                        - PROJECT_MEMBER
-                    type: string
-                    format: enum
                 role:
                     type: string
-                    description: 'Format: roles/{role}'
         ApprovalStep:
             type: object
             properties:
@@ -8478,6 +8226,25 @@ components:
                 reason:
                     type: string
         BatchSkipTasksResponse:
+            type: object
+            properties: {}
+        BatchSyncDatabasesRequest:
+            required:
+                - names
+            type: object
+            properties:
+                parent:
+                    type: string
+                    description: |-
+                        The parent resource shared by all databases being updated.
+                         Format: instances/{instance}
+                         If the operation spans parents, a dash (-) may be accepted as a wildcard.
+                names:
+                    type: array
+                    items:
+                        type: string
+                    description: The list of database names to retrieve.
+        BatchSyncDatabasesResponse:
             type: object
             properties: {}
         BatchSyncInstancesRequest:
@@ -9517,35 +9284,6 @@ components:
             properties:
                 active:
                     type: boolean
-        Environment:
-            type: object
-            properties:
-                name:
-                    type: string
-                    description: |-
-                        The name of the environment.
-                         Format: environments/{environment}
-                state:
-                    enum:
-                        - STATE_UNSPECIFIED
-                        - ACTIVE
-                        - DELETED
-                    type: string
-                    format: enum
-                title:
-                    type: string
-                order:
-                    type: integer
-                    format: int32
-                tier:
-                    enum:
-                        - ENVIRONMENT_TIER_UNSPECIFIED
-                        - PROTECTED
-                        - UNPROTECTED
-                    type: string
-                    format: enum
-                color:
-                    type: string
         EnvironmentSetting:
             type: object
             properties:
@@ -9553,19 +9291,18 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/EnvironmentSetting_Environment'
-            description: 'TODO(p0ny): implement.'
         EnvironmentSetting_Environment:
             type: object
             properties:
-                title:
-                    type: string
-                    description: The display name of the environment.
                 id:
                     type: string
                     description: |-
                         The resource id of the environment.
                          This value should be 4-63 characters, and valid characters
                          are /[a-z][0-9]-/.
+                title:
+                    type: string
+                    description: The display name of the environment.
                 tags:
                     type: object
                     additionalProperties:
@@ -9917,13 +9654,6 @@ components:
                     description: |-
                         The name of the identity provider.
                          Format: idps/{idp}
-                state:
-                    enum:
-                        - STATE_UNSPECIFIED
-                        - ACTIVE
-                        - DELETED
-                    type: string
-                    format: enum
                 title:
                     type: string
                 domain:
@@ -10561,19 +10291,6 @@ components:
                     items:
                         $ref: '#/components/schemas/Database'
                     description: The databases from the specified request.
-                nextPageToken:
-                    type: string
-                    description: |-
-                        A token, which can be sent as `page_token` to retrieve the next page.
-                         If this field is omitted, there are no subsequent pages.
-        ListEnvironmentsResponse:
-            type: object
-            properties:
-                environments:
-                    type: array
-                    items:
-                        $ref: '#/components/schemas/Environment'
-                    description: The environments from the specified request.
                 nextPageToken:
                     type: string
                     description: |-
@@ -11679,6 +11396,17 @@ components:
                 allowSelfApproval:
                     type: boolean
                     description: Whether to allow the issue creator to self-approve the issue.
+                executionRetryPolicy:
+                    allOf:
+                        - $ref: '#/components/schemas/Project_ExecutionRetryPolicy'
+                    description: Execution retry policy for the task run.
+        Project_ExecutionRetryPolicy:
+            type: object
+            properties:
+                maximumRetries:
+                    type: integer
+                    description: The maximum number of retries for the lock timeout issue.
+                    format: int32
         QueryDataPolicy:
             type: object
             properties:
@@ -12644,56 +12372,6 @@ components:
                     $ref: '#/components/schemas/TableMetadata'
                 catalog:
                     $ref: '#/components/schemas/TableCatalog'
-        SearchAnomaliesRequest:
-            required:
-                - parent
-            type: object
-            properties:
-                parent:
-                    type: string
-                    description: |-
-                        The parent resource whose anomalies are to be listed.
-                         Format: projects/{project}
-                filter:
-                    type: string
-                    description: |-
-                        filter is the filter to apply on the search anomaly request,
-                         follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax.
-                         Only support filter by resource and type for now.
-                         For example:
-                         Search the anomalies of a specific resource: 'resource="instances/{instance}/databases/{database}".'
-                         Search the specified types of anomalies: 'type="MIGRATION_SCHEMA".'
-                pageSize:
-                    type: integer
-                    description: |-
-                        Not used.
-                         The maximum number of anomalies to return. The service may return fewer than
-                         this value.
-                         If unspecified, at most 10 anomalies will be returned.
-                         The maximum value is 1000; values above 1000 will be coerced to 1000.
-                    format: int32
-                pageToken:
-                    type: string
-                    description: |-
-                        Not used.
-                         A page token, received from a previous `SearchAnomalies` call.
-                         Provide this to retrieve the subsequent page.
-
-                         When paginating, all other parameters provided to `SearchAnomalies` must match
-                         the call that provided the page token.
-        SearchAnomaliesResponse:
-            type: object
-            properties:
-                anomalies:
-                    type: array
-                    items:
-                        $ref: '#/components/schemas/Anomaly'
-                    description: anomalies is the list of anomalies.
-                nextPageToken:
-                    type: string
-                    description: |-
-                        Not used. A token, which can be sent as `page_token` to retrieve the next page.
-                         If this field is omitted, there are no subsequent pages.
         SearchAuditLogsRequest:
             required:
                 - parent
@@ -13558,6 +13236,7 @@ components:
                         - TRANSACTION_CONTROL
                         - PRIOR_BACKUP_START
                         - PRIOR_BACKUP_END
+                        - RETRY_INFO
                     type: string
                     format: enum
                 deployId:
@@ -13582,6 +13261,8 @@ components:
                     $ref: '#/components/schemas/TaskRunLog_PriorBackupStart'
                 priorBackupEnd:
                     $ref: '#/components/schemas/TaskRunLog_PriorBackupEnd'
+                retryInfo:
+                    $ref: '#/components/schemas/TaskRunLog_RetryInfo'
         TaskRunLog_CommandExecute:
             type: object
             properties:
@@ -13631,6 +13312,17 @@ components:
         TaskRunLog_PriorBackupStart:
             type: object
             properties: {}
+        TaskRunLog_RetryInfo:
+            type: object
+            properties:
+                error:
+                    type: string
+                retryCount:
+                    type: integer
+                    format: int32
+                maximumRetries:
+                    type: integer
+                    format: int32
         TaskRunLog_SchemaDumpEnd:
             type: object
             properties:
@@ -13834,26 +13526,6 @@ components:
                     type: string
                 skipDump:
                     type: boolean
-        UndeleteEnvironmentRequest:
-            required:
-                - name
-            type: object
-            properties:
-                name:
-                    type: string
-                    description: |-
-                        The name of the deleted environment.
-                         Format: environments/{environment}
-        UndeleteIdentityProviderRequest:
-            required:
-                - name
-            type: object
-            properties:
-                name:
-                    type: string
-                    description: |-
-                        The name of the deleted identity provider.
-                         Format: idps/{identity_provider}
         UndeleteInstanceRequest:
             required:
                 - name
@@ -14281,7 +13953,6 @@ components:
                     format: enum
 tags:
     - name: ActuatorService
-    - name: AnomalyService
     - name: AuditLogService
     - name: AuthService
     - name: CelService
@@ -14289,7 +13960,6 @@ tags:
     - name: DatabaseCatalogService
     - name: DatabaseGroupService
     - name: DatabaseService
-    - name: EnvironmentService
     - name: GroupService
     - name: IdentityProviderService
     - name: InstanceRoleService
