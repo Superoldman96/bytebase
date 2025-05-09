@@ -38,7 +38,7 @@ type Driver struct {
 	databaseName string
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -107,15 +107,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		sqlResult, err := tx.ExecContext(ctx, singleSQL.Text)
 		if err != nil {
 			return 0, &db.ErrorWithPosition{
-				Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-				Start: &storepb.TaskRunResult_Position{
-					Line:   int32(singleSQL.FirstStatementLine),
-					Column: int32(singleSQL.FirstStatementColumn),
-				},
-				End: &storepb.TaskRunResult_Position{
-					Line:   int32(singleSQL.LastLine),
-					Column: int32(singleSQL.LastColumn),
-				},
+				Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+				Start: singleSQL.Start,
+				End:   singleSQL.End,
 			}
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
@@ -157,7 +151,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if _, err := conn.ExecContext(ctx, fmt.Sprintf("EXPLAIN PLAN SET STATEMENT_ID = '%s' FOR %s", randomID, statement)); err != nil {
 				return nil, err
 			}
-			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates",FILTER_PREDICATES "Filter Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
+			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
 		}
 
 		if !queryContext.Explain && queryContext.Limit > 0 {

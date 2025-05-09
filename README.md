@@ -102,7 +102,7 @@
 
 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| <b>Centralize Change, Query and Admin Tasks</b><br />A single place to perform different tasks on different databases, thus enforce policy and monitor activity accordingly. <br /><br /><b>RBAC</b><br />[Two-level RBAC model](https://www.bytebase.com/docs/concepts/roles-and-permissions) mapping to the organization wide privileges and application team privileges respectively.<br /><br /><b>Anomaly Center and Audit Logging</b><br /> Capture all database [anomalies](https://www.bytebase.com/docs/administration/anomaly-center), user actions and system events and present them in a holistic view. | <img src="https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/anomaly-center.webp" /> |
+| <b>Centralize Change, Query and Admin Tasks</b><br />A single place to perform different tasks on different databases, thus enforce policy and monitor activity accordingly. <br /><br /><b>RBAC</b><br />[Two-level RBAC model](https://www.bytebase.com/docs/concepts/roles-and-permissions) mapping to the organization wide privileges and application team privileges respectively.<br /><br /><b>Drift detection and Audit Logging</b><br /> Capture all database schema drifts, user actions and system events and present them in a holistic view. | <img src="https://raw.githubusercontent.com/bytebase/bytebase/main/docs/assets/grant-access.webp" /> |
 
 <br />
 
@@ -302,12 +302,9 @@ Below diagram describes a typical mapping between an engineering org and the cor
 - [Bytebase vs Flyway](https://www.bytebase.com/blog/bytebase-vs-flyway/)
 
 Either Flyway or Liquibase is a library and CLI focusing on schema change. While Bytebase is an one-stop
-solution covering the entire database development lifecycle for Developers and DBAs to collaborate.
+solution covering the entire database development lifecycle for Developers and DBAs to collaborate through a GUI-based workspace.
 
-Another key difference is Bytebase **doesn't** support Oracle and SQL Server. This is a conscious
-decision we make so that we can focus on supporting other databases without good tooling support.
-In particular, many of our users tell us Bytebase is by far the best (and sometimes the only) database
-tool that can support their PostgreSQL and ClickHouse use cases.
+Bytebase offers broad database support and provides a more comprehensive platform beyond schema migration, including features for security, governance, and observability. Many of our users tell us Bytebase is by far the best (and sometimes the only) database tool that can support their PostgreSQL and ClickHouse use cases, highlighting our robust tooling across various database systems.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=bytebase/bytebase,liquibase/liquibase,flyway/flyway&type=Date)](https://star-history.com/#bytebase/bytebase&liquibase/liquibase&flyway/flyway&Date)
 

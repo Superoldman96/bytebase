@@ -45,8 +45,7 @@ func init() {
 
 // Driver is the Postgres driver.
 type Driver struct {
-	dbBinDir string
-	config   db.ConnectionConfig
+	config db.ConnectionConfig
 
 	db        *sql.DB
 	sshClient *ssh.Client
@@ -57,10 +56,8 @@ type Driver struct {
 	connectionCtx    db.ConnectionContext
 }
 
-func newDriver(config db.DriverConfig) db.Driver {
-	return &Driver{
-		dbBinDir: config.DBBinDir,
-	}
+func newDriver() db.Driver {
+	return &Driver{}
 }
 
 // Open opens a Postgres driver.
@@ -386,15 +383,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 					opts.LogCommandResponse(indexes, 0, nil, err.Error())
 
 					return &db.ErrorWithPosition{
-						Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-						Start: &storepb.TaskRunResult_Position{
-							Line:   int32(command.FirstStatementLine),
-							Column: int32(command.FirstStatementColumn),
-						},
-						End: &storepb.TaskRunResult_Position{
-							Line:   int32(command.LastLine),
-							Column: int32(command.LastColumn),
-						},
+						Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+						Start: command.Start,
+						End:   command.End,
 					}
 				}
 

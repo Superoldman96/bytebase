@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -50,7 +51,7 @@ var (
 
 // SyncInstance syncs the instance.
 func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
-	version, _, err := d.getVersion(ctx)
+	version, err := d.getVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +270,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	defer columnRows.Close()
 	for columnRows.Next() {
 		column := &storepb.ColumnMetadata{}
-		var tableName, nullable, extra, tp string
+		var tableName, nullable, extra string
 		var defaultStr sql.NullString
 		if err := columnRows.Scan(
 			&tableName,
@@ -277,7 +278,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			&column.Position,
 			&defaultStr,
 			&nullable,
-			&tp,
+			&column.Type,
 			&column.CharacterSet,
 			&column.Collation,
 			&column.Comment,
@@ -295,7 +296,6 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		if err != nil {
 			return nil, err
 		}
-		column.Type = GetColumnTypeCanonicalSynonym(tp)
 		column.Nullable = nullableBool
 		setColumnMetadataDefault(column, defaultStr, nullableBool, extra)
 		key := db.TableKey{Schema: "", Table: tableName}
@@ -359,7 +359,8 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			IFNULL(DATA_FREE, 0),
 			IFNULL(CREATE_OPTIONS, ''),
 			QUOTE(IFNULL(TABLE_COMMENT, '')),
-			IFNULL(TIDB_ROW_ID_SHARDING_INFO, '')
+			IFNULL(TIDB_ROW_ID_SHARDING_INFO, ''),
+			IFNULL(TIDB_PK_TYPE, '')
 		FROM information_schema.TABLES
 		WHERE TABLE_SCHEMA = ?
 		ORDER BY TABLE_NAME`
@@ -370,7 +371,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	}
 	defer tableRows.Close()
 	for tableRows.Next() {
-		var tableName, tableType, engine, collation, createOptions, comment, shardingInfo string
+		var tableName, tableType, engine, collation, createOptions, comment, shardingInfo, pkType string
 		var rowCount, dataSize, indexSize, dataFree int64
 		// Workaround TiDB bug https://github.com/pingcap/tidb/issues/27970
 		var tableCollation sql.NullString
@@ -386,6 +387,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			&createOptions,
 			&comment,
 			&shardingInfo,
+			&pkType,
 		); err != nil {
 			return nil, err
 		}
@@ -425,18 +427,21 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			}
 
 			tableMetadata := &storepb.TableMetadata{
-				Name:          tableName,
-				Columns:       columns,
-				ForeignKeys:   foreignKeysMap[key],
-				Engine:        engine,
-				Collation:     collation,
-				RowCount:      rowCount,
-				DataSize:      dataSize,
-				IndexSize:     indexSize,
-				DataFree:      dataFree,
-				CreateOptions: createOptions,
-				Comment:       comment,
-				Partitions:    partitionTables[key],
+				Name:           tableName,
+				Columns:        columns,
+				ForeignKeys:    foreignKeysMap[key],
+				Engine:         engine,
+				Collation:      collation,
+				RowCount:       rowCount,
+				DataSize:       dataSize,
+				IndexSize:      indexSize,
+				DataFree:       dataFree,
+				CreateOptions:  createOptions,
+				Comment:        comment,
+				Charset:        convertCollationToCharset(collation),
+				Partitions:     partitionTables[key],
+				ShardingInfo:   shardingInfo,
+				PrimaryKeyType: pkType,
 			}
 			if tableCollation.Valid {
 				tableMetadata.Collation = tableCollation.String
@@ -487,6 +492,21 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	return databaseMetadata, err
 }
 
+func convertCollationToCharset(collation string) string {
+	// See mappings from "SHOW CHARACTER SET;".
+	tokens := strings.Split(collation, "_")
+	return tokens[0]
+}
+
+func isTimeConstant(s string) bool {
+	// 0000-00-00 00:00:00 is a special case in TiDB.
+	if s == "0000-00-00 00:00:00" {
+		return true
+	}
+	_, err := time.Parse(time.DateTime, s)
+	return err == nil
+}
+
 func setColumnMetadataDefault(column *storepb.ColumnMetadata, defaultStr sql.NullString, nullableBool bool, extra string) {
 	if defaultStr.Valid {
 		// In TiDB 7, the extra value is empty for a column with CURRENT_TIMESTAMP default.
@@ -494,7 +514,17 @@ func setColumnMetadataDefault(column *storepb.ColumnMetadata, defaultStr sql.Nul
 		case isCurrentTimestampLike(defaultStr.String):
 			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
 		case strings.Contains(extra, "DEFAULT_GENERATED"):
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: fmt.Sprintf("(%s)", defaultStr.String)}
+			// for case:
+			//  CREATE TABLE t1(
+			//    update_time TIMESTAMP DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+			//  );
+			// In this case, the extra value is "DEFAULT_GENERATED on update CURRENT_TIMESTAMP".
+			// But the default value is a constant.
+			if isTimeConstant(defaultStr.String) {
+				column.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: defaultStr.String}}
+			} else {
+				column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: fmt.Sprintf("(%s)", defaultStr.String)}
+			}
 		default:
 			// For non-generated and non CURRENT_XXX default value, use string.
 			column.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: defaultStr.String}}

@@ -122,21 +122,30 @@ export const useWorkSheetStore = defineStore("worksheet_v1", () => {
     }
     return cacheByUID.getEntity([uid, view]);
   };
-  const fetchWorksheetByName = async (name: string) => {
+  const fetchWorksheetByName = async (
+    name: string,
+    silent: boolean = false
+  ) => {
     const uid = extractWorksheetUID(name);
     if (uid.startsWith("-") || !uid) {
       return undefined;
     }
     try {
-      const worksheet = await worksheetServiceClient.getWorksheet({
-        name,
-      });
+      const worksheet = await worksheetServiceClient.getWorksheet(
+        {
+          name,
+        },
+        { silent }
+      );
       return worksheet;
     } catch {
       return undefined;
     }
   };
-  const getOrFetchWorksheetByName = async (name: string) => {
+  const getOrFetchWorksheetByName = async (
+    name: string,
+    silent: boolean = false
+  ) => {
     const uid = extractWorksheetUID(name);
     if (uid.startsWith("-") || !uid) {
       return undefined;
@@ -150,7 +159,7 @@ export const useWorkSheetStore = defineStore("worksheet_v1", () => {
       return request;
     }
 
-    const promise = fetchWorksheetByName(name);
+    const promise = fetchWorksheetByName(name, silent);
     cacheByUID.setRequest([uid, "FULL"], promise);
     promise.then((worksheet) => {
       if (!worksheet) {
@@ -167,7 +176,7 @@ export const useWorkSheetStore = defineStore("worksheet_v1", () => {
   const fetchMyWorksheetList = async () => {
     const me = useCurrentUserV1();
     const { worksheets } = await worksheetServiceClient.searchWorksheets({
-      filter: `creator = users/${me.value.email}`,
+      filter: `creator == "users/${me.value.email}"`,
     });
     await setListCache(worksheets);
     return worksheets;
@@ -175,7 +184,7 @@ export const useWorkSheetStore = defineStore("worksheet_v1", () => {
   const fetchSharedWorksheetList = async () => {
     const me = useCurrentUserV1();
     const { worksheets } = await worksheetServiceClient.searchWorksheets({
-      filter: `creator != "users/${me.value.email}" && visibility = "${Worksheet_Visibility.VISIBILITY_PROJECT_READ} | ${Worksheet_Visibility.VISIBILITY_PROJECT_WRITE}"`,
+      filter: `creator != "users/${me.value.email}" && visibility in ["${Worksheet_Visibility.VISIBILITY_PROJECT_READ}","${Worksheet_Visibility.VISIBILITY_PROJECT_WRITE}"]`,
     });
     await setListCache(worksheets);
     return worksheets;
@@ -183,7 +192,7 @@ export const useWorkSheetStore = defineStore("worksheet_v1", () => {
 
   const fetchStarredWorksheetList = async () => {
     const { worksheets } = await worksheetServiceClient.searchWorksheets({
-      filter: `starred = true`,
+      filter: `starred == true`,
     });
     await setListCache(worksheets);
     return worksheets;

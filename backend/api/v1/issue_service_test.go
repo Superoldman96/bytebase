@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/bytebase/bytebase/backend/base"
+	"github.com/bytebase/bytebase/backend/common"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
@@ -17,15 +19,11 @@ func TestConvertToApprovalNode(t *testing.T) {
 		{
 			node: &storepb.ApprovalNode{
 				Type: storepb.ApprovalNode_ANY_IN_GROUP,
-				Payload: &storepb.ApprovalNode_GroupValue_{
-					GroupValue: storepb.ApprovalNode_WORKSPACE_DBA,
-				},
+				Role: common.FormatRole(base.WorkspaceDBA.String()),
 			},
 			want: &v1pb.ApprovalNode{
 				Type: v1pb.ApprovalNode_ANY_IN_GROUP,
-				Payload: &v1pb.ApprovalNode_GroupValue_{
-					GroupValue: v1pb.ApprovalNode_WORKSPACE_DBA,
-				},
+				Role: common.FormatRole(base.WorkspaceDBA.String()),
 			},
 		},
 	}

@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full flex flex-col gap-4 px-2">
+  <div class="w-full flex flex-col gap-4">
     <NTabs
       type="line"
       :bar-width="200"
@@ -18,7 +18,8 @@
         <EnvironmentDetail
           v-if="!state.reorder"
           :environment-name="item.id"
-          @archive="doArchive"
+          :buttons-class="buttonsClass"
+          @delete="doDelete"
         />
       </NTabPane>
       <template #suffix>
@@ -28,8 +29,8 @@
         >
           <NButton
             v-if="
-              hasWorkspacePermissionV2('bb.environments.list') &&
-              hasWorkspacePermissionV2('bb.environments.update')
+              hasWorkspacePermissionV2('bb.settings.get') &&
+              hasWorkspacePermissionV2('bb.settings.set')
             "
             @click="startReorder"
           >
@@ -39,7 +40,7 @@
             {{ $t("common.reorder") }}
           </NButton>
           <NButton
-            v-if="hasWorkspacePermissionV2('bb.environments.create')"
+            v-if="hasWorkspacePermissionV2('bb.settings.set')"
             type="primary"
             @click="createEnvironment"
           >
@@ -70,7 +71,6 @@
       :create="true"
       :environment="getEnvironmentCreate()"
       :rollout-policy="DEFAULT_NEW_ROLLOUT_POLICY"
-      :environment-tier="defaultEnvironmentTier"
       @create="doCreate"
       @cancel="state.showCreateModal = false"
     >
@@ -93,6 +93,7 @@ import {
 } from "lucide-vue-next";
 import { NTabs, NTabPane, NButton } from "naive-ui";
 import { onMounted, computed, reactive, watch, h } from "vue";
+import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import type { BBTabItem } from "@/bbkit/types";
 import {
@@ -102,36 +103,34 @@ import {
 } from "@/components/EnvironmentForm";
 import { Drawer, DrawerContent } from "@/components/v2";
 import { EnvironmentV1Name, MiniActionButton } from "@/components/v2";
-import { useBodyLayoutContext } from "@/layouts/common";
-import { ENVIRONMENT_V1_ROUTE_DASHBOARD } from "@/router/dashboard/workspaceRoutes";
 import {
   useUIStateStore,
   useEnvironmentV1Store,
-  defaultEnvironmentTier,
   useEnvironmentV1List,
+  environmentNamePrefix,
+  pushNotification,
 } from "@/store";
 import {
   usePolicyV1Store,
   getEmptyRolloutPolicy,
 } from "@/store/modules/v1/policy";
-import { emptyEnvironment } from "@/types";
-import type {
-  Environment,
-  EnvironmentTier,
-} from "@/types/proto/v1/environment_service";
+import { formatEnvironmentName } from "@/types";
 import type { Policy } from "@/types/proto/v1/org_policy_service";
 import { PolicyResourceType } from "@/types/proto/v1/org_policy_service";
-import {
-  arraySwap,
-  extractEnvironmentResourceName,
-  hasWorkspacePermissionV2,
-} from "@/utils";
+import { EnvironmentSetting_Environment } from "@/types/proto/v1/setting_service";
+import type { Environment } from "@/types/v1/environment";
+import { arraySwap, hasWorkspacePermissionV2 } from "@/utils";
+import { type VueClass } from "@/utils";
 import EnvironmentDetail from "@/views/EnvironmentDetail.vue";
 
 const DEFAULT_NEW_ROLLOUT_POLICY: Policy = getEmptyRolloutPolicy(
   "",
   PolicyResourceType.ENVIRONMENT
 );
+
+defineProps<{
+  buttonsClass?: VueClass;
+}>();
 
 interface LocalState {
   selectedId: string;
@@ -140,13 +139,11 @@ interface LocalState {
   reorder: boolean;
 }
 
+const { t } = useI18n();
 const environmentV1Store = useEnvironmentV1Store();
 const uiStateStore = useUIStateStore();
 const policyV1Store = usePolicyV1Store();
 const router = useRouter();
-
-const { overrideMainContainerClass } = useBodyLayoutContext();
-overrideMainContainerClass("!pb-0");
 
 const state = reactive<LocalState>({
   selectedId: "",
@@ -156,21 +153,18 @@ const state = reactive<LocalState>({
 });
 
 const selectEnvironmentOnHash = () => {
-  if (environmentList.value.length > 0) {
-    if (router.currentRoute.value.hash) {
-      for (let i = 0; i < environmentList.value.length; i++) {
-        const id = extractEnvironmentResourceName(
-          environmentList.value[i].name
-        );
-        if (id === router.currentRoute.value.hash.slice(1)) {
-          selectEnvironment(i);
-          break;
-        }
-      }
-    } else {
-      selectEnvironment(0);
+  if (environmentList.value.length <= 0) {
+    return;
+  }
+  const target = router.currentRoute.value.hash.slice(1);
+  for (let i = 0; i < environmentList.value.length; i++) {
+    const id = environmentList.value[i].id;
+    if (id === target) {
+      selectEnvironment(i);
+      return;
     }
   }
+  selectEnvironment(0);
 };
 
 onMounted(() => {
@@ -187,9 +181,7 @@ onMounted(() => {
 watch(
   () => router.currentRoute.value.hash,
   () => {
-    if (router.currentRoute.value.name == ENVIRONMENT_V1_ROUTE_DASHBOARD) {
-      selectEnvironmentOnHash();
-    }
+    selectEnvironmentOnHash();
   }
 );
 
@@ -202,7 +194,7 @@ const tabItemList = computed((): BBTabItem[] => {
       : environmentList.value;
     return list.map((item, index: number): BBTabItem => {
       const title = `${index + 1}. ${item.title}`;
-      const id = extractEnvironmentResourceName(item.name);
+      const id = item.id;
       return { title, id, data: item };
     });
   }
@@ -210,7 +202,10 @@ const tabItemList = computed((): BBTabItem[] => {
 });
 
 const getEnvironmentCreate = () => {
-  return emptyEnvironment();
+  return {
+    ...EnvironmentSetting_Environment.fromPartial({}),
+    order: 0,
+  };
 };
 
 const createEnvironment = () => {
@@ -221,21 +216,19 @@ const createEnvironment = () => {
 const doCreate = async (params: {
   environment: Partial<Environment>;
   rolloutPolicy: Policy;
-  environmentTier: EnvironmentTier;
 }) => {
-  const { environment, rolloutPolicy, environmentTier } = params;
+  const { environment, rolloutPolicy } = params;
   const createdEnvironment = await environmentV1Store.createEnvironment({
-    name: environment.name,
+    id: environment.id,
     title: environment.title,
     order: environmentList.value.length,
     color: environment.color,
-    tier: environmentTier,
   });
   await environmentV1Store.fetchEnvironments();
 
   const requests = [
     policyV1Store.upsertPolicy({
-      parentPath: createdEnvironment.name,
+      parentPath: `${environmentNamePrefix}${createdEnvironment.id}`,
       policy: rolloutPolicy,
     }),
   ];
@@ -261,9 +254,7 @@ const reorderEnvironment = (sourceIndex: number, targetIndex: number) => {
 
 const orderChanged = computed(() => {
   for (let i = 0; i < state.reorderedEnvironmentList.length; i++) {
-    if (
-      state.reorderedEnvironmentList[i].name != environmentList.value[i].name
-    ) {
+    if (state.reorderedEnvironmentList[i].id != environmentList.value[i].id) {
       return true;
     }
   }
@@ -282,21 +273,29 @@ const doReorder = () => {
     });
 };
 
-const doArchive = (/* environment: Environment */) => {
+const doDelete = async (environment: Environment) => {
+  await environmentV1Store.deleteEnvironment(
+    formatEnvironmentName(environment.id)
+  );
+  pushNotification({
+    module: "bytebase",
+    style: "SUCCESS",
+    title: t("common.deleted"),
+  });
   if (environmentList.value.length > 0) {
     selectEnvironment(0);
   }
 };
 
 const selectEnvironment = (index: number) => {
-  const id = extractEnvironmentResourceName(environmentList.value[index].name);
+  const id = environmentList.value[index].id;
   onTabChange(id);
 };
 
 const onTabChange = (id: string) => {
   state.selectedId = id;
   router.replace({
-    name: ENVIRONMENT_V1_ROUTE_DASHBOARD,
+    name: router.currentRoute.value.name,
     hash: "#" + id,
   });
 };

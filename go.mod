@@ -1,8 +1,6 @@
 module github.com/bytebase/bytebase
 
-go 1.24.0
-
-toolchain go1.24.1
+go 1.24.2
 
 // workaround mssql-docker default TLS cert negative serial number problem
 // https://github.com/microsoft/mssql-docker/issues/895
@@ -14,7 +12,7 @@ require (
 	cloud.google.com/go/secretmanager v1.14.6
 	cloud.google.com/go/spanner v1.76.1
 	gitee.com/chunanyong/dm v1.8.18
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.2
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.3.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.32.2
@@ -35,6 +33,8 @@ require (
 	github.com/bytebase/postgresql-parser v0.0.0-20250213053010-aeb8220eb3bb
 	github.com/bytebase/snowsql-parser v0.0.0-20250124075214-562d62e69c35
 	github.com/bytebase/tidb-parser v0.0.0-20240821091609-162fffe2a839
+	github.com/bytebase/trino-parser v0.0.0-20250502000119-9977709a63e8
+	github.com/caarlos0/env/v11 v11.3.1
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cockroachdb/cockroachdb-parser v0.23.2
 	github.com/coreos/go-oidc v2.3.0+incompatible
@@ -43,7 +43,7 @@ require (
 	github.com/github/gh-ost v1.1.6
 	github.com/go-ego/gse v0.80.3
 	github.com/go-ldap/ldap/v3 v3.4.10
-	github.com/go-sql-driver/mysql v1.9.0
+	github.com/go-sql-driver/mysql v1.9.2
 	github.com/gocql/gocql v1.7.0
 	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/golang-sql/sqlexp v0.1.0
@@ -53,12 +53,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosimple/slug v1.15.0
+	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.0.1
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.1
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/vault/api v1.16.0
 	github.com/hashicorp/vault/api/auth/approle v0.9.0
 	github.com/improbable-eng/grpc-web v0.15.0
+	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgtype v1.14.4
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/jordan-wright/email v4.0.1-0.20210109023952-943e75fe5223+incompatible
@@ -70,7 +72,7 @@ require (
 	github.com/mattn/go-oci8 v0.1.1
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/microsoft/go-mssqldb v1.8.0
-	github.com/nyaruka/phonenumbers v1.5.0
+	github.com/nyaruka/phonenumbers v1.6.1
 	github.com/paulmach/orb v0.11.1
 	github.com/pganalyze/pg_query_go/v6 v6.1.0
 	github.com/pingcap/tidb v1.1.0-beta.0.20241125141335-ec8b81b98edc
@@ -80,7 +82,7 @@ require (
 	github.com/segmentio/analytics-go v3.1.0+incompatible
 	github.com/shopspring/decimal v1.4.0
 	github.com/sijms/go-ora/v2 v2.8.24
-	github.com/snowflakedb/gosnowflake v1.13.1
+	github.com/snowflakedb/gosnowflake v1.13.3
 	github.com/soheilhy/cmux v0.1.5
 	github.com/sourcegraph/conc v0.3.0
 	github.com/sourcegraph/jsonrpc2 v0.2.0
@@ -90,16 +92,15 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20220101234140-673ab2c3ae75
 	github.com/trinodb/trino-go-client v0.323.0
 	github.com/vjeantet/ldapserver v1.0.1
-	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8
 	github.com/xuri/excelize/v2 v2.9.0
 	github.com/yterajima/go-sitemap v0.4.0
 	github.com/zeebo/xxh3 v1.0.2
-	go.mongodb.org/mongo-driver v1.17.3
+	go.mongodb.org/mongo-driver/v2 v2.2.0
 	go.uber.org/multierr v1.11.0
-	golang.org/x/crypto v0.36.0
-	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
-	golang.org/x/oauth2 v0.28.0
-	golang.org/x/text v0.23.0
+	golang.org/x/crypto v0.37.0
+	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0
+	golang.org/x/oauth2 v0.29.0
+	golang.org/x/text v0.24.0
 	google.golang.org/api v0.226.0
 	google.golang.org/genproto v0.0.0-20250311190419-81fb87f6b8bf
 	google.golang.org/genproto/googleapis/api v0.0.0-20250311190419-81fb87f6b8bf
@@ -120,11 +121,11 @@ require (
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.2 // indirect
 	github.com/Azure/azure-sdk-for-go v68.0.0+incompatible // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.3 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.4.2 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
 	github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.2 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.25.0 // indirect
@@ -191,6 +192,8 @@ require (
 	github.com/hashicorp/go-uuid v1.0.3 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
+	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
+	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
 	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
@@ -251,8 +254,8 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.35.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
-	golang.org/x/term v0.30.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/term v0.31.0 // indirect
 	gopkg.in/go-jose/go-jose.v2 v2.6.3 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 )
@@ -302,13 +305,13 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.5 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.1 // indirect
 	github.com/gosimple/unidecode v1.0.1 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
-	github.com/hjson/hjson-go/v4 v4.4.0
+	github.com/hjson/hjson-go/v4 v4.5.0
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -323,7 +326,6 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20230326075908-cb1d2100619a // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/openark/golib v0.0.0-20210531070646-355f37940af8
 	github.com/opentracing/basictracer-go v1.1.0 // indirect
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
@@ -337,7 +339,7 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20221212215047-62379fc7944b // indirect
 	github.com/pquerna/cachecontrol v0.2.0 // indirect
 	github.com/pquerna/otp v1.4.0
-	github.com/prometheus/client_golang v1.21.1 // indirect
+	github.com/prometheus/client_golang v1.21.1
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.63.0 // indirect
 	github.com/prometheus/procfs v0.16.0 // indirect
@@ -364,10 +366,10 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/net v0.37.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	golang.org/x/tools v0.31.0 // indirect
+	golang.org/x/tools v0.32.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	nhooyr.io/websocket v1.8.10 // indirect

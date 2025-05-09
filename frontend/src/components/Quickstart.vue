@@ -78,39 +78,13 @@
       </div>
     </div>
   </div>
-  <div
-    v-if="showBookDemo"
-    class="bg-accent px-4 py-2 flex flex-wrap md:flex-nowrap items-center justify-center space-x-2"
-  >
-    <p class="ml-3 flex font-medium text-white items-center truncate">
-      📆
-      <a
-        href="https://cal.com/bytebase/product-walkthrough"
-        target="_blank"
-        class="flex underline ml-1"
-      >
-        {{ $t("banner.request-demo") }}
-      </a>
-    </p>
-
-    <div class="shrink-0 flex items-center gap-x-2">
-      <button
-        type="button"
-        class="flex rounded-md hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-white"
-        @click.prevent="() => hideQuickstart(true)"
-      >
-        <span class="sr-only">{{ $t("common.dismiss") }}</span>
-        <XIcon class="h-4 w-4 text-white" />
-      </button>
-    </div>
-  </div>
 </template>
 
 <script setup lang="ts">
 import { computedAsync } from "@vueuse/core";
 import { XIcon, CheckCircleIcon } from "lucide-vue-next";
 import type { Ref } from "vue";
-import { computed, unref, watchEffect } from "vue";
+import { computed, unref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { RouteLocationRaw } from "vue-router";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
@@ -123,10 +97,13 @@ import {
 } from "@/router/dashboard/workspaceRoutes";
 import { SQL_EDITOR_WORKSHEET_MODULE } from "@/router/sqlEditor";
 import {
+  useAppFeature,
   pushNotification,
   useUIStateStore,
   useProjectV1Store,
   useActuatorV1Store,
+  useIssueV1Store,
+  useWorkSheetStore,
 } from "@/store";
 import { projectNamePrefix } from "@/store/modules/v1/common";
 import type { Permission } from "@/types";
@@ -139,6 +116,8 @@ import {
 
 // The name of the sample project.
 const SAMPLE_PROJECT_NAME = "project-sample";
+const SAMPLE_ISSUE_ID = "101";
+const SAMPLE_SHEET_ID = "101";
 
 type IntroItem = {
   name: string | Ref<string>;
@@ -153,10 +132,9 @@ const { t } = useI18n();
 const projectStore = useProjectV1Store();
 const uiStateStore = useUIStateStore();
 const actuatorStore = useActuatorV1Store();
-
-const show = computed(() => {
-  return !uiStateStore.getIntroStateByKey("hidden");
-});
+const issueStore = useIssueV1Store();
+const worksheetStore = useWorkSheetStore();
+const hideQuickStart = useAppFeature("bb.feature.hide-quick-start");
 
 const sampleProject = computedAsync(async () => {
   const project = await projectStore.getOrFetchProjectByName(
@@ -169,6 +147,42 @@ const sampleProject = computedAsync(async () => {
   return project;
 });
 
+const sampleIssue = computedAsync(async () => {
+  if (!sampleProject.value) {
+    return;
+  }
+  if (!hasProjectPermissionV2(sampleProject.value, "bb.issues.get")) {
+    return;
+  }
+  const issue = await issueStore.fetchIssueByName(
+    `${sampleProject.value.name}/issues/${SAMPLE_ISSUE_ID}`,
+    {
+      // Don't need to fetch the plan and rollout.
+      withPlan: false,
+      withRollout: false,
+    },
+    true /* silent */
+  );
+  return issue;
+});
+
+const sampleWorksheet = computedAsync(async () => {
+  if (!sampleProject.value) {
+    return;
+  }
+  if (!hasProjectPermissionV2(sampleProject.value, "bb.worksheets.get")) {
+    return;
+  }
+  if (!hasProjectPermissionV2(sampleProject.value, "bb.sql.select")) {
+    return;
+  }
+  const sheet = await worksheetStore.getOrFetchWorksheetByName(
+    `${sampleProject.value.name}/sheets/${SAMPLE_SHEET_ID}`,
+    true /* silent */
+  );
+  return sheet;
+});
+
 const introList = computed(() => {
   const introList: IntroItem[] = [
     {
@@ -179,13 +193,11 @@ const introList = computed(() => {
           projectId: extractProjectResourceName(
             sampleProject.value?.name ?? UNKNOWN_PROJECT_NAME
           ),
-          issueSlug: "101",
+          issueSlug: SAMPLE_ISSUE_ID,
         },
       },
       done: computed(() => uiStateStore.getIntroStateByKey("issue.visit")),
-      hide:
-        !sampleProject.value ||
-        !hasProjectPermissionV2(sampleProject.value, "bb.issues.get"),
+      hide: !sampleIssue.value,
     },
     {
       name: computed(() => t("quick-start.query-data")),
@@ -193,13 +205,11 @@ const introList = computed(() => {
         name: SQL_EDITOR_WORKSHEET_MODULE,
         params: {
           project: SAMPLE_PROJECT_NAME,
-          sheet: "101",
+          sheet: SAMPLE_SHEET_ID,
         },
       },
       done: computed(() => uiStateStore.getIntroStateByKey("data.query")),
-      hide:
-        !sampleProject.value ||
-        !hasProjectPermissionV2(sampleProject.value, "bb.sql.select"),
+      hide: !sampleWorksheet.value,
     },
     {
       name: computed(() => t("quick-start.visit-project")),
@@ -207,6 +217,7 @@ const introList = computed(() => {
         name: PROJECT_V1_ROUTE_DASHBOARD,
       },
       done: computed(() => uiStateStore.getIntroStateByKey("project.visit")),
+      requiredPermissions: ["bb.projects.list"],
     },
     {
       name: computed(() => t("quick-start.visit-environment")),
@@ -216,7 +227,7 @@ const introList = computed(() => {
       done: computed(() =>
         uiStateStore.getIntroStateByKey("environment.visit")
       ),
-      requiredPermissions: ["bb.environments.list"],
+      requiredPermissions: ["bb.settings.get"],
     },
     {
       name: computed(() => t("quick-start.visit-instance")),
@@ -224,6 +235,7 @@ const introList = computed(() => {
         name: INSTANCE_ROUTE_DASHBOARD,
       },
       done: computed(() => uiStateStore.getIntroStateByKey("instance.visit")),
+      requiredPermissions: ["bb.instances.list"],
     },
     {
       name: computed(() => t("quick-start.visit-database")),
@@ -231,6 +243,7 @@ const introList = computed(() => {
         name: DATABASE_ROUTE_DASHBOARD,
       },
       done: computed(() => uiStateStore.getIntroStateByKey("database.visit")),
+      requiredPermissions: ["bb.databases.list"],
     },
     {
       name: computed(() => t("quick-start.visit-member")),
@@ -238,7 +251,6 @@ const introList = computed(() => {
         name: WORKSPACE_ROUTE_USERS,
       },
       done: computed(() => uiStateStore.getIntroStateByKey("member.visit")),
-      requiredPermissions: ["bb.policies.get"],
     },
   ];
 
@@ -256,19 +268,17 @@ const isFirstUser = computed(() => {
 });
 
 const showQuickstart = computed(() => {
+  if (hideQuickStart.value) {
+    return false;
+  }
+  if (uiStateStore.getIntroStateByKey("hidden")) {
+    return false;
+  }
   // Only show quickstart for the first user.
   if (!isFirstUser.value) {
     return false;
   }
-  if (!show.value) return false;
-  if (introList.value.every((intro) => intro.done.value)) return false;
   return true;
-});
-
-const showBookDemo = computed(() => {
-  if (!show.value) return false;
-  if (showQuickstart.value) return false;
-  return isFirstUser.value;
 });
 
 const currentStep = computed(() => {
@@ -329,21 +339,4 @@ const hideQuickstart = (silent = false) => {
       }
     });
 };
-
-watchEffect(async () => {
-  if (!showQuickstart.value) {
-    return;
-  }
-
-  if (hasWorkspacePermissionV2("bb.projects.get")) {
-    try {
-      await projectStore.getOrFetchProjectByName(
-        "projects/101",
-        true /* silent */
-      );
-    } catch {
-      // nothing
-    }
-  }
-});
 </script>

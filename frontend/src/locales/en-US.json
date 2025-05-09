@@ -246,8 +246,8 @@
       },
       "summary-report": "Summary report"
     },
-    "rollout-time": "Rollout time",
-    "earliest-allowed-time-hint": "@:{'task.rollout-time'} is when you want a task to run; if unspecified, it runs when all criteria are met.",
+    "earliest-allowed-time": "Earliest rollout time",
+    "earliest-allowed-time-hint": "@:{'task.earliest-allowed-time'} is the earliest time to rollout the issue, you cannot rollout before this time; if unspecified, it runs when all criteria are met.",
     "earliest-allowed-time-unset": "Unset",
     "comment": "Comment",
     "started": "Started",
@@ -291,8 +291,9 @@
     "status": {
       "enqueued": "Waiting for execution.",
       "enqueued-with-rollout-time": "Waiting to execute after {time}.",
-      "waiting-connection": "Waiting for available instance connections. The instance connection count has reached the limit set on Bytebase.",
-      "waiting-task": "Waiting for another task to finish."
+      "waiting-connection": "Waiting for available instance connections. The instance connection count has reached the limit set on Bytebase. Last report at {time}.",
+      "waiting-task": "Waiting for another task to finish. Last report at {time}.",
+      "waiting-max-tasks-per-rollout": "Waiting for other tasks to finish. Maximum running tasks limit per rollout has been reached. Last report at {time}."
     }
   },
   "banner": {
@@ -306,11 +307,6 @@
     "external-url": "Bytebase has not configured --external-url"
   },
   "bbkit": {
-    "common": {
-      "cancel": "Cancel",
-      "back": "Back",
-      "next": "Next"
-    },
     "confirm-button": {
       "sure-to-delete": "Are you sure to delete?",
       "sure-to-archive": "Are you sure to archive?",
@@ -401,11 +397,13 @@
         "reset-token": "Reset token",
         "reset-token-warning": "You need to update the Entra application provisioning config."
       },
+      "all-users": "All users",
       "search-member": "Search member",
       "revoked": "Revoked",
       "view-by-members": "View by members",
       "revoke-access": "Revoke Access",
       "revoke-access-alert": "Are you sure to revoke access?",
+      "revoke-allusers-alert": "Revoke \"@:{'settings.members.all-users'}\" will revoke related roles from all other users in your workspace. Are you sure to continue?",
       "grant-access": "Grant Access",
       "select-user": "Select user | Select users",
       "select-group": "Select group | Select groups",
@@ -419,9 +417,7 @@
     "sso": {
       "create": "Create SSO",
       "description": "Single Sign-On (SSO) is an authentication method that enables users to authenticate with multiple applications and websites via a single set of credentials.",
-      "archive": "Archive this SSO",
-      "archive-info": "Archived SSO will not be displayed.",
-      "restore": "Restore this SSO",
+      "delete": "Delete this SSO",
       "form": {
         "type": "Type",
         "learn-more-with-user-doc": "Learn more about the configuration",
@@ -956,14 +952,16 @@
           "task-run-status-update": "Status update",
           "transaction-control": "Transaction control",
           "database-sync": "Database sync",
-          "prior-backup": "Prior backup"
+          "prior-backup": "Prior backup",
+          "retry-info": "Retry information"
         },
         "estimated-affected-rows-n": "Estimated affected rows: {n}",
         "prior-backup-tables": "Prior backup tables",
         "status-update": {
           "waiting": "Ready to be executed",
           "running": "Being executed"
-        }
+        },
+        "retry-info": "Retrying (attempt {n}/{m}) due to lock timeout."
       },
       "task-run-session": {
         "blocking-sessions": {
@@ -987,6 +985,10 @@
       "create-database": "Create database",
       "request-querier-role": "Request querier role",
       "request-exporter-role": "Request exporter role"
+    },
+    "schema-drift-detected": {
+      "self": "Schema drift detected",
+      "description": "The selected database(s) has schema drift. Please make sure the drift is expected and safe to apply."
     }
   },
   "quick-action": {
@@ -1253,16 +1255,15 @@
     "select": "Select environment",
     "delete": "Delete this environment",
     "create": "Create Environment",
-    "restore": "Restore this environment",
     "successfully-updated-environment": "Successfully updated environment '{name}'.",
     "production-environment": "Production environment",
     "access-control": {
       "title": "Access Control",
       "disable-copy-data-from-sql-editor": "Restrict data copying in SQL Editor (Admins/DBAs allowed)",
       "restrict-admin-connection": {
-        "self": "Admin connection query restrictions",
-        "disallow": "Disallow querying data from the admin connection",
-        "fallback": "Fallback to the admin connection if no read-only connection is available"
+        "self": "Disallow querying admin data source",
+        "disallow": "Disallow querying data from the admin data source",
+        "fallback": "Fallback to the admin data source if no read-only connection is available"
       }
     },
     "statement-execution": {
@@ -1325,7 +1326,7 @@
     "rollout": {
       "name": "Rollout Policy",
       "tip": "The policy is applied to issues retroactively.",
-      "info": "Tasks can be executed by users with 'taskRuns.create' permission or the following roles",
+      "info": "Tasks can be executed by users with '{permission}' permission or the following roles",
       "auto": "Automatic",
       "auto-info": "If all check pass, the change will be rolled out and executed automatically.",
       "last-issue-approver": "Last Issue Approver"
@@ -1493,9 +1494,14 @@
     },
     "not-found": "Cannot found the database",
     "drifted": {
+      "self": "Schema drifted",
       "schema-drift-detected": {
         "self": "Schema drift detected",
         "description": "The schema is different from the last applied schema. This may cause application errors and should be resolved."
+      },
+      "new-baseline": {
+        "self": "New baseline",
+        "successfully-established": "Successfully established new baseline"
       }
     }
   },
@@ -1628,6 +1634,18 @@
         "postgres-database-tenant-mode": {
           "self": "Postgres database tenant mode",
           "description": "The tenant mode for Postgres database. If enable, the issue will be run by the database OWNER. Otherwise, the issue will be run by the instance connection user."
+        },
+        "max-retries": {
+          "self": "Maximum retries count for lock timeout",
+          "description": "The maximum retries count for lock timeout when running the task. The default value is 0."
+        },
+        "ci-sampling-size": {
+          "self": "CI Data Sampling Size",
+          "description": "The maximum number of databases to sample during CI data validation. When disabled (zero), full validation will be performed."
+        },
+        "parallel_tasks_per_rollout": {
+          "self": "Parallel tasks per rollout",
+          "description": "Control the number of parallel tasks per rollout. Setting this to zero disables any throttling."
         }
       }
     },
@@ -1703,7 +1721,6 @@
   "sql-editor": {
     "self": "SQL Editor",
     "select-connection": "Please select connections",
-    "search-databases": "Search Databases",
     "search-results": "Search Results",
     "loading-databases": "Loading Databases...",
     "show-databases-without-query-permission": "Show databases without query permissions",
@@ -1720,7 +1737,7 @@
     "rows": "row | rows",
     "vertical-display": "Vertical display",
     "no-history-found": "No history found",
-    "search-history": "Search History",
+    "search-history-by-statement": "Search by statement",
     "binary-format": "Binary format",
     "hex-format": "Hexadecimal format",
     "boolean-format": "Boolean format",
@@ -1781,7 +1798,6 @@
     },
     "batch-query": {
       "batch": "Batch",
-      "select-database": "Select database below",
       "description": "Batch query {count} additional databases under {project}.",
       "show-or-hide-empty-query-results": "Show / hide empty query results"
     },
@@ -1962,13 +1978,6 @@
     "button": {
       "upgrade": "Upgrade"
     },
-    "trial-start-modal": {
-      "title": "Start your {plan} trial",
-      "content": "Your {plan} trial has started! You can access {plan} features before {date}.",
-      "button": "Got it",
-      "subscription-page": "subscription page",
-      "subscription": "Go to the {page} to learn these features and our plans."
-    },
     "description": "You can upload your Bytebase license to unlock pro/enterprise features.",
     "upload-license": "Upload license",
     "upgrade-trial-button": "Upgrade trial",
@@ -1990,8 +1999,7 @@
       "manage-license": "Manage Instance License",
       "used-and-total-license": "Assigned / Total Instance License",
       "used-and-total-user": "Active / Total User Limit",
-      "success-notification": "Successfully update license assignment",
-      "missing-license-for-feature": "Missing instance license to enable {feature}. Click to assign now."
+      "success-notification": "Successfully update license assignment"
     },
     "update": {
       "success": {
@@ -2124,13 +2132,6 @@
     "self": "Sensitive Data"
   },
   "resource": {
-    "environment": "Environment",
-    "instance": "Instance",
-    "project": "Project",
-    "idp": "Identity Provider",
-    "database-group": "Database Group",
-    "changelist": "Changelist",
-    "review-config": "Review Config",
     "delete-warning": "The \"{name}\" will be deleted. This action cannot be undone.",
     "delete-warning-with-resources": "The \"{name}\" is used by following resources:",
     "delete-warning-retry": "Please remove it from these resources then retry again."
@@ -2141,9 +2142,10 @@
     "cannot-be-changed-later": "It cannot be changed later.",
     "validation": {
       "duplicated": "The {resource} ID already exists. Please choose another one.",
-      "pattern": "The {resource} ID can only contain lowercase letters, numbers, and hyphens. It must start with a lowercase letter.",
+      "pattern": "The {resource} ID can have lowercase letters, digits, or hyphens. It must start with a lowercase letter and end with a letter or number.",
       "minlength": "The {resource} ID is too short. It should have at least 1 character.",
-      "overflow": "The {resource} ID is too long. It should have less than 64 characters."
+      "overflow": "The {resource} ID is too long. It should have less than 64 characters.",
+      "empty": "The {resource} ID cannot be empty"
     }
   },
   "multi-factor": {
@@ -2295,12 +2297,7 @@
         "order": "Order",
         "approver": "Approver",
         "add": "Add node",
-        "delete": "Delete approval node",
-        "select-approver": "Select approver",
-        "roles": {
-          "system": "System Roles",
-          "custom": "Custom Roles"
-        }
+        "delete": "Delete approval node"
       },
       "view-approval-flow": "View approval flow",
       "skip": "Skip manual approval",
@@ -2392,7 +2389,6 @@
       "title-placeholder": "Input role title",
       "description-placeholder": "Input role description"
     },
-    "default-workspace-role": "Users will get the \"Workspace Member\" role by default",
     "title": "Title",
     "select-role": "Select role",
     "expired-tip": "The role might has been expired.",
@@ -2579,7 +2575,24 @@
     "self": "Worksheet"
   },
   "setup": {
-    "self": "Setup"
+    "self": "Setup",
+    "basic-info": "Basic info",
+    "skip-setup": "Skip setup",
+    "purposes": {
+      "self": "What's your main purpose with Bytebase?",
+      "alter-schema": "Alter schema",
+      "query-data": "Query data"
+    },
+    "workflow": {
+      "self": "What's your workflow with database?",
+      "team": "Work with teammates, need CI/CD pipeline",
+      "simple": "No complex workflow, just need UI tools"
+    },
+    "data": {
+      "self-setup": "Setup the project",
+      "built-in": "Use built-in sample",
+      "built-in-desc": "Generate sample project and instances"
+    }
   },
   "landing": {
     "quick-link": {

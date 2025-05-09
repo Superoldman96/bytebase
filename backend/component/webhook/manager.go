@@ -203,13 +203,9 @@ func (m *Manager) getWebhookContextFromEvent(ctx context.Context, e *Event, acti
 		if u.RolloutPolicy.GetAutomatic() {
 			usersGetters = append(usersGetters, getUsersFromUsers(e.Issue.Creator))
 		} else {
-			for _, workspaceRole := range u.RolloutPolicy.GetRoles() {
-				role := base.Role(strings.TrimPrefix(workspaceRole, "roles/"))
-				usersGetters = append(usersGetters, m.getUsersFromWorkspaceRole(role))
-			}
-			for _, projectRole := range u.RolloutPolicy.GetRoles() {
-				role := base.Role(strings.TrimPrefix(projectRole, "roles/"))
-				usersGetters = append(usersGetters, getUsersFromProjectRole(m.store, role, e.Project.ResourceID))
+			for _, role := range u.RolloutPolicy.GetRoles() {
+				role := base.Role(strings.TrimPrefix(role, "roles/"))
+				usersGetters = append(usersGetters, getUsersFromRole(m.store, role, e.Project.ResourceID))
 			}
 			for _, issueRole := range u.RolloutPolicy.GetIssueRoles() {
 				switch issueRole {
@@ -266,28 +262,8 @@ func (m *Manager) getWebhookContextFromEvent(ctx context.Context, e *Event, acti
 
 		var usersGetter func(ctx context.Context) ([]*store.UserMessage, error)
 
-		switch val := node.Payload.(type) {
-		case *storepb.ApprovalNode_GroupValue_:
-			switch val.GroupValue {
-			case storepb.ApprovalNode_GROUP_VALUE_UNSPECIFILED:
-				return nil, errors.Errorf("invalid group value")
-			case storepb.ApprovalNode_WORKSPACE_OWNER:
-				usersGetter = m.getUsersFromWorkspaceRole(base.WorkspaceAdmin)
-			case storepb.ApprovalNode_WORKSPACE_DBA:
-				usersGetter = m.getUsersFromWorkspaceRole(base.WorkspaceDBA)
-			case storepb.ApprovalNode_PROJECT_OWNER:
-				usersGetter = getUsersFromProjectRole(m.store, base.ProjectOwner, e.Project.ResourceID)
-			case storepb.ApprovalNode_PROJECT_MEMBER:
-				usersGetter = getUsersFromProjectRole(m.store, base.ProjectDeveloper, e.Project.ResourceID)
-			default:
-				return nil, errors.Errorf("invalid group value")
-			}
-		case *storepb.ApprovalNode_Role:
-			role := base.Role(strings.TrimPrefix(val.Role, "roles/"))
-			usersGetter = getUsersFromProjectRole(m.store, role, e.Project.ResourceID)
-		default:
-			return nil, errors.Errorf("invalid node payload type")
-		}
+		role := base.Role(strings.TrimPrefix(node.Role, "roles/"))
+		usersGetter = getUsersFromRole(m.store, role, e.Project.ResourceID)
 
 		users, err := usersGetter(ctx)
 		if err != nil {
@@ -403,24 +379,18 @@ func (m *Manager) postWebhookList(ctx context.Context, webhookCtx *webhook.Conte
 	}
 }
 
-func (m *Manager) getUsersFromWorkspaceRole(role base.Role) func(context.Context) ([]*store.UserMessage, error) {
+func getUsersFromRole(s *store.Store, role base.Role, projectID string) func(context.Context) ([]*store.UserMessage, error) {
 	return func(ctx context.Context) ([]*store.UserMessage, error) {
-		policyMessage, err := m.store.GetWorkspaceIamPolicy(ctx)
+		projectIAM, err := s.GetProjectIamPolicy(ctx, projectID)
 		if err != nil {
 			return nil, err
 		}
-		return utils.GetUsersByRoleInIAMPolicy(ctx, m.store, role, policyMessage.Policy), nil
-	}
-}
-
-func getUsersFromProjectRole(s *store.Store, role base.Role, projectID string) func(context.Context) ([]*store.UserMessage, error) {
-	return func(ctx context.Context) ([]*store.UserMessage, error) {
-		policyMessage, err := s.GetProjectIamPolicy(ctx, projectID)
+		workspaceIAM, err := s.GetWorkspaceIamPolicy(ctx)
 		if err != nil {
 			return nil, err
 		}
 
-		return utils.GetUsersByRoleInIAMPolicy(ctx, s, role, policyMessage.Policy), nil
+		return utils.GetUsersByRoleInIAMPolicy(ctx, s, role, projectIAM.Policy, workspaceIAM.Policy), nil
 	}
 }
 

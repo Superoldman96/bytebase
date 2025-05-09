@@ -167,7 +167,13 @@
           :value="resourceId"
           :suffix="true"
           :resource-title="identityProvider.title"
-          :validate="validateResourceId"
+          :fetch-resource="
+            (id) =>
+              identityProviderStore.getOrFetchIdentityProviderByName(
+                `${idpNamePrefix}${id}`,
+                true /* silent */
+              )
+          "
         />
       </div>
       <div class="w-full flex flex-col justify-start items-start">
@@ -637,11 +643,7 @@
         </div>
       </div>
       <div class="mt-4">
-        <NButton
-          v-if="!isDeleted"
-          :disabled="!allowTestConnection"
-          @click="testConnection"
-        >
+        <NButton :disabled="!allowTestConnection" @click="testConnection">
           {{ $t("identity-provider.test-connection") }}
         </NButton>
       </div>
@@ -653,31 +655,17 @@
       <div class="space-x-4 flex flex-row justify-start items-center">
         <template v-if="!isCreating">
           <BBButtonConfirm
-            v-if="!isDeleted"
             :type="'ARCHIVE'"
-            :button-text="$t('settings.sso.archive')"
-            :ok-text="$t('common.archive')"
-            :confirm-title="$t('settings.sso.archive')"
-            :confirm-description="$t('settings.sso.archive-info')"
+            :button-text="$t('settings.sso.delete')"
+            :ok-text="$t('common.delete')"
+            :confirm-title="$t('settings.sso.delete')"
+            :confirm-description="$t('common.cannot-undo-this-action')"
             :require-confirm="true"
             @confirm="handleDeleteButtonClick"
           />
-          <BBButtonConfirm
-            v-else
-            :type="'RESTORE'"
-            :button-text="$t('settings.sso.restore')"
-            :ok-text="$t('common.restore')"
-            :confirm-title="$t('settings.sso.restore')"
-            :confirm-description="''"
-            :require-confirm="true"
-            @confirm="handleRestoreButtonClick"
-          />
         </template>
       </div>
-      <div
-        v-if="!isDeleted"
-        class="space-x-3 flex flex-row justify-end items-center"
-      >
+      <div class="space-x-3 flex flex-row justify-end items-center">
         <template v-if="isCreating">
           <NButton @click="handleCancelButtonClick">
             {{ $t("common.cancel") }}
@@ -719,9 +707,7 @@ import {
   NButton,
 } from "naive-ui";
 import type { ClientError } from "nice-grpc-common";
-import { Status } from "nice-grpc-common";
 import { computed, reactive, ref, onMounted, watch } from "vue";
-import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { BBAttention, BBButtonConfirm, BBTextField } from "@/bbkit";
 import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
@@ -739,13 +725,8 @@ import {
   getIdentityProviderResourceId,
   idpNamePrefix,
 } from "@/store/modules/v1/common";
-import type {
-  OAuthWindowEventPayload,
-  ResourceId,
-  ValidatedMessage,
-} from "@/types";
+import type { OAuthWindowEventPayload } from "@/types";
 import { planTypeToString } from "@/types";
-import { State } from "@/types/proto/v1/common";
 import {
   FieldMapping,
   IdentityProvider,
@@ -763,7 +744,6 @@ import {
   identityProviderTypeToString,
   openWindowForSSO,
 } from "@/utils";
-import { getErrorCode } from "@/utils/grpcweb";
 import IdentityProviderExternalURL from "./IdentityProviderExternalURL.vue";
 
 interface IdentityProviderTemplate extends OAuth2IdentityProviderTemplate {
@@ -783,7 +763,6 @@ const props = defineProps<{
   onCanceled?: () => void;
 }>();
 
-const { t } = useI18n();
 const router = useRouter();
 const identityProviderStore = useIdentityProviderStore();
 const subscriptionStore = useSubscriptionV1Store();
@@ -849,10 +828,6 @@ const externalUrl = computed(
 
 const isCreating = computed(() => {
   return currentIdentityProvider.value === undefined;
-});
-
-const isDeleted = computed(() => {
-  return currentIdentityProvider.value?.state === State.DELETED;
 });
 
 const resourceId = computed(() => {
@@ -1062,11 +1037,8 @@ const isFormCompleted = computed(() => {
 const allowEdit = computed(() => {
   if (isCreating.value) {
     return hasWorkspacePermissionV2("bb.identityProviders.create");
-  } else if (!isDeleted.value) {
-    return hasWorkspacePermissionV2("bb.identityProviders.update");
-  } else {
-    return false;
   }
+  return hasWorkspacePermissionV2("bb.identityProviders.update");
 });
 
 const allowCreate = computed(() => {
@@ -1171,36 +1143,6 @@ const loginWithIdentityProviderEventListener = async (event: Event) => {
   });
 };
 
-const validateResourceId = async (
-  resourceId: ResourceId
-): Promise<ValidatedMessage[]> => {
-  if (!resourceId) {
-    return [];
-  }
-
-  try {
-    const idp = await identityProviderStore.getOrFetchIdentityProviderByName(
-      idpNamePrefix + resourceId,
-      true /* silent */
-    );
-    if (idp) {
-      return [
-        {
-          type: "error",
-          message: t("resource-id.validation.duplicated", {
-            resource: t("resource.idp"),
-          }),
-        },
-      ];
-    }
-  } catch (error) {
-    if (getErrorCode(error) !== Status.NOT_FOUND) {
-      throw error;
-    }
-  }
-  return [];
-};
-
 const testConnection = async () => {
   if (
     state.type === IdentityProviderType.OAUTH2 ||
@@ -1294,29 +1236,6 @@ const handleDeleteButtonClick = async () => {
   }
   router.push({
     name: WORKSPACE_ROUTE_SSO,
-  });
-};
-
-const handleRestoreButtonClick = async () => {
-  if (!currentIdentityProvider.value) {
-    return;
-  }
-  if (!hasWorkspacePermissionV2("bb.identityProviders.undelete")) {
-    pushNotification({
-      module: "bytebase",
-      style: "WARN",
-      title: "Permission denied",
-    });
-    return;
-  }
-
-  await identityProviderStore.undeleteIdentityProvider(
-    currentIdentityProvider.value.name
-  );
-  pushNotification({
-    module: "bytebase",
-    style: "SUCCESS",
-    title: "Restore SSO succeed",
   });
 };
 

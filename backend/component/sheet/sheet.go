@@ -243,13 +243,11 @@ func syntaxCheck(dbType storepb.Engine, statement string) (any, []*storepb.Advic
 	}
 	return nil, []*storepb.Advice{
 		{
-			Status:  storepb.Advice_ERROR,
-			Code:    InternalErrorCode,
-			Title:   "Unsupported database type",
-			Content: fmt.Sprintf("Unsupported database type %s", dbType),
-			StartPosition: &storepb.Position{
-				Line: 1,
-			},
+			Status:        storepb.Advice_ERROR,
+			Code:          InternalErrorCode,
+			Title:         "Unsupported database type",
+			Content:       fmt.Sprintf("Unsupported database type %s", dbType),
+			StartPosition: common.FirstLinePosition,
 		},
 	}
 }
@@ -259,13 +257,11 @@ func cockroachdbSyntaxCheck(statement string) (any, []*storepb.Advice) {
 	if err != nil {
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -282,26 +278,21 @@ func partiqlSyntaxCheck(statement string) (any, []*storepb.Advice) {
 		if syntaxErr, ok := err.(*base.SyntaxError); ok {
 			return nil, []*storepb.Advice{
 				{
-					Status:  storepb.Advice_WARNING,
-					Code:    StatementSyntaxErrorCode,
-					Title:   SyntaxErrorTitle,
-					Content: syntaxErr.Message,
-					StartPosition: &storepb.Position{
-						Line:   int32(syntaxErr.Line),
-						Column: int32(syntaxErr.Column),
-					},
+					Status:        storepb.Advice_WARNING,
+					Code:          StatementSyntaxErrorCode,
+					Title:         SyntaxErrorTitle,
+					Content:       syntaxErr.Message,
+					StartPosition: syntaxErr.Position,
 				},
 			}
 		}
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -318,26 +309,21 @@ func mssqlSyntaxCheck(statement string) (any, []*storepb.Advice) {
 		if syntaxErr, ok := err.(*base.SyntaxError); ok {
 			return nil, []*storepb.Advice{
 				{
-					Status:  storepb.Advice_WARNING,
-					Code:    StatementSyntaxErrorCode,
-					Title:   SyntaxErrorTitle,
-					Content: syntaxErr.Message,
-					StartPosition: &storepb.Position{
-						Line:   int32(syntaxErr.Line),
-						Column: int32(syntaxErr.Column),
-					},
+					Status:        storepb.Advice_WARNING,
+					Code:          StatementSyntaxErrorCode,
+					Title:         SyntaxErrorTitle,
+					Content:       syntaxErr.Message,
+					StartPosition: syntaxErr.Position,
 				},
 			}
 		}
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -354,26 +340,21 @@ func snowflakeSyntaxCheck(statement string) (any, []*storepb.Advice) {
 		if syntaxErr, ok := err.(*base.SyntaxError); ok {
 			return nil, []*storepb.Advice{
 				{
-					Status:  storepb.Advice_WARNING,
-					Code:    StatementSyntaxErrorCode,
-					Title:   SyntaxErrorTitle,
-					Content: syntaxErr.Message,
-					StartPosition: &storepb.Position{
-						Line:   int32(syntaxErr.Line),
-						Column: int32(syntaxErr.Column),
-					},
+					Status:        storepb.Advice_WARNING,
+					Code:          StatementSyntaxErrorCode,
+					Title:         SyntaxErrorTitle,
+					Content:       syntaxErr.Message,
+					StartPosition: syntaxErr.Position,
 				},
 			}
 		}
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -389,26 +370,21 @@ func oracleSyntaxCheck(statement string) (any, []*storepb.Advice) {
 		if syntaxErr, ok := err.(*base.SyntaxError); ok {
 			return nil, []*storepb.Advice{
 				{
-					Status:  storepb.Advice_WARNING,
-					Code:    StatementSyntaxErrorCode,
-					Title:   SyntaxErrorTitle,
-					Content: syntaxErr.Message,
-					StartPosition: &storepb.Position{
-						Line:   int32(syntaxErr.Line),
-						Column: int32(syntaxErr.Column),
-					},
+					Status:        storepb.Advice_WARNING,
+					Code:          StatementSyntaxErrorCode,
+					Title:         SyntaxErrorTitle,
+					Content:       syntaxErr.Message,
+					StartPosition: syntaxErr.Position,
 				},
 			}
 		}
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -461,7 +437,7 @@ func calculatePostgresErrorLine(statement string) int {
 
 	for _, singleSQL := range singleSQLs {
 		if _, err := pgrawparser.Parse(pgrawparser.ParseContext{}, singleSQL.Text); err != nil {
-			return singleSQL.LastLine + 1
+			return int(singleSQL.End.GetLine()) + 1
 		}
 	}
 
@@ -484,26 +460,21 @@ func mysqlSyntaxCheck(statement string) (any, []*storepb.Advice) {
 		if syntaxErr, ok := err.(*base.SyntaxError); ok {
 			return nil, []*storepb.Advice{
 				{
-					Status:  storepb.Advice_ERROR,
-					Code:    StatementSyntaxErrorCode,
-					Title:   SyntaxErrorTitle,
-					Content: syntaxErr.Message,
-					StartPosition: &storepb.Position{
-						Line:   int32(syntaxErr.Line),
-						Column: int32(syntaxErr.Column),
-					},
+					Status:        storepb.Advice_ERROR,
+					Code:          StatementSyntaxErrorCode,
+					Title:         SyntaxErrorTitle,
+					Content:       syntaxErr.Message,
+					StartPosition: syntaxErr.Position,
 				},
 			}
 		}
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_ERROR,
-				Code:    InternalErrorCode,
-				Title:   "Parse error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_ERROR,
+				Code:          InternalErrorCode,
+				Title:         "Parse error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -534,13 +505,11 @@ func tidbSyntaxCheck(statement string) (any, []*storepb.Advice) {
 	if err != nil {
 		return nil, []*storepb.Advice{
 			{
-				Status:  storepb.Advice_WARNING,
-				Code:    InternalErrorCode,
-				Title:   "Syntax error",
-				Content: err.Error(),
-				StartPosition: &storepb.Position{
-					Line: 1,
-				},
+				Status:        storepb.Advice_WARNING,
+				Code:          InternalErrorCode,
+				Title:         "Syntax error",
+				Content:       err.Error(),
+				StartPosition: common.FirstLinePosition,
 			},
 		}
 	}
@@ -559,7 +528,7 @@ func tidbSyntaxCheck(statement string) (any, []*storepb.Advice) {
 					Title:   "Parse error",
 					Content: relocationTiDBErrorLine(err.Error(), baseLine),
 					StartPosition: &storepb.Position{
-						Line: int32(baseLine + 1),
+						Line: int32(baseLine),
 					},
 				},
 			}
@@ -571,7 +540,7 @@ func tidbSyntaxCheck(statement string) (any, []*storepb.Advice) {
 
 		node := nodes[0]
 		node.SetText(nil, singleSQL.Text)
-		node.SetOriginTextPosition(singleSQL.LastLine)
+		node.SetOriginTextPosition(int(singleSQL.End.GetLine()))
 		if n, ok := node.(*tidbast.CreateTableStmt); ok {
 			if err := tidbbbparser.SetLineForMySQLCreateTableStmt(n); err != nil {
 				return nil, append(adviceList, &storepb.Advice{
@@ -580,13 +549,13 @@ func tidbSyntaxCheck(statement string) (any, []*storepb.Advice) {
 					Title:   "Set line error",
 					Content: err.Error(),
 					StartPosition: &storepb.Position{
-						Line: int32(singleSQL.LastLine),
+						Line: singleSQL.End.GetLine(),
 					},
 				})
 			}
 		}
 		returnNodes = append(returnNodes, node)
-		baseLine = singleSQL.LastLine
+		baseLine = int(singleSQL.End.GetLine())
 	}
 
 	return returnNodes, adviceList

@@ -59,6 +59,7 @@ export const composeIssue = async (
       });
       issue.planEntity = plan;
     }
+
     if (hasProjectPermissionV2(projectEntity, "bb.planCheckRuns.list")) {
       // Only show the latest plan check runs.
       const { planCheckRuns } = await planServiceClient.listPlanCheckRuns({
@@ -74,6 +75,7 @@ export const composeIssue = async (
         name: issue.rollout,
       });
     }
+
     if (hasProjectPermissionV2(projectEntity, "bb.taskRuns.list")) {
       const { taskRuns } = await rolloutServiceClient.listTaskRuns({
         parent: `${issue.rollout}/stages/-/tasks/-`,
