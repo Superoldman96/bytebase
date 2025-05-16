@@ -18,15 +18,13 @@ func init() {
 	base.RegisterDiagnoseFunc(store.Engine_TIDB, Diagnose)
 	base.RegisterDiagnoseFunc(store.Engine_OCEANBASE, Diagnose)
 	base.RegisterDiagnoseFunc(store.Engine_CLICKHOUSE, Diagnose)
-	base.RegisterDiagnoseFunc(store.Engine_STARROCKS, Diagnose)
-	base.RegisterDiagnoseFunc(store.Engine_DORIS, Diagnose)
 }
 
 func Diagnose(_ context.Context, _ base.DiagnoseContext, statement string) ([]base.Diagnostic, error) {
 	diagnostics := make([]base.Diagnostic, 0)
 	syntaxError := parseMySQLStatement(statement)
 	if syntaxError != nil {
-		diagnostics = append(diagnostics, base.ConvertSyntaxErrorToDiagnostic(syntaxError))
+		diagnostics = append(diagnostics, base.ConvertSyntaxErrorToDiagnostic(syntaxError, statement))
 	}
 
 	return diagnostics, nil
@@ -45,13 +43,15 @@ func parseMySQLStatement(statement string) *base.SyntaxError {
 
 	p := parser.NewMySQLParser(stream)
 	lexerErrorListener := &base.ParseErrorListener{
-		BaseLine: 0,
+		Statement: statement,
+		BaseLine:  0,
 	}
 	lexer.RemoveErrorListeners()
 	lexer.AddErrorListener(lexerErrorListener)
 
 	parserErrorListener := &base.ParseErrorListener{
-		BaseLine: 0,
+		Statement: statement,
+		BaseLine:  0,
 	}
 	p.RemoveErrorListeners()
 	p.AddErrorListener(parserErrorListener)

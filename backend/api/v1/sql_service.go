@@ -14,6 +14,10 @@ import (
 	"log/slog"
 
 	"github.com/alexmullins/zip"
+	"github.com/google/cel-go/cel"
+	celast "github.com/google/cel-go/common/ast"
+	celoperators "github.com/google/cel-go/common/operators"
+	celoverloads "github.com/google/cel-go/common/overloads"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -247,8 +251,8 @@ func (s *SQLService) Query(ctx context.Context, request *v1pb.QueryRequest) (*v1
 					Status:  v1pb.PlanCheckRun_Result_ERROR,
 					Report: &v1pb.PlanCheckRun_Result_SqlReviewReport_{
 						SqlReviewReport: &v1pb.PlanCheckRun_Result_SqlReviewReport{
-							Line:   int32(syntaxErr.Line),
-							Column: int32(syntaxErr.Column),
+							Line:   int32(syntaxErr.Position.GetLine()),
+							Column: int32(syntaxErr.Position.GetColumn()),
 						},
 					},
 				},
@@ -873,8 +877,10 @@ func DoExport(
 		results = results[len(results)-1:]
 	}
 	if len(results) == 1 {
-		if err := optionalAccessCheck(ctx, instance, database, user, spans, int(results[0].RowsCount), queryContext.Explain, true); err != nil {
-			return nil, duration, err
+		if optionalAccessCheck != nil {
+			if err := optionalAccessCheck(ctx, instance, database, user, spans, int(results[0].RowsCount), queryContext.Explain, true); err != nil {
+				return nil, duration, err
+			}
 		}
 	}
 
@@ -993,6 +999,93 @@ func (s *SQLService) createQueryHistory(ctx context.Context, database *store.Dat
 	return nil
 }
 
+func getListQueryHistoryFilter(filter string) (*store.ListResourceFilter, error) {
+	if filter == "" {
+		return nil, nil
+	}
+
+	e, err := cel.NewEnv()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create cel env")
+	}
+	ast, iss := e.Parse(filter)
+	if iss != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse filter %v, error: %v", filter, iss.String())
+	}
+
+	var getFilter func(expr celast.Expr) (string, error)
+	var positionalArgs []any
+
+	parseToSQL := func(variable, value any) (string, error) {
+		switch variable {
+		case "project":
+			projectID, err := common.GetProjectID(value.(string))
+			if err != nil {
+				return "", status.Errorf(codes.InvalidArgument, "invalid project filter %q", value)
+			}
+			positionalArgs = append(positionalArgs, projectID)
+			return fmt.Sprintf("query_history.project_id = $%d", len(positionalArgs)), nil
+		case "database":
+			positionalArgs = append(positionalArgs, value.(string))
+			return fmt.Sprintf("query_history.database = $%d", len(positionalArgs)), nil
+		case "instance":
+			positionalArgs = append(positionalArgs, value.(string))
+			return fmt.Sprintf("query_history.database LIKE $%d", len(positionalArgs)), nil
+		case "type":
+			historyType := store.QueryHistoryType(value.(string))
+			positionalArgs = append(positionalArgs, historyType)
+			return fmt.Sprintf("query_history.type = $%d", len(positionalArgs)), nil
+		default:
+			return "", status.Errorf(codes.InvalidArgument, "unsupport variable %q", variable)
+		}
+	}
+
+	getFilter = func(expr celast.Expr) (string, error) {
+		switch expr.Kind() {
+		case celast.CallKind:
+			functionName := expr.AsCall().FunctionName()
+			switch functionName {
+			case celoperators.LogicalOr:
+				return getSubConditionFromExpr(expr, getFilter, "OR")
+			case celoperators.LogicalAnd:
+				return getSubConditionFromExpr(expr, getFilter, "AND")
+			case celoperators.Equals:
+				variable, value := getVariableAndValueFromExpr(expr)
+				return parseToSQL(variable, value)
+			case celoverloads.Matches:
+				variable := expr.AsCall().Target().AsIdent()
+				args := expr.AsCall().Args()
+				if len(args) != 1 {
+					return "", status.Errorf(codes.InvalidArgument, `invalid args for %q`, variable)
+				}
+				value := args[0].AsLiteral().Value()
+				if variable != "statement" {
+					return "", status.Errorf(codes.InvalidArgument, `only "statement" support %q operator, but found %q`, celoverloads.Matches, variable)
+				}
+				strValue, ok := value.(string)
+				if !ok {
+					return "", status.Errorf(codes.InvalidArgument, "expect string, got %T, hint: filter literals should be string", value)
+				}
+				return "query_history.statement LIKE '%" + strValue + "%'", nil
+			default:
+				return "", status.Errorf(codes.InvalidArgument, "unexpected function %v", functionName)
+			}
+		default:
+			return "", status.Errorf(codes.InvalidArgument, "unexpected expr kind %v", expr.Kind())
+		}
+	}
+
+	where, err := getFilter(ast.NativeRep().Expr())
+	if err != nil {
+		return nil, err
+	}
+
+	return &store.ListResourceFilter{
+		Args:  positionalArgs,
+		Where: "(" + where + ")",
+	}, nil
+}
+
 // SearchQueryHistories lists query histories.
 func (s *SQLService) SearchQueryHistories(ctx context.Context, request *v1pb.SearchQueryHistoriesRequest) (*v1pb.SearchQueryHistoriesResponse, error) {
 	offset, err := parseLimitAndOffset(&pageSize{
@@ -1015,30 +1108,11 @@ func (s *SQLService) SearchQueryHistories(ctx context.Context, request *v1pb.Sea
 		Limit:      &limitPlusOne,
 		Offset:     &offset.offset,
 	}
-
-	filters, err := ParseFilter(request.Filter)
+	filter, err := getListQueryHistoryFilter(request.Filter)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
-
-	for _, spec := range filters {
-		if spec.Operator != ComparatorTypeEqual {
-			return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "%v" filter`, spec.Key)
-		}
-		switch spec.Key {
-		case "database":
-			database := spec.Value
-			find.Database = &database
-		case "instance":
-			instance := spec.Value
-			find.Instance = &instance
-		case "type":
-			historyType := store.QueryHistoryType(spec.Value)
-			find.Type = &historyType
-		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid filter %s", spec.Key)
-		}
-	}
+	find.Filter = filter
 
 	historyList, err := s.store.ListQueryHistories(ctx, find)
 	if err != nil {
@@ -1254,7 +1328,7 @@ func (s *SQLService) accessCheck(
 			if permission != "" {
 				ok, err := s.iamManager.CheckPermission(ctx, permission, user, project.ResourceID)
 				if err != nil {
-					return err
+					return status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 				}
 				if !ok {
 					return status.Errorf(codes.PermissionDenied, "user %q does not have permission %q on project %q", user.Email, permission, project.ResourceID)
@@ -1389,8 +1463,8 @@ func validateQueryRequest(instance *store.InstanceMessage, statement string) err
 					Status:  v1pb.PlanCheckRun_Result_ERROR,
 					Report: &v1pb.PlanCheckRun_Result_SqlReviewReport_{
 						SqlReviewReport: &v1pb.PlanCheckRun_Result_SqlReviewReport{
-							Line:   int32(syntaxErr.Line),
-							Column: int32(syntaxErr.Column),
+							Line:   int32(syntaxErr.Position.GetLine()),
+							Column: int32(syntaxErr.Position.GetColumn()),
 						},
 					},
 				},
@@ -1403,7 +1477,12 @@ func validateQueryRequest(instance *store.InstanceMessage, statement string) err
 		return err
 	}
 	if !ok {
-		return nonSelectSQLError.Err()
+		switch instance.Metadata.GetEngine() {
+		case storepb.Engine_REDIS, storepb.Engine_MONGODB:
+			return nonReadOnlyCommandError.Err()
+		default:
+			return nonSelectSQLError.Err()
+		}
 	}
 	return nil
 }
@@ -1642,8 +1721,6 @@ func convertToV1Advice(advice *storepb.Advice) *v1pb.Advice {
 		Code:          int32(advice.Code),
 		Title:         advice.Title,
 		Content:       advice.Content,
-		Line:          int32(advice.GetStartPosition().GetLine()),
-		Column:        int32(advice.GetStartPosition().GetColumn()),
 		StartPosition: convertToPosition(advice.StartPosition),
 		EndPosition:   convertToPosition(advice.EndPosition),
 	}
@@ -1845,7 +1922,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 	}
 
 	var envAdminDataSourceRestriction, projectAdminDataSourceRestriction v1pb.DataSourceQueryPolicy_Restriction
-	environment, err := storeInstance.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &database.EffectiveEnvironmentID})
+	environment, err := storeInstance.GetEnvironmentByID(ctx, database.EffectiveEnvironmentID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get environment")
 	}
@@ -1854,7 +1931,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 	}
 	dataSourceQueryPolicyType := base.PolicyTypeDataSourceQuery
 	environmentResourceType := base.PolicyResourceTypeEnvironment
-	environmentResource := common.FormatEnvironment(environment.ResourceID)
+	environmentResource := common.FormatEnvironment(environment.Id)
 	environmentPolicy, err := storeInstance.GetPolicyV2(ctx, &store.FindPolicyMessage{
 		ResourceType: &environmentResourceType,
 		Resource:     &environmentResource,
@@ -1905,9 +1982,7 @@ func checkAndGetDataSourceQueriable(ctx context.Context, storeInstance *store.St
 }
 
 func checkDataSourceQueryPolicy(ctx context.Context, storeInstance *store.Store, database *store.DatabaseMessage, statementTp parserbase.QueryType) error {
-	environment, err := storeInstance.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-		ResourceID: &database.EffectiveEnvironmentID,
-	})
+	environment, err := storeInstance.GetEnvironmentByID(ctx, database.EffectiveEnvironmentID)
 	if err != nil {
 		return err
 	}
@@ -1915,7 +1990,7 @@ func checkDataSourceQueryPolicy(ctx context.Context, storeInstance *store.Store,
 		return status.Errorf(codes.NotFound, "environment %q not found", database.EffectiveEnvironmentID)
 	}
 	resourceType := base.PolicyResourceTypeEnvironment
-	environmentResource := common.FormatEnvironment(environment.ResourceID)
+	environmentResource := common.FormatEnvironment(environment.Id)
 	policyType := base.PolicyTypeDataSourceQuery
 	dataSourceQueryPolicy, err := storeInstance.GetPolicyV2(ctx, &store.FindPolicyMessage{
 		ResourceType: &resourceType,

@@ -18,10 +18,6 @@
   
     - [Advice.Status](#bytebase-store-Advice-Status)
   
-- [store/anomaly.proto](#store_anomaly-proto)
-    - [AnomalyConnectionPayload](#bytebase-store-AnomalyConnectionPayload)
-    - [AnomalyDatabaseSchemaDriftPayload](#bytebase-store-AnomalyDatabaseSchemaDriftPayload)
-  
 - [store/approval.proto](#store_approval-proto)
     - [ApprovalFlow](#bytebase-store-ApprovalFlow)
     - [ApprovalNode](#bytebase-store-ApprovalNode)
@@ -30,7 +26,6 @@
     - [IssuePayloadApproval](#bytebase-store-IssuePayloadApproval)
     - [IssuePayloadApproval.Approver](#bytebase-store-IssuePayloadApproval-Approver)
   
-    - [ApprovalNode.GroupValue](#bytebase-store-ApprovalNode-GroupValue)
     - [ApprovalNode.Type](#bytebase-store-ApprovalNode-Type)
     - [ApprovalStep.Type](#bytebase-store-ApprovalStep-Type)
     - [IssuePayloadApproval.Approver.Status](#bytebase-store-IssuePayloadApproval-Approver-Status)
@@ -222,6 +217,7 @@
 - [store/project.proto](#store_project-proto)
     - [Label](#bytebase-store-Label)
     - [Project](#bytebase-store-Project)
+    - [Project.ExecutionRetryPolicy](#bytebase-store-Project-ExecutionRetryPolicy)
   
 - [store/project_webhook.proto](#store_project_webhook-proto)
     - [ProjectWebhookPayload](#bytebase-store-ProjectWebhookPayload)
@@ -307,7 +303,6 @@
     - [SchedulerInfo](#bytebase-store-SchedulerInfo)
     - [SchedulerInfo.WaitingCause](#bytebase-store-SchedulerInfo-WaitingCause)
     - [TaskRunResult](#bytebase-store-TaskRunResult)
-    - [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position)
   
 - [store/task_run_log.proto](#store_task_run_log-proto)
     - [TaskRunLog](#bytebase-store-TaskRunLog)
@@ -317,6 +312,7 @@
     - [TaskRunLog.DatabaseSyncStart](#bytebase-store-TaskRunLog-DatabaseSyncStart)
     - [TaskRunLog.PriorBackupEnd](#bytebase-store-TaskRunLog-PriorBackupEnd)
     - [TaskRunLog.PriorBackupStart](#bytebase-store-TaskRunLog-PriorBackupStart)
+    - [TaskRunLog.RetryInfo](#bytebase-store-TaskRunLog-RetryInfo)
     - [TaskRunLog.SchemaDumpEnd](#bytebase-store-TaskRunLog-SchemaDumpEnd)
     - [TaskRunLog.SchemaDumpStart](#bytebase-store-TaskRunLog-SchemaDumpStart)
     - [TaskRunLog.TaskRunStatusUpdate](#bytebase-store-TaskRunLog-TaskRunStatusUpdate)
@@ -532,54 +528,6 @@ offset.
 
 
 
-<a name="store_anomaly-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## store/anomaly.proto
-
-
-
-<a name="bytebase-store-AnomalyConnectionPayload"></a>
-
-### AnomalyConnectionPayload
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| detail | [string](#string) |  | Connection failure detail |
-
-
-
-
-
-
-<a name="bytebase-store-AnomalyDatabaseSchemaDriftPayload"></a>
-
-### AnomalyDatabaseSchemaDriftPayload
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| version | [string](#string) |  | The schema version corresponds to the expected schema |
-| expect | [string](#string) |  | The expected latest schema stored in the migration history table |
-| actual | [string](#string) |  | The actual schema dumped from the database |
-
-
-
-
-
- 
-
- 
-
- 
-
- 
-
-
-
 <a name="store_approval-proto"></a>
 <p align="right"><a href="#top">Top</a></p>
 
@@ -611,8 +559,7 @@ offset.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ApprovalNode.Type](#bytebase-store-ApprovalNode-Type) |  |  |
-| group_value | [ApprovalNode.GroupValue](#bytebase-store-ApprovalNode-GroupValue) |  |  |
-| role | [string](#string) |  | Format: roles/{role} |
+| role | [string](#string) |  |  |
 
 
 
@@ -689,25 +636,6 @@ IssuePayloadApproval records the approval template used and the approval history
 
 
  
-
-
-<a name="bytebase-store-ApprovalNode-GroupValue"></a>
-
-### ApprovalNode.GroupValue
-The predefined user groups are:
-- WORKSPACE_OWNER
-- WORKSPACE_DBA
-- PROJECT_OWNER
-- PROJECT_MEMBER
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| GROUP_VALUE_UNSPECIFILED | 0 |  |
-| WORKSPACE_OWNER | 1 |  |
-| WORKSPACE_DBA | 2 |  |
-| PROJECT_OWNER | 3 |  |
-| PROJECT_MEMBER | 4 |  |
-
 
 
 <a name="bytebase-store-ApprovalNode-Type"></a>
@@ -1036,6 +964,7 @@ Metadata about the request.
 | sheet | [string](#string) |  | The sheet that holds the content. Format: projects/{project}/sheets/{sheet} |
 | version | [string](#string) |  |  |
 | type | [ChangelogPayload.Type](#bytebase-store-ChangelogPayload-Type) |  |  |
+| git_commit | [string](#string) |  |  |
 
 
 
@@ -1762,6 +1691,8 @@ TableMetadata is the metadata for tables.
 | sorting_keys | [string](#string) | repeated | The sorting_keys is a tuple of column names or arbitrary expressions. ClickHouse specific field. Reference: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#order_by |
 | triggers | [TriggerMetadata](#bytebase-store-TriggerMetadata) | repeated |  |
 | skip_dump | [bool](#bool) |  |  |
+| sharding_info | [string](#string) |  | https://docs.pingcap.com/tidb/stable/information-schema-tables/ |
+| primary_key_type | [string](#string) |  | https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes CLUSTERED or NONCLUSTERED. |
 
 
 
@@ -3613,8 +3544,26 @@ RestrictIssueCreationForSQLReviewPolicy is the policy configuration for restrict
 | enforce_issue_title | [bool](#bool) |  | Enforce issue title created by user instead of generated by Bytebase. |
 | auto_enable_backup | [bool](#bool) |  | Whether to automatically enable backup. |
 | skip_backup_errors | [bool](#bool) |  | Whether to skip backup errors and continue the data migration. |
-| postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the pre-appended &#34;set role &lt;db_owner&gt;&#34; statement. |
+| postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the prepend &#34;set role &lt;db_owner&gt;&#34; statement. |
 | allow_self_approval | [bool](#bool) |  | Whether to allow the issue creator to self-approve the issue. |
+| execution_retry_policy | [Project.ExecutionRetryPolicy](#bytebase-store-Project-ExecutionRetryPolicy) |  | Execution retry policy for the task run. |
+| ci_sampling_size | [int32](#int32) |  | The maximum number of databases to sample during CI data validation. Without specification, sampling is disabled, resulting in a full validation. |
+| parallel_tasks_per_rollout | [int32](#int32) |  | The maximum number of parallel tasks to run during the rollout. |
+
+
+
+
+
+
+<a name="bytebase-store-Project-ExecutionRetryPolicy"></a>
+
+### Project.ExecutionRetryPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| maximum_retries | [int32](#int32) |  | The maximum number of retries for the lock timeout issue. |
 
 
 
@@ -4257,8 +4206,8 @@ RestrictIssueCreationForSQLReviewPolicy is the policy configuration for restrict
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| title | [string](#string) |  | The display name of the environment. |
 | id | [string](#string) |  | The resource id of the environment. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+| title | [string](#string) |  | The display name of the environment. |
 | tags | [EnvironmentSetting.Environment.TagsEntry](#bytebase-store-EnvironmentSetting-Environment-TagsEntry) | repeated |  |
 | color | [string](#string) |  |  |
 
@@ -4821,6 +4770,7 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 | ----- | ---- | ----- | ----------- |
 | connection_limit | [bool](#bool) |  |  |
 | task_uid | [int32](#int32) |  |  |
+| parallel_tasks_limit | [bool](#bool) |  |  |
 
 
 
@@ -4838,27 +4788,10 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 | detail | [string](#string) |  |  |
 | changelog | [string](#string) |  | Format: instances/{instance}/databases/{database}/changelogs/{changelog} |
 | version | [string](#string) |  |  |
-| start_position | [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position) |  |  |
-| end_position | [TaskRunResult.Position](#bytebase-store-TaskRunResult-Position) |  |  |
+| start_position | [Position](#bytebase-store-Position) |  | The following fields are used for error reporting. |
+| end_position | [Position](#bytebase-store-Position) |  |  |
 | export_archive_uid | [int32](#int32) |  | The uid of the export archive. |
 | prior_backup_detail | [PriorBackupDetail](#bytebase-store-PriorBackupDetail) |  | The prior backup detail that will be used to rollback the task run. |
-
-
-
-
-
-
-<a name="bytebase-store-TaskRunResult-Position"></a>
-
-### TaskRunResult.Position
-The following fields are used for error reporting.
-TODO(zp): Use common Position instead.
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| line | [int32](#int32) |  |  |
-| column | [int32](#int32) |  |  |
 
 
 
@@ -4901,6 +4834,7 @@ TODO(zp): Use common Position instead.
 | transaction_control | [TaskRunLog.TransactionControl](#bytebase-store-TaskRunLog-TransactionControl) |  |  |
 | prior_backup_start | [TaskRunLog.PriorBackupStart](#bytebase-store-TaskRunLog-PriorBackupStart) |  |  |
 | prior_backup_end | [TaskRunLog.PriorBackupEnd](#bytebase-store-TaskRunLog-PriorBackupEnd) |  |  |
+| retry_info | [TaskRunLog.RetryInfo](#bytebase-store-TaskRunLog-RetryInfo) |  |  |
 
 
 
@@ -4985,6 +4919,23 @@ TODO(zp): Use common Position instead.
 
 ### TaskRunLog.PriorBackupStart
 
+
+
+
+
+
+
+<a name="bytebase-store-TaskRunLog-RetryInfo"></a>
+
+### TaskRunLog.RetryInfo
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| error | [string](#string) |  |  |
+| retry_count | [int32](#int32) |  |  |
+| maximum_retries | [int32](#int32) |  |  |
 
 
 
@@ -5094,6 +5045,7 @@ TODO(zp): Use common Position instead.
 | TRANSACTION_CONTROL | 8 |  |
 | PRIOR_BACKUP_START | 9 |  |
 | PRIOR_BACKUP_END | 10 |  |
+| RETRY_INFO | 11 |  |
 
 
  

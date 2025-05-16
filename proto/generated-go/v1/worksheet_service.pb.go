@@ -399,11 +399,20 @@ func (x *DeleteWorksheetRequest) GetName() string {
 type SearchWorksheetsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// To filter the search result.
-	// Format: only support the following spec for now:
-	// - `creator = users/{email}`, `creator != users/{email}`
-	// - `starred = true`, `starred = false`.
-	// - `visibility = "VISIBILITY_PRIVATE"`, `visibility = "VISIBILITY_PROJECT_READ | VISIBILITY_PROJECT_WRITE"`, etc.
-	// Not support empty filter for now.
+	// The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+	//
+	// Supported filter:
+	// - creator: the worksheet creator in "users/{email}" format, support "==" and "!=" operator.
+	// - starred: should be "true" or "false", filter starred/unstarred sheets, support "==" operator.
+	// - visibility: check Visibility enum in the Worksheet message for values, support "==" and "in [xx]" operator.
+	//
+	// For example:
+	// creator == "users/{email}"
+	// creator != "users/{email}"
+	// starred == true
+	// starred == false
+	// visibility in ["VISIBILITY_PRIVATE", "VISIBILITY_PROJECT_READ", "VISIBILITY_PROJECT_WRITE"]
+	// visibility == "VISIBILITY_PRIVATE"
 	Filter string `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
 	// Not used.
 	// The maximum number of worksheets to return. The service may return fewer than

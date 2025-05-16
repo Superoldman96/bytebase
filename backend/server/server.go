@@ -7,14 +7,15 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"path"
 	"sync"
 	"time"
 
+	grpcprom "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	grpcruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,10 +43,10 @@ import (
 	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
 	enterprisesvc "github.com/bytebase/bytebase/backend/enterprise/service"
 	"github.com/bytebase/bytebase/backend/migrator"
-	"github.com/bytebase/bytebase/backend/resources/mongoutil"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/runner/approval"
 	"github.com/bytebase/bytebase/backend/runner/metricreport"
+	"github.com/bytebase/bytebase/backend/runner/monitor"
 	"github.com/bytebase/bytebase/backend/runner/plancheck"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/runner/taskrun"
@@ -107,7 +108,6 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	slog.Info("-----Config BEGIN-----")
 	slog.Info(fmt.Sprintf("mode=%s", profile.Mode))
 	slog.Info(fmt.Sprintf("dataDir=%s", profile.DataDir))
-	slog.Info(fmt.Sprintf("resourceDir=%s", profile.ResourceDir))
 	slog.Info(fmt.Sprintf("demo=%v", profile.Demo))
 	slog.Info(fmt.Sprintf("instanceRunUUID=%s", profile.DeployID))
 	slog.Info("-----Config END-------")
@@ -119,24 +119,6 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 		}
 	}()
 
-	var err error
-	if err = os.MkdirAll(profile.ResourceDir, os.ModePerm); err != nil {
-		return nil, errors.Wrapf(err, "failed to create directory: %q", profile.ResourceDir)
-	}
-
-	// Install mongoutil.
-	mongoBinDir, err := mongoutil.Install(profile.ResourceDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot install mongo utility binaries")
-	}
-
-	// Installs the Postgres and utility binaries and creates the 'activeProfile.pgUser' user/database
-	// to store Bytebase's own metadata.
-	pgBinDir, err := postgres.Install(profile.ResourceDir)
-	if err != nil {
-		return nil, err
-	}
-
 	var pgURL string
 	if profile.UseEmbedDB() {
 		pgDataDir := path.Join(profile.DataDir, "pgdata")
@@ -144,7 +126,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 			pgDataDir = path.Join(profile.DataDir, "pgdata-demo")
 		}
 
-		stopper, err := postgres.StartMetadataInstance(ctx, pgBinDir, pgDataDir, profile.DatastorePort, profile.Mode)
+		stopper, err := postgres.StartMetadataInstance(ctx, pgDataDir, profile.DatastorePort, profile.Mode)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +141,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	if profile.SampleDatabasePort != 0 {
 		// Only create batch sample databases in demo mode. For normal mode, user starts from the free version
 		// and batch databases are useless because batch requires enterprise license.
-		stopper := postgres.StartAllSampleInstances(ctx, pgBinDir, profile.DataDir, profile.SampleDatabasePort)
+		stopper := postgres.StartAllSampleInstances(ctx, profile.DataDir, profile.SampleDatabasePort)
 		s.stopper = append(s.stopper, stopper...)
 	}
 
@@ -196,7 +178,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	// Cache the license.
 	s.licenseService.LoadSubscription(ctx)
 
-	if err := s.getInitSetting(ctx); err != nil {
+	if err := s.initializeSetting(ctx); err != nil {
 		return nil, errors.Wrap(err, "failed to init config")
 	}
 	secret, err := s.store.GetSecret(ctx)
@@ -211,7 +193,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 		return nil, errors.Wrapf(err, "failed to create iam manager")
 	}
 	s.webhookManager = webhook.NewManager(stores, s.iamManager)
-	s.dbFactory = dbfactory.New(s.store, mongoBinDir)
+	s.dbFactory = dbfactory.New(s.store)
 
 	// Configure echo server.
 	s.echoServer = echo.New()
@@ -242,7 +224,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	)
 
 	s.metricReporter = metricreport.NewReporter(s.store, s.licenseService, s.profile)
-	s.schemaSyncer = schemasync.NewSyncer(stores, s.dbFactory, s.stateCfg)
+	s.schemaSyncer = schemasync.NewSyncer(stores, s.dbFactory, s.profile, s.stateCfg)
 	s.approvalRunner = approval.NewRunner(stores, sheetManager, s.dbFactory, s.stateCfg, s.webhookManager, s.licenseService)
 
 	s.taskSchedulerV2 = taskrun.NewSchedulerV2(stores, s.stateCfg, s.webhookManager, profile, s.licenseService)
@@ -280,12 +262,14 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	recoveryUnaryInterceptor := recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(onPanic))
 	recoveryStreamInterceptor := recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(onPanic))
 	grpc.EnableTracing = true
+	srvMetrics := grpcprom.NewServerMetrics(grpcprom.WithServerHandlingTimeHistogram())
 	s.grpcServer = grpc.NewServer(
 		// Override the maximum receiving message size to 100M for uploading large sheets.
 		grpc.MaxRecvMsgSize(100*1024*1024),
 		grpc.InitialWindowSize(100000000),
 		grpc.InitialConnWindowSize(100000000),
 		grpc.ChainUnaryInterceptor(
+			srvMetrics.UnaryServerInterceptor(),
 			debugProvider.DebugInterceptor,
 			authProvider.AuthenticationInterceptor,
 			aclProvider.ACLInterceptor,
@@ -293,6 +277,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 			recoveryUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
+			srvMetrics.StreamServerInterceptor(),
 			debugProvider.DebugStreamInterceptor,
 			authProvider.AuthenticationStreamInterceptor,
 			aclProvider.ACLStreamInterceptor,
@@ -305,27 +290,21 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	// LSP server.
 	s.lspServer = lsp.NewServer(s.store, profile)
 
-	postCreateUser := func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error {
-		// Only generate onboarding data after the first enduser signup.
-		if firstEndUser {
-			if profile.SampleDatabasePort != 0 {
-				if err := s.generateOnboardingData(ctx, user); err != nil {
-					// When running inside docker on mac, we sometimes get database does not exist error.
-					// This is due to the docker overlay storage incompatibility with mac OS file system.
-					// Onboarding error is not critical, so we just emit an error log.
-					slog.Error("failed to prepare onboarding data", log.BBError(err))
-				}
-			}
-		}
-		return nil
-	}
-	if err := configureGrpcRouters(ctx, mux, s.grpcServer, s.store, sheetManager, s.dbFactory, s.licenseService, s.profile, s.metricReporter, s.stateCfg, s.schemaSyncer, s.webhookManager, s.iamManager, postCreateUser, secret); err != nil {
+	if err := configureGrpcRouters(ctx, mux, s.grpcServer, s.store, sheetManager, s.dbFactory, s.licenseService, s.profile, s.metricReporter, s.stateCfg, s.schemaSyncer, s.webhookManager, s.iamManager, secret); err != nil {
 		return nil, err
 	}
 	directorySyncServer := directorysync.NewService(s.store, s.licenseService, s.iamManager)
 
 	// Configure echo server routes.
 	configureEchoRouters(s.echoServer, s.grpcServer, s.lspServer, directorySyncServer, mux, profile)
+
+	// Configure grpc prometheus metrics.
+	if err := prometheus.DefaultRegisterer.Register(srvMetrics); err != nil {
+		if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+			return nil, err
+		}
+	}
+	srvMetrics.InitializeMetrics(s.grpcServer)
 
 	serverStarted = true
 	return s, nil
@@ -348,6 +327,10 @@ func (s *Server) Run(ctx context.Context, port int) error {
 
 	s.runnerWG.Add(1)
 	go s.planCheckScheduler.Run(ctx, &s.runnerWG)
+
+	s.runnerWG.Add(1)
+	mmm := monitor.NewMemoryMonitor(s.profile)
+	go mmm.Run(ctx, &s.runnerWG)
 
 	address := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", address)

@@ -58,6 +58,7 @@ const useExecuteSQL = () => {
   const databaseStore = useDatabaseV1Store();
   const tabStore = useSQLEditorTabStore();
   const sqlEditorStore = useSQLEditorStore();
+  const queryHistoryStore = useSQLEditorQueryHistoryStore();
   const sqlCheckStyle = useAppFeature("bb.feature.sql-editor.sql-check-style");
 
   const notify = (
@@ -96,21 +97,23 @@ const useExecuteSQL = () => {
       return false;
     }
 
+    const emptyContext = emptySQLEditorTabQueryContext();
     tab.queryContext = {
-      ...emptySQLEditorTabQueryContext(),
-      params,
+      ...emptyContext,
       status: "EXECUTING",
+      results: tab.queryContext?.results ?? emptyContext.results,
     };
     return true;
   };
 
-  const check = async (): Promise<SQLCheckResult> => {
+  const check = async (
+    params: SQLEditorQueryParams
+  ): Promise<SQLCheckResult> => {
     const tab = tabStore.currentTab;
     if (!tab) {
       return { passed: false };
     }
 
-    const params = tab.queryContext?.params;
     const abortController = tab.queryContext?.abortController;
     if (!params) {
       return { passed: false };
@@ -222,23 +225,33 @@ const useExecuteSQL = () => {
       }
     }
 
-    const queryResultMap = new Map<string, SQLResultSetV1>();
-    for (const database of batchQueryDatabases) {
-      queryResultMap.set(database.name, {
-        error: "",
-        results: [],
-        advices: [],
-      });
-    }
-    queryContext.results = queryResultMap;
+    const beginTimestampMS = Date.now();
 
-    const fail = (database: ComposedDatabase, result: SQLResultSetV1) => {
-      queryResultMap.set(database.name, {
-        error: result.error,
-        results: [],
-        advices: result.advices,
-        status: result.status,
+    for (const database of queryContext.results.keys()) {
+      if (!batchQueryDatabases.find((db) => db.name === database)) {
+        queryContext.results.delete(database);
+      }
+    }
+
+    const unshiftQueryResult = (
+      database: string,
+      resultSet: SQLResultSetV1
+    ) => {
+      if (!queryContext.results.has(database)) {
+        queryContext.results.set(database, []);
+      }
+      if (queryContext.results.get(database)!.length >= 10) {
+        queryContext.results.get(database)!.pop();
+      }
+      queryContext.results.get(database)!.unshift({
+        params,
+        beginTimestampMS,
+        resultSet,
       });
+    };
+
+    const fail = (database: ComposedDatabase, resultSet: SQLResultSetV1) => {
+      unshiftQueryResult(database.name, resultSet);
     };
     const abort = (error: string, advices: Advice[] = []) => {
       fail(batchQueryDatabases[0], {
@@ -253,13 +266,11 @@ const useExecuteSQL = () => {
     const { abortController } = queryContext;
 
     const sqlStore = useSQLStore();
-    queryContext.beginTimestampMS = Date.now();
-
     const checkBehavior = params.skipCheck ? "SKIP" : sqlCheckStyle.value;
     let checkResult: SQLCheckResult = { passed: true };
     if (checkBehavior !== "SKIP") {
       try {
-        checkResult = await check();
+        checkResult = await check(params);
       } catch (error) {
         return abort(extractGrpcErrorMessage(error));
       }
@@ -367,17 +378,24 @@ const useExecuteSQL = () => {
             fail(database, resultSet);
           }
         } else {
-          queryResultMap.set(database.name, markRaw(resultSet));
+          unshiftQueryResult(database.name, markRaw(resultSet));
+          // After all the queries are executed, we update the tab with the latest query result map.
+          // Refresh the query history list when the query executed successfully
+          // (with or without warnings).
+          queryHistoryStore.resetPageToken({
+            project: sqlEditorStore.project,
+            database: database.name,
+          });
+          queryHistoryStore.fetchQueryHistoryList({
+            project: sqlEditorStore.project,
+            database: database.name,
+          });
         }
       } catch (error: any) {
         fail(database, error.response?.data?.message ?? String(error));
       }
     }
 
-    // After all the queries are executed, we update the tab with the latest query result map.
-    // Refresh the query history list when the query executed successfully
-    // (with or without warnings).
-    useSQLEditorQueryHistoryStore().fetchQueryHistoryList();
     cleanup();
   };
 

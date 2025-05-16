@@ -44,11 +44,10 @@ type UserService struct {
 	profile        *config.Profile
 	stateCfg       *state.State
 	iamManager     *iam.Manager
-	postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error
 }
 
 // NewUserService creates a new UserService.
-func NewUserService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) *UserService {
+func NewUserService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager) *UserService {
 	return &UserService{
 		store:          store,
 		secret:         secret,
@@ -57,7 +56,6 @@ func NewUserService(store *store.Store, secret string, licenseService enterprise
 		profile:        profile,
 		stateCfg:       stateCfg,
 		iamManager:     iamManager,
-		postCreateUser: postCreateUser,
 	}
 }
 
@@ -84,6 +82,28 @@ func (s *UserService) GetUser(ctx context.Context, request *v1pb.GetUserRequest)
 	}
 	if user == nil {
 		return nil, status.Errorf(codes.NotFound, "user %d not found", userID)
+	}
+	return convertToUser(user), nil
+}
+
+// BatchGetUsers get users in batch.
+func (s *UserService) BatchGetUsers(ctx context.Context, request *v1pb.BatchGetUsersRequest) (*v1pb.BatchGetUsersResponse, error) {
+	response := &v1pb.BatchGetUsersResponse{}
+	for _, name := range request.Names {
+		user, err := s.GetUser(ctx, &v1pb.GetUserRequest{Name: name})
+		if err != nil {
+			return nil, err
+		}
+		response.Users = append(response.Users, user)
+	}
+	return response, nil
+}
+
+// GetCurrentUser gets the current authenticated user.
+func (*UserService) GetCurrentUser(ctx context.Context, _ *emptypb.Empty) (*v1pb.User, error) {
+	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
+	if !ok || user == nil {
+		return nil, status.Errorf(codes.Unauthenticated, "authenticated user not found")
 	}
 	return convertToUser(user), nil
 }
@@ -301,7 +321,7 @@ func (s *UserService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 		}
 		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersCreate, callerUser)
 		if err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 		}
 		if !ok {
 			return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersCreate)
@@ -396,10 +416,6 @@ func (s *UserService) CreateUser(ctx context.Context, request *v1pb.CreateUserRe
 		}
 	}
 
-	if err := s.postCreateUser(ctx, user, firstEndUser); err != nil {
-		return nil, err
-	}
-
 	isFirstUser := user.ID == base.PrincipalIDForFirstUser
 	s.metricReporter.Report(ctx, &metric.Metric{
 		Name:  metricapi.PrincipalRegistrationMetricName,
@@ -475,7 +491,7 @@ func (s *UserService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 	if callerUser.ID != userID {
 		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersUpdate, callerUser)
 		if err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 		}
 		if !ok {
 			return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersUpdate)
@@ -487,9 +503,6 @@ func (s *UserService) UpdateUser(ctx context.Context, request *v1pb.UpdateUserRe
 	for _, path := range request.UpdateMask.Paths {
 		switch path {
 		case "email":
-			if user.Profile.Source != "" {
-				return nil, status.Errorf(codes.InvalidArgument, "cannot change email for external user")
-			}
 			if err := validateEmailWithDomains(ctx, s.licenseService, s.store, request.User.Email, user.Type == base.ServiceAccount, false); err != nil {
 				return nil, err
 			}
@@ -632,7 +645,7 @@ func (s *UserService) DeleteUser(ctx context.Context, request *v1pb.DeleteUserRe
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersDelete, callerUser)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 	}
 	if !ok {
 		return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersDelete)
@@ -690,14 +703,13 @@ func (s *UserService) getActiveUserCount(ctx context.Context) (int, error) {
 func (s *UserService) hasExtraWorkspaceAdmin(ctx context.Context, policy *storepb.IamPolicy, userID int) (bool, error) {
 	workspaceAdminRole := common.FormatRole(base.WorkspaceAdmin.String())
 	userMember := common.FormatUserUID(userID)
-	systemBotMember := common.FormatUserUID(base.SystemBotID)
 
 	for _, binding := range policy.GetBindings() {
 		if binding.GetRole() != workspaceAdminRole {
 			continue
 		}
 		for _, member := range binding.GetMembers() {
-			if member == userMember || member == systemBotMember {
+			if member == userMember {
 				continue
 			}
 			if member == base.AllUsers {
@@ -730,7 +742,7 @@ func (s *UserService) UndeleteUser(ctx context.Context, request *v1pb.UndeleteUs
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionUsersUndelete, callerUser)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 	}
 	if !ok {
 		return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionUsersUndelete)

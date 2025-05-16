@@ -15,13 +15,7 @@
         <OverlayStackManager>
           <NotificationContext>
             <AuthContext>
-              <router-view v-if="actuatorStore.initialized" />
-              <div
-                v-else
-                class="fixed inset-0 bg-white flex flex-col items-center justify-center"
-              >
-                <NSpin />
-              </div>
+              <router-view />
             </AuthContext>
           </NotificationContext>
         </OverlayStackManager>
@@ -33,18 +27,16 @@
 <script lang="ts" setup>
 import { cloneDeep, isEqual } from "lodash-es";
 import {
-  NSpin,
   NConfigProvider,
   NDialogProvider,
   NNotificationProvider,
 } from "naive-ui";
 import { ServerError } from "nice-grpc-common";
 import { ClientError, Status } from "nice-grpc-web";
-import { onErrorCaptured, onMounted, watchEffect } from "vue";
+import { onErrorCaptured, watchEffect } from "vue";
 import { watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Watermark from "@/components/misc/Watermark.vue";
-import { AUTH_PASSWORD_RESET_MODULE } from "@/router/auth";
 import { themeOverrides, dateLang, generalLang } from "../naive-ui.config";
 import { provideAppRootContext } from "./AppRootContext";
 import AuthContext from "./AuthContext.vue";
@@ -52,13 +44,7 @@ import NotificationContext from "./NotificationContext.vue";
 import OverlayStackManager from "./components/misc/OverlayStackManager.vue";
 import { overrideAppProfile } from "./customAppProfile";
 import { t } from "./plugins/i18n";
-import {
-  useActuatorV1Store,
-  useAuthStore,
-  useNotificationStore,
-  useSubscriptionV1Store,
-  useWorkspaceV1Store,
-} from "./store";
+import { useNotificationStore } from "./store";
 import { isDev } from "./utils";
 
 // Show at most 3 notifications to prevent excessive notification when shit hits the fan.
@@ -67,60 +53,12 @@ const MAX_NOTIFICATION_DISPLAY_COUNT = 3;
 const route = useRoute();
 const router = useRouter();
 const { key } = provideAppRootContext();
-const authStore = useAuthStore();
 const notificationStore = useNotificationStore();
-const actuatorStore = useActuatorV1Store();
-const workspaceStore = useWorkspaceV1Store();
-
-onMounted(async () => {
-  const initActuator = async () => {
-    actuatorStore.fetchServerInfo();
-  };
-  const initSubscription = async () => {
-    await useSubscriptionV1Store().fetchSubscription();
-  };
-  const initFeatureMatrix = async () => {
-    await useSubscriptionV1Store().fetchFeatureMatrix();
-  };
-  const restoreUser = async () => {
-    await authStore.restoreUser();
-  };
-  const initBasicModules = async () => {
-    await Promise.all([
-      initActuator(),
-      initFeatureMatrix(),
-      initSubscription(),
-      // We need to restore the basic info in order to perform route authentication.
-      restoreUser(),
-    ]);
-  };
-
-  await initBasicModules();
-  actuatorStore.initialized = true;
-
-  if (authStore.requireResetPassword) {
-    router.replace({
-      name: AUTH_PASSWORD_RESET_MODULE,
-    });
-  }
-});
 
 watchEffect(async () => {
-  // Override app profile
+  // Override app profile.
   overrideAppProfile();
 });
-
-watch(
-  () => authStore.currentUserId,
-  async (currentUserId) => {
-    if (currentUserId) {
-      await workspaceStore.fetchIamPolicy();
-    }
-  },
-  {
-    immediate: true,
-  }
-);
 
 onErrorCaptured((error: any /* , _, info */) => {
   // Handle grpc request error.

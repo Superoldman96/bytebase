@@ -86,6 +86,8 @@
 - [v1/database_service.proto](#v1_database_service-proto)
     - [BatchGetDatabasesRequest](#bytebase-v1-BatchGetDatabasesRequest)
     - [BatchGetDatabasesResponse](#bytebase-v1-BatchGetDatabasesResponse)
+    - [BatchSyncDatabasesRequest](#bytebase-v1-BatchSyncDatabasesRequest)
+    - [BatchSyncDatabasesResponse](#bytebase-v1-BatchSyncDatabasesResponse)
     - [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest)
     - [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse)
     - [ChangedResourceDatabase](#bytebase-v1-ChangedResourceDatabase)
@@ -196,7 +198,6 @@
     - [UpdateIssueCommentRequest](#bytebase-v1-UpdateIssueCommentRequest)
     - [UpdateIssueRequest](#bytebase-v1-UpdateIssueRequest)
   
-    - [ApprovalNode.GroupValue](#bytebase-v1-ApprovalNode-GroupValue)
     - [ApprovalNode.Type](#bytebase-v1-ApprovalNode-Type)
     - [ApprovalStep.Type](#bytebase-v1-ApprovalStep-Type)
     - [Issue.Approver.Status](#bytebase-v1-Issue-Approver-Status)
@@ -278,6 +279,8 @@
     - [SettingService](#bytebase-v1-SettingService)
   
 - [v1/user_service.proto](#v1_user_service-proto)
+    - [BatchGetUsersRequest](#bytebase-v1-BatchGetUsersRequest)
+    - [BatchGetUsersResponse](#bytebase-v1-BatchGetUsersResponse)
     - [CreateUserRequest](#bytebase-v1-CreateUserRequest)
     - [DeleteUserRequest](#bytebase-v1-DeleteUserRequest)
     - [GetUserRequest](#bytebase-v1-GetUserRequest)
@@ -299,19 +302,10 @@
     - [GetActuatorInfoRequest](#bytebase-v1-GetActuatorInfoRequest)
     - [GetResourcePackageRequest](#bytebase-v1-GetResourcePackageRequest)
     - [ResourcePackage](#bytebase-v1-ResourcePackage)
+    - [SetupSampleRequest](#bytebase-v1-SetupSampleRequest)
     - [UpdateActuatorInfoRequest](#bytebase-v1-UpdateActuatorInfoRequest)
   
     - [ActuatorService](#bytebase-v1-ActuatorService)
-  
-- [v1/anomaly_service.proto](#v1_anomaly_service-proto)
-    - [Anomaly](#bytebase-v1-Anomaly)
-    - [SearchAnomaliesRequest](#bytebase-v1-SearchAnomaliesRequest)
-    - [SearchAnomaliesResponse](#bytebase-v1-SearchAnomaliesResponse)
-  
-    - [Anomaly.AnomalySeverity](#bytebase-v1-Anomaly-AnomalySeverity)
-    - [Anomaly.AnomalyType](#bytebase-v1-Anomaly-AnomalyType)
-  
-    - [AnomalyService](#bytebase-v1-AnomalyService)
   
 - [v1/iam_policy.proto](#v1_iam_policy-proto)
     - [Binding](#bytebase-v1-Binding)
@@ -380,20 +374,6 @@
   
     - [DatabaseGroupService](#bytebase-v1-DatabaseGroupService)
   
-- [v1/environment_service.proto](#v1_environment_service-proto)
-    - [CreateEnvironmentRequest](#bytebase-v1-CreateEnvironmentRequest)
-    - [DeleteEnvironmentRequest](#bytebase-v1-DeleteEnvironmentRequest)
-    - [Environment](#bytebase-v1-Environment)
-    - [GetEnvironmentRequest](#bytebase-v1-GetEnvironmentRequest)
-    - [ListEnvironmentsRequest](#bytebase-v1-ListEnvironmentsRequest)
-    - [ListEnvironmentsResponse](#bytebase-v1-ListEnvironmentsResponse)
-    - [UndeleteEnvironmentRequest](#bytebase-v1-UndeleteEnvironmentRequest)
-    - [UpdateEnvironmentRequest](#bytebase-v1-UpdateEnvironmentRequest)
-  
-    - [EnvironmentTier](#bytebase-v1-EnvironmentTier)
-  
-    - [EnvironmentService](#bytebase-v1-EnvironmentService)
-  
 - [v1/group_service.proto](#v1_group_service-proto)
     - [CreateGroupRequest](#bytebase-v1-CreateGroupRequest)
     - [DeleteGroupRequest](#bytebase-v1-DeleteGroupRequest)
@@ -423,7 +403,6 @@
     - [OIDCIdentityProviderConfig](#bytebase-v1-OIDCIdentityProviderConfig)
     - [TestIdentityProviderRequest](#bytebase-v1-TestIdentityProviderRequest)
     - [TestIdentityProviderResponse](#bytebase-v1-TestIdentityProviderResponse)
-    - [UndeleteIdentityProviderRequest](#bytebase-v1-UndeleteIdentityProviderRequest)
     - [UpdateIdentityProviderRequest](#bytebase-v1-UpdateIdentityProviderRequest)
   
     - [IdentityProviderType](#bytebase-v1-IdentityProviderType)
@@ -516,6 +495,7 @@
     - [ListProjectsRequest](#bytebase-v1-ListProjectsRequest)
     - [ListProjectsResponse](#bytebase-v1-ListProjectsResponse)
     - [Project](#bytebase-v1-Project)
+    - [Project.ExecutionRetryPolicy](#bytebase-v1-Project-ExecutionRetryPolicy)
     - [RemoveWebhookRequest](#bytebase-v1-RemoveWebhookRequest)
     - [SearchProjectsRequest](#bytebase-v1-SearchProjectsRequest)
     - [SearchProjectsResponse](#bytebase-v1-SearchProjectsResponse)
@@ -556,6 +536,7 @@
     - [QueryRequest](#bytebase-v1-QueryRequest)
     - [QueryResponse](#bytebase-v1-QueryResponse)
     - [QueryResult](#bytebase-v1-QueryResult)
+    - [QueryResult.Message](#bytebase-v1-QueryResult-Message)
     - [QueryResult.PostgresError](#bytebase-v1-QueryResult-PostgresError)
     - [QueryRow](#bytebase-v1-QueryRow)
     - [RowValue](#bytebase-v1-RowValue)
@@ -568,6 +549,7 @@
     - [CheckRequest.ChangeType](#bytebase-v1-CheckRequest-ChangeType)
     - [QueryHistory.Type](#bytebase-v1-QueryHistory-Type)
     - [QueryOption.RedisRunCommandsOn](#bytebase-v1-QueryOption-RedisRunCommandsOn)
+    - [QueryResult.Message.Level](#bytebase-v1-QueryResult-Message-Level)
   
     - [SQLService](#bytebase-v1-SQLService)
   
@@ -606,6 +588,7 @@
 - [v1/risk_service.proto](#v1_risk_service-proto)
     - [CreateRiskRequest](#bytebase-v1-CreateRiskRequest)
     - [DeleteRiskRequest](#bytebase-v1-DeleteRiskRequest)
+    - [GetRiskRequest](#bytebase-v1-GetRiskRequest)
     - [ListRisksRequest](#bytebase-v1-ListRisksRequest)
     - [ListRisksResponse](#bytebase-v1-ListRisksResponse)
     - [Risk](#bytebase-v1-Risk)
@@ -668,6 +651,7 @@
     - [TaskRunLogEntry.CommandExecute.CommandResponse](#bytebase-v1-TaskRunLogEntry-CommandExecute-CommandResponse)
     - [TaskRunLogEntry.DatabaseSync](#bytebase-v1-TaskRunLogEntry-DatabaseSync)
     - [TaskRunLogEntry.PriorBackup](#bytebase-v1-TaskRunLogEntry-PriorBackup)
+    - [TaskRunLogEntry.RetryInfo](#bytebase-v1-TaskRunLogEntry-RetryInfo)
     - [TaskRunLogEntry.SchemaDump](#bytebase-v1-TaskRunLogEntry-SchemaDump)
     - [TaskRunLogEntry.TaskRunStatusUpdate](#bytebase-v1-TaskRunLogEntry-TaskRunStatusUpdate)
     - [TaskRunLogEntry.TransactionControl](#bytebase-v1-TaskRunLogEntry-TransactionControl)
@@ -1580,9 +1564,11 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 
 When paginating, all other parameters provided to `ListInstances` must match the call that provided the page token. |
 | show_deleted | [bool](#bool) |  | Show deleted instances if specified. |
-| filter | [string](#string) |  | Filter the project. Supported filters: - name - resource_id - environment - state - engine - host - port - project
+| filter | [string](#string) |  | Filter the instance. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
 
-For example: name == &#34;sample instance&#34; name.matches(&#34;sample&#34;) resource_id = &#34;sample-instance&#34; resource_id.matches(&#34;sample&#34;) state == &#34;DELETED&#34; environment == &#34;environments/test&#34; engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) host == &#34;127.0.0.1&#34; port == &#34;54321&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;sample&#34;) &amp;&amp; environment == &#34;environments/test&#34; host == &#34;127.0.0.1&#34; &amp;&amp; port == &#34;54321&#34; |
+Supported filters: - name: the instance name, support &#34;==&#34; and &#34;.matches()&#34; operator. - resource_id: the instance id, support &#34;==&#34; and &#34;.matches()&#34; operator. - environment: the environment full name in &#34;environments/{id}&#34; format, support &#34;==&#34; operator. - state: the instance state, check State enum for values, support &#34;==&#34; operator. - engine: the instance engine, check Engine enum for values. Support &#34;==&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operator. - host: the instance host, support &#34;==&#34; and &#34;.matches()&#34; operator. - port: the instance port, support &#34;==&#34; and &#34;.matches()&#34; operator. - project: the project full name in &#34;projects/{id}&#34; format, support &#34;==&#34; operator.
+
+For example: name == &#34;sample instance&#34; name.matches(&#34;sample&#34;) resource_id = &#34;sample-instance&#34; resource_id.matches(&#34;sample&#34;) state == &#34;DELETED&#34; environment == &#34;environments/test&#34; engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) host == &#34;127.0.0.1&#34; host.matches(&#34;127.0&#34;) port == &#34;54321&#34; port.matches(&#34;543&#34;) project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;sample&#34;) &amp;&amp; environment == &#34;environments/test&#34; host == &#34;127.0.0.1&#34; &amp;&amp; port == &#34;54321&#34; |
 
 
 
@@ -1862,6 +1848,32 @@ The instance&#39;s `name` field is used to identify the instance to update. Form
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | databases | [Database](#bytebase-v1-Database) | repeated | The databases from the specified request. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchSyncDatabasesRequest"></a>
+
+### BatchSyncDatabasesRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| parent | [string](#string) |  | The parent resource shared by all databases being updated. Format: instances/{instance} If the operation spans parents, a dash (-) may be accepted as a wildcard. |
+| names | [string](#string) | repeated | The list of database names to sync. |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchSyncDatabasesResponse"></a>
+
+### BatchSyncDatabasesResponse
+
 
 
 
@@ -2444,7 +2456,9 @@ FunctionMetadata is the metadata for functions.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the database to retrieve metadata. Format: instances/{instance}/databases/{database}/metadata |
-| filter | [string](#string) |  | Filter is used to filter databases returned in the list. Supported filter: - schema - table
+| filter | [string](#string) |  | Filter is used to filter databases returned in the list. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filter: - schema: the schema name, support &#34;==&#34; operator. - table: the table name, support &#34;==&#34; operator.
 
 For example: schema == &#34;schema-a&#34; table == &#34;table-a&#34; schema == &#34;schema-a&#34; &amp;&amp; table == &#34;table-a&#34; The filter used for a specific schema object such as &#34;schemas/schema-a/tables/table-a&#34;. The column masking level will only be returned when a table filter is used. |
 
@@ -2617,9 +2631,11 @@ Combine multiple functions with &#34;&amp;&amp;&#34; and &#34;||&#34;, we MUST u
 | page_token | [string](#string) |  | A page token, received from a previous `ListDatabases` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListDatabases` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter databases returned in the list. Supported filter: - environment - name - project - instance - engine - label - exclude_unassigned: Not show unassigned databases if specified
+| filter | [string](#string) |  | Filter is used to filter databases returned in the list. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
 
-For example: environment == &#34;environments/{environment resource id}&#34; project == &#34;projects/{project resource id}&#34; instance == &#34;instances/{instance resource id}&#34; name.matches(&#34;database name&#34;) engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) label == &#34;region:asia&#34; label == &#34;tenant:asia,europe&#34; label == &#34;region:asia&#34; &amp;&amp; label == &#34;tenant:bytebase&#34; exclude_unassigned == true You can combine filter conditions like: environment == &#34;environments/prod&#34; &amp;&amp; name.matches(&#34;employee&#34;) |
+Supported filter: - environment: the environment full name in &#34;environments/{id}&#34; format, support &#34;==&#34; operator. - name: the database name, support &#34;.matches()&#34; operator. - project: the project full name in &#34;projects/{id}&#34; format, support &#34;==&#34; operator. - instance: the instance full name in &#34;instances/{id}&#34; format, support &#34;==&#34; operator. - engine: the database engine, check Engine enum for values. Support &#34;==&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operator. - label: the database label in &#34;{key}:{value1},{value2}&#34; format. Support &#34;==&#34; operator. - exclude_unassigned: should be &#34;true&#34; or &#34;false&#34;, will not show unassigned databases if it&#39;s true, support &#34;==&#34; operator. - drifted: should be &#34;true&#34; or &#34;false&#34;, show drifted databases if it&#39;s true, support &#34;==&#34; operator.
+
+For example: environment == &#34;environments/{environment resource id}&#34; project == &#34;projects/{project resource id}&#34; instance == &#34;instances/{instance resource id}&#34; name.matches(&#34;database name&#34;) engine == &#34;MYSQL&#34; engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;] !(engine in [&#34;MYSQL&#34;, &#34;POSTGRES&#34;]) label == &#34;region:asia&#34; label == &#34;tenant:asia,europe&#34; label == &#34;region:asia&#34; &amp;&amp; label == &#34;tenant:bytebase&#34; exclude_unassigned == true drifted == true You can combine filter conditions like: environment == &#34;environments/prod&#34; &amp;&amp; name.matches(&#34;employee&#34;) |
 | show_deleted | [bool](#bool) |  | Show deleted database if specified. |
 
 
@@ -2951,6 +2967,8 @@ TableMetadata is the metadata for tables.
 | sorting_keys | [string](#string) | repeated | The sorting_keys is a tuple of column names or arbitrary expressions. ClickHouse specific field. Reference: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#order_by |
 | triggers | [TriggerMetadata](#bytebase-v1-TriggerMetadata) | repeated |  |
 | skip_dump | [bool](#bool) |  |  |
+| sharding_info | [string](#string) |  | https://docs.pingcap.com/tidb/stable/information-schema-tables/ |
+| primary_key_type | [string](#string) |  | https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes CLUSTERED or NONCLUSTERED. |
 
 
 
@@ -3252,6 +3270,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | UpdateDatabase | [UpdateDatabaseRequest](#bytebase-v1-UpdateDatabaseRequest) | [Database](#bytebase-v1-Database) |  |
 | BatchUpdateDatabases | [BatchUpdateDatabasesRequest](#bytebase-v1-BatchUpdateDatabasesRequest) | [BatchUpdateDatabasesResponse](#bytebase-v1-BatchUpdateDatabasesResponse) |  |
 | SyncDatabase | [SyncDatabaseRequest](#bytebase-v1-SyncDatabaseRequest) | [SyncDatabaseResponse](#bytebase-v1-SyncDatabaseResponse) |  |
+| BatchSyncDatabases | [BatchSyncDatabasesRequest](#bytebase-v1-BatchSyncDatabasesRequest) | [BatchSyncDatabasesResponse](#bytebase-v1-BatchSyncDatabasesResponse) |  |
 | GetDatabaseMetadata | [GetDatabaseMetadataRequest](#bytebase-v1-GetDatabaseMetadataRequest) | [DatabaseMetadata](#bytebase-v1-DatabaseMetadata) |  |
 | GetDatabaseSchema | [GetDatabaseSchemaRequest](#bytebase-v1-GetDatabaseSchemaRequest) | [DatabaseSchema](#bytebase-v1-DatabaseSchema) |  |
 | DiffSchema | [DiffSchemaRequest](#bytebase-v1-DiffSchemaRequest) | [DiffSchemaResponse](#bytebase-v1-DiffSchemaResponse) |  |
@@ -3301,8 +3320,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | type | [ApprovalNode.Type](#bytebase-v1-ApprovalNode-Type) |  |  |
-| group_value | [ApprovalNode.GroupValue](#bytebase-v1-ApprovalNode-GroupValue) |  |  |
-| role | [string](#string) |  | Format: roles/{role} |
+| role | [string](#string) |  |  |
 
 
 
@@ -3445,7 +3463,7 @@ LIST, HASH (https://www.postgresql.org/docs/current/ddl-partitioning.html)
 | ----- | ---- | ----- | ----------- |
 | role | [string](#string) |  | The requested role. Format: roles/EXPORTER. |
 | user | [string](#string) |  | The user to be granted. Format: users/{email}. |
-| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition for the role. Same as the condtion in IAM Binding message. |
 | expiration | [google.protobuf.Duration](#google-protobuf-Duration) |  |  |
 
 
@@ -3699,7 +3717,11 @@ When paginating, all other parameters provided to `ListIssueComments` must match
 | page_token | [string](#string) |  | A page token, received from a previous `ListIssues` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListIssues` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter issues returned in the list. |
+| filter | [string](#string) |  | Filter is used to filter issues returned in the list. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filters: - creator: issue creator full name in &#34;users/{email or id}&#34; format, support &#34;==&#34; operator. - subscriber: issue subscriber full name in &#34;users/{email or id}&#34; format, support &#34;==&#34; operator. - status: the issue status, support &#34;==&#34; and &#34;in&#34; operator, check the IssueStatus enum for the values. - create_time: issue create time in &#34;2006-01-02T15:04:05Z07:00&#34; format, support &#34;&gt;=&#34; or &#34;&lt;=&#34; operator. - type: the issue type, support &#34;==&#34; and &#34;in&#34; operator, check the Type enum in the Issue message for the values. - task_type: support &#34;==&#34; operator, the value can be &#34;DDL&#34;, &#34;DML&#34; or &#34;DATA_EXPORT&#34; - instance: the instance full name in the &#34;instances/{id}&#34; format, support &#34;==&#34; operator. - database: the database full name in the &#34;instances/{id}/databases/{name}&#34; format, support &#34;==&#34; operator. - labels: the issue labels, support &#34;==&#34; and &#34;in&#34; operator. - has_pipeline: the issue has pipeline or not, support &#34;==&#34; operator, the value should be &#34;true&#34; or &#34;false&#34;.
+
+For example: creator == &#34;users/ed@bytebase.com&#34; &amp;&amp; status in [&#34;OPEN&#34;, &#34;DONE&#34;] status == &#34;CANCELED&#34; &amp;&amp; type == &#34;DATABASE_CHANGE&#34; instance == &#34;instances/sample&#34; &amp;&amp; labels in [&#34;label1&#34;, &#34;label2&#34;] has_pipeline == true &amp;&amp; create_time &gt;= &#34;2025-01-02T15:04:05Z07:00&#34; |
 | query | [string](#string) |  | Query is the query statement. |
 
 
@@ -3768,7 +3790,7 @@ When paginating, all other parameters provided to `ListIssues` must match the ca
 | page_token | [string](#string) |  | A page token, received from a previous `SearchIssues` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `SearchIssues` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter issues returned in the list. |
+| filter | [string](#string) |  | Filter is used to filter issues returned in the list. Check the filter field in the ListIssuesRequest message. |
 | query | [string](#string) |  | Query is the query statement. |
 
 
@@ -3827,25 +3849,6 @@ The issue&#39;s `name` field is used to identify the issue to update. Format: pr
 
 
  
-
-
-<a name="bytebase-v1-ApprovalNode-GroupValue"></a>
-
-### ApprovalNode.GroupValue
-The predefined user groups are:
-- WORKSPACE_OWNER
-- WORKSPACE_DBA
-- PROJECT_OWNER
-- PROJECT_MEMBER
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| GROUP_VALUE_UNSPECIFILED | 0 |  |
-| WORKSPACE_OWNER | 1 |  |
-| WORKSPACE_DBA | 2 |  |
-| PROJECT_OWNER | 3 |  |
-| PROJECT_MEMBER | 4 |  |
-
 
 
 <a name="bytebase-v1-ApprovalNode-Type"></a>
@@ -4505,7 +4508,7 @@ ANY means approving any node will proceed.
 <a name="bytebase-v1-EnvironmentSetting"></a>
 
 ### EnvironmentSetting
-TODO(p0ny): implement.
+
 
 
 | Field | Type | Label | Description |
@@ -4525,8 +4528,9 @@ TODO(p0ny): implement.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| title | [string](#string) |  | The display name of the environment. |
+| name | [string](#string) |  | The resource name of the environment. Format: environments/{environment}. Output only. |
 | id | [string](#string) |  | The resource id of the environment. This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
+| title | [string](#string) |  | The display name of the environment. |
 | tags | [EnvironmentSetting.Environment.TagsEntry](#bytebase-v1-EnvironmentSetting-Environment-TagsEntry) | repeated |  |
 | color | [string](#string) |  |  |
 
@@ -4885,7 +4889,11 @@ The data in setting value.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | template | [ApprovalTemplate](#bytebase-v1-ApprovalTemplate) |  |  |
-| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with the rule. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Support variables: source: the risk source, check the Source enum in the Risk message for the values, support &#34;==&#34; operator. level: the risk level, support 100 (low), 200 (moderate) and 300 (high), support &#34;==&#34; operator.
+
+For examples: (source == &#34;DML&#34; &amp;&amp; level == 200) || (source == &#34;DDL&#34; &amp;&amp; level == 300) |
 
 
 
@@ -5049,6 +5057,36 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 
 
+<a name="bytebase-v1-BatchGetUsersRequest"></a>
+
+### BatchGetUsersRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| names | [string](#string) | repeated | The user names to retrieve. Format: users/{user uid or user email} |
+
+
+
+
+
+
+<a name="bytebase-v1-BatchGetUsersResponse"></a>
+
+### BatchGetUsersResponse
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| users | [User](#bytebase-v1-User) | repeated | The users from the specified request. |
+
+
+
+
+
+
 <a name="bytebase-v1-CreateUserRequest"></a>
 
 ### CreateUserRequest
@@ -5107,7 +5145,9 @@ We support three types of SMTP encryption: NONE, STARTTLS, and SSL/TLS.
 
 When paginating, all other parameters provided to `ListUsers` must match the call that provided the page token. |
 | show_deleted | [bool](#bool) |  | Show deleted users if specified. |
-| filter | [string](#string) |  | Filter is used to filter users returned in the list. Supported filter: - name - email - user_type - state - project
+| filter | [string](#string) |  | Filter is used to filter users returned in the list. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filter: - name: the user name, support &#34;==&#34; and &#34;.matches()&#34; operator. - email: the user email, support &#34;==&#34; and &#34;.matches()&#34; operator. - user_type: the type, check UserType enum for values, support &#34;==&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operator. - state: check State enum for values, support &#34;==&#34; operator. - project: the project full name in &#34;projects/{id}&#34; format, support &#34;==&#34; operator.
 
 For example: name == &#34;ed&#34; name.matches(&#34;ed&#34;) email == &#34;ed@bytebase.com&#34; email.matches(&#34;ed&#34;) user_type == &#34;SERVICE_ACCOUNT&#34; user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;] !(user_type in [&#34;SERVICE_ACCOUNT&#34;, &#34;USER&#34;]) state == &#34;DELETED&#34; project == &#34;projects/sample-project&#34; You can combine filter conditions like: name.matches(&#34;ed&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; (name == &#34;ed&#34; || email == &#34;ed@bytebase.com&#34;) &amp;&amp; project == &#34;projects/sample-project&#34; |
 
@@ -5239,6 +5279,8 @@ The user&#39;s `name` field is used to identify the user to update. Format: user
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | GetUser | [GetUserRequest](#bytebase-v1-GetUserRequest) | [User](#bytebase-v1-User) | Get the user. Any authenticated user can get the user. |
+| BatchGetUsers | [BatchGetUsersRequest](#bytebase-v1-BatchGetUsersRequest) | [BatchGetUsersResponse](#bytebase-v1-BatchGetUsersResponse) | Get the users in batch. Any authenticated user can batch get users. |
+| GetCurrentUser | [.google.protobuf.Empty](#google-protobuf-Empty) | [User](#bytebase-v1-User) | Get the current authenticated user. |
 | ListUsers | [ListUsersRequest](#bytebase-v1-ListUsersRequest) | [ListUsersResponse](#bytebase-v1-ListUsersResponse) | List all users. Any authenticated user can list users. |
 | CreateUser | [CreateUserRequest](#bytebase-v1-CreateUserRequest) | [User](#bytebase-v1-User) | Create a user. When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user. Otherwise, any unauthenticated user can create a user. |
 | UpdateUser | [UpdateUserRequest](#bytebase-v1-UpdateUserRequest) | [User](#bytebase-v1-User) | Only the user itself and the user with bb.users.update permission on the workspace can update the user. |
@@ -5286,6 +5328,7 @@ Actuator concept is similar to the Spring Boot Actuator.
 | user_stats | [ActuatorInfo.StatUser](#bytebase-v1-ActuatorInfo-StatUser) | repeated |  |
 | activated_instance_count | [int32](#int32) |  |  |
 | total_instance_count | [int32](#int32) |  |  |
+| enable_sample | [bool](#bool) |  |  |
 
 
 
@@ -5354,6 +5397,16 @@ The theme resources.
 
 
 
+<a name="bytebase-v1-SetupSampleRequest"></a>
+
+### SetupSampleRequest
+
+
+
+
+
+
+
 <a name="bytebase-v1-UpdateActuatorInfoRequest"></a>
 
 ### UpdateActuatorInfoRequest
@@ -5385,117 +5438,9 @@ The theme resources.
 | ----------- | ------------ | ------------- | ------------|
 | GetActuatorInfo | [GetActuatorInfoRequest](#bytebase-v1-GetActuatorInfoRequest) | [ActuatorInfo](#bytebase-v1-ActuatorInfo) |  |
 | UpdateActuatorInfo | [UpdateActuatorInfoRequest](#bytebase-v1-UpdateActuatorInfoRequest) | [ActuatorInfo](#bytebase-v1-ActuatorInfo) |  |
+| SetupSample | [SetupSampleRequest](#bytebase-v1-SetupSampleRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 | DeleteCache | [DeleteCacheRequest](#bytebase-v1-DeleteCacheRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 | GetResourcePackage | [GetResourcePackageRequest](#bytebase-v1-GetResourcePackageRequest) | [ResourcePackage](#bytebase-v1-ResourcePackage) |  |
-
- 
-
-
-
-<a name="v1_anomaly_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/anomaly_service.proto
-
-
-
-<a name="bytebase-v1-Anomaly"></a>
-
-### Anomaly
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| resource | [string](#string) |  | The resource that is the target of the operation. Format: - Database: instances/{instance}/databases/{database} |
-| type | [Anomaly.AnomalyType](#bytebase-v1-Anomaly-AnomalyType) |  | type is the type of the anomaly. |
-| severity | [Anomaly.AnomalySeverity](#bytebase-v1-Anomaly-AnomalySeverity) |  | severity is the severity of the anomaly. |
-| create_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchAnomaliesRequest"></a>
-
-### SearchAnomaliesRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| parent | [string](#string) |  | The parent resource whose anomalies are to be listed. Format: projects/{project} |
-| filter | [string](#string) |  | filter is the filter to apply on the search anomaly request, follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax. Only support filter by resource and type for now. For example: Search the anomalies of a specific resource: &#39;resource=&#34;instances/{instance}/databases/{database}&#34;.&#39; Search the specified types of anomalies: &#39;type=&#34;MIGRATION_SCHEMA&#34;.&#39; |
-| page_size | [int32](#int32) |  | Not used. The maximum number of anomalies to return. The service may return fewer than this value. If unspecified, at most 10 anomalies will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `SearchAnomalies` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `SearchAnomalies` must match the call that provided the page token. |
-
-
-
-
-
-
-<a name="bytebase-v1-SearchAnomaliesResponse"></a>
-
-### SearchAnomaliesResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| anomalies | [Anomaly](#bytebase-v1-Anomaly) | repeated | anomalies is the list of anomalies. |
-| next_page_token | [string](#string) |  | Not used. A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
- 
-
-
-<a name="bytebase-v1-Anomaly-AnomalySeverity"></a>
-
-### Anomaly.AnomalySeverity
-AnomalySeverity is the severity of the anomaly.
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ANOMALY_SEVERITY_UNSPECIFIED | 0 | Unspecified anomaly severity. |
-| MEDIUM | 1 | MEDIUM is the info level anomaly severity. |
-| HIGH | 2 | HIGH is the warning level anomaly severity. |
-| CRITICAL | 3 | CRITICAL is the critical level anomaly severity. |
-
-
-
-<a name="bytebase-v1-Anomaly-AnomalyType"></a>
-
-### Anomaly.AnomalyType
-AnomalyType is the type of the anomaly.
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ANOMALY_TYPE_UNSPECIFIED | 0 | Unspecified anomaly type. |
-| DATABASE_CONNECTION | 5 | Database level anomaly.
-
-DATABASE_CONNECTION is the anomaly type for database connection, e.g. the database had been deleted. |
-| DATABASE_SCHEMA_DRIFT | 6 | DATABASE_SCHEMA_DRIFT is the anomaly type for database schema drift, e.g. the database schema had been changed without bytebase migration. |
-
-
- 
-
- 
-
-
-<a name="bytebase-v1-AnomalyService"></a>
-
-### AnomalyService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| SearchAnomalies | [SearchAnomaliesRequest](#bytebase-v1-SearchAnomaliesRequest) | [SearchAnomaliesResponse](#bytebase-v1-SearchAnomaliesResponse) |  |
 
  
 
@@ -5518,7 +5463,11 @@ DATABASE_CONNECTION is the anomaly type for database connection, e.g. the databa
 | ----- | ---- | ----- | ----------- |
 | role | [string](#string) |  | The role that is assigned to the members. Format: roles/{role} |
 | members | [string](#string) | repeated | Specifies the principals requesting access for a Bytebase resource. For users, the member should be: user:{email} For groups, the member should be: group:{email} |
-| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this binding. If the condition evaluates to true, then this binding applies to the current request. If the condition evaluates to false, then this binding does not apply to the current request. However, a different role binding might grant the same role to one or more of the principals in this binding. |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this binding, only used in the project IAM policy. If the condition evaluates to true, then this binding applies to the current request. If the condition evaluates to false, then this binding does not apply to the current request. However, a different role binding might grant the same role to one or more of the principals in this binding. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Support variables: resource.database: the database full name in &#34;instances/{instance}/databases/{database}&#34; format, used by the &#34;roles/sqlEditorUser&#34; and &#34;roles/projectExporter&#34; role, support &#34;==&#34; operator. resource.schema: the schema name, used by the &#34;roles/sqlEditorUser&#34; and &#34;roles/projectExporter&#34; role, support &#34;==&#34; operator. resource.table: the table name, used by the &#34;roles/sqlEditorUser&#34; and &#34;roles/projectExporter&#34; role, support &#34;==&#34; operator. request.time: the expiration. Only support &#34;&lt;&#34; operation in `request.time &lt; timestamp(&#34;{ISO datetime string format}&#34;)`. request.row_limit: the maximum export rows, used by the &#34;roles/projectExporter&#34; role. Only support &#34;&lt;=&#34; operation.
+
+For example: resource.database == &#34;instances/local-pg/databases/postgres&#34; &amp;&amp; resource.schema in [&#34;public&#34;,&#34;another_schema&#34;] resource.database == &#34;instances/local-pg/databases/bytebase&#34; &amp;&amp; resource.schema == &#34;public&#34; &amp;&amp; resource.table in [&#34;audit_log&#34;] request.time &lt; timestamp(&#34;2025-04-26T11:24:48.655Z&#34;) &amp;&amp; request.row_limit &lt;= 1000 |
 | parsed_expr | [google.api.expr.v1alpha1.Expr](#google-api-expr-v1alpha1-Expr) |  | The parsed expression of the condition. |
 
 
@@ -5686,7 +5635,7 @@ The type of action performed on a Binding in a policy.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | parent | [string](#string) |  |  |
-| filter | [string](#string) |  | The filter of the log. It should be a valid CEL expression. For example: - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39; &amp;&amp; user == &#39;users/bb@bytebase.com&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39; &amp;&amp; create_time &lt;= &#39;2021-01-01T00:00:00Z&#39; &amp;&amp; create_time &gt;= &#39;2020-01-01T00:00:00Z&#39;&#34; |
+| filter | [string](#string) |  | The filter of the log. It should be a valid CEL expression. Check the filter field in the SearchAuditLogsRequest message. |
 | order_by | [string](#string) |  | The order by of the log. Only support order by create_time. For example: - order_by = &#34;create_time asc&#34; - order_by = &#34;create_time desc&#34; |
 | format | [ExportFormat](#bytebase-v1-ExportFormat) |  | The export format. |
 | page_size | [int32](#int32) |  | The maximum number of logs to return. The service may return fewer than this value. If unspecified, at most 10 log entries will be returned. The maximum value is 5000; values above 5000 will be coerced to 5000. |
@@ -5738,7 +5687,9 @@ Metadata about the request.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | parent | [string](#string) |  |  |
-| filter | [string](#string) |  | The filter of the log. It should be a valid CEL expression. Supported filter: - method - severity - user - create_time
+| filter | [string](#string) |  | The filter of the log. It should be a valid CEL expression. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filter: - method: the API name, can be found in the docs, should start with &#34;/bytebase.v1.&#34; prefix. For example &#34;/bytebase.v1.UserService/CreateUser&#34;. Support &#34;==&#34; operator. - severity: support &#34;==&#34; operator, check Severity enum in AuditLog message for values. - user: the actor, should in &#34;users/{email}&#34; format, support &#34;==&#34; operator. - create_time: support &#34;&gt;=&#34; and &#34;&lt;=&#34; operator.
 
 For example: - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39; &amp;&amp; user == &#39;users/bb@bytebase.com&#39;&#34; - filter = &#34;method == &#39;/bytebase.v1.SQLService/Query&#39; &amp;&amp; severity == &#39;ERROR&#39; &amp;&amp; create_time &lt;= &#39;2021-01-01T00:00:00Z&#39; &amp;&amp; create_time &gt;= &#39;2020-01-01T00:00:00Z&#39;&#34; |
 | order_by | [string](#string) |  | The order by of the log. Only support order by create_time. For example: - order_by = &#34;create_time asc&#34; - order_by = &#34;create_time desc&#34; |
@@ -6214,7 +6165,7 @@ This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the database group. Format: projects/{project}/databaseGroups/{databaseGroup} |
-| database_placeholder | [string](#string) |  | The short name used in actual databases specified by users. For example, the placeholder for db1_2010, db1_2021, db1_2023 will be &#34;db1&#34;. |
+| title | [string](#string) |  | The short name used in actual databases specified by users. |
 | database_expr | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this database group. |
 | matched_databases | [DatabaseGroup.Database](#bytebase-v1-DatabaseGroup-Database) | repeated | The list of databases that match the database group condition. |
 | unmatched_databases | [DatabaseGroup.Database](#bytebase-v1-DatabaseGroup-Database) | repeated | The list of databases that match the database group condition. |
@@ -6354,186 +6305,6 @@ The database group&#39;s `name` field is used to identify the database group to 
 | CreateDatabaseGroup | [CreateDatabaseGroupRequest](#bytebase-v1-CreateDatabaseGroupRequest) | [DatabaseGroup](#bytebase-v1-DatabaseGroup) |  |
 | UpdateDatabaseGroup | [UpdateDatabaseGroupRequest](#bytebase-v1-UpdateDatabaseGroupRequest) | [DatabaseGroup](#bytebase-v1-DatabaseGroup) |  |
 | DeleteDatabaseGroup | [DeleteDatabaseGroupRequest](#bytebase-v1-DeleteDatabaseGroupRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-
- 
-
-
-
-<a name="v1_environment_service-proto"></a>
-<p align="right"><a href="#top">Top</a></p>
-
-## v1/environment_service.proto
-
-
-
-<a name="bytebase-v1-CreateEnvironmentRequest"></a>
-
-### CreateEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environment | [Environment](#bytebase-v1-Environment) |  | The environment to create. |
-| environment_id | [string](#string) |  | The ID to use for the environment, which will become the final component of the environment&#39;s resource name.
-
-This value should be 4-63 characters, and valid characters are /[a-z][0-9]-/. |
-
-
-
-
-
-
-<a name="bytebase-v1-DeleteEnvironmentRequest"></a>
-
-### DeleteEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment to delete. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-Environment"></a>
-
-### Environment
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment. Format: environments/{environment} |
-| state | [State](#bytebase-v1-State) |  |  |
-| title | [string](#string) |  |  |
-| order | [int32](#int32) |  |  |
-| tier | [EnvironmentTier](#bytebase-v1-EnvironmentTier) |  |  |
-| color | [string](#string) |  |  |
-
-
-
-
-
-
-<a name="bytebase-v1-GetEnvironmentRequest"></a>
-
-### GetEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the environment to retrieve. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-ListEnvironmentsRequest"></a>
-
-### ListEnvironmentsRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| page_size | [int32](#int32) |  | Not used. The maximum number of environments to return. The service may return fewer than this value. If unspecified, at most 10 environments will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
-| page_token | [string](#string) |  | Not used. A page token, received from a previous `ListEnvironments` call. Provide this to retrieve the subsequent page.
-
-When paginating, all other parameters provided to `ListEnvironments` must match the call that provided the page token. |
-| show_deleted | [bool](#bool) |  | Show deleted environments if specified. |
-
-
-
-
-
-
-<a name="bytebase-v1-ListEnvironmentsResponse"></a>
-
-### ListEnvironmentsResponse
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environments | [Environment](#bytebase-v1-Environment) | repeated | The environments from the specified request. |
-| next_page_token | [string](#string) |  | A token, which can be sent as `page_token` to retrieve the next page. If this field is omitted, there are no subsequent pages. |
-
-
-
-
-
-
-<a name="bytebase-v1-UndeleteEnvironmentRequest"></a>
-
-### UndeleteEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the deleted environment. Format: environments/{environment} |
-
-
-
-
-
-
-<a name="bytebase-v1-UpdateEnvironmentRequest"></a>
-
-### UpdateEnvironmentRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| environment | [Environment](#bytebase-v1-Environment) |  | The environment to update.
-
-The environment&#39;s `name` field is used to identify the environment to update. Format: environments/{environment} |
-| update_mask | [google.protobuf.FieldMask](#google-protobuf-FieldMask) |  | The list of fields to update. |
-
-
-
-
-
- 
-
-
-<a name="bytebase-v1-EnvironmentTier"></a>
-
-### EnvironmentTier
-
-
-| Name | Number | Description |
-| ---- | ------ | ----------- |
-| ENVIRONMENT_TIER_UNSPECIFIED | 0 |  |
-| PROTECTED | 1 |  |
-| UNPROTECTED | 2 |  |
-
-
- 
-
- 
-
-
-<a name="bytebase-v1-EnvironmentService"></a>
-
-### EnvironmentService
-
-
-| Method Name | Request Type | Response Type | Description |
-| ----------- | ------------ | ------------- | ------------|
-| GetEnvironment | [GetEnvironmentRequest](#bytebase-v1-GetEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| ListEnvironments | [ListEnvironmentsRequest](#bytebase-v1-ListEnvironmentsRequest) | [ListEnvironmentsResponse](#bytebase-v1-ListEnvironmentsResponse) |  |
-| CreateEnvironment | [CreateEnvironmentRequest](#bytebase-v1-CreateEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| UpdateEnvironment | [UpdateEnvironmentRequest](#bytebase-v1-UpdateEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
-| DeleteEnvironment | [DeleteEnvironmentRequest](#bytebase-v1-DeleteEnvironmentRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-| UndeleteEnvironment | [UndeleteEnvironmentRequest](#bytebase-v1-UndeleteEnvironmentRequest) | [Environment](#bytebase-v1-Environment) |  |
 
  
 
@@ -6803,7 +6574,6 @@ we can extract the relevant data based with `FieldMapping`.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the identity provider. Format: idps/{idp} |
-| state | [State](#bytebase-v1-State) |  |  |
 | title | [string](#string) |  |  |
 | domain | [string](#string) |  |  |
 | type | [IdentityProviderType](#bytebase-v1-IdentityProviderType) |  |  |
@@ -6866,7 +6636,6 @@ LDAPIdentityProviderConfig is the structure for LDAP identity provider config.
 | page_token | [string](#string) |  | Not used. A page token, received from a previous `ListIdentityProviders` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `ListIdentityProviders` must match the call that provided the page token. |
-| show_deleted | [bool](#bool) |  | Show deleted identity providers if specified. |
 
 
 
@@ -6975,21 +6744,6 @@ OIDCIdentityProviderConfig is the structure for OIDC identity provider config.
 
 
 
-<a name="bytebase-v1-UndeleteIdentityProviderRequest"></a>
-
-### UndeleteIdentityProviderRequest
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| name | [string](#string) |  | The name of the deleted identity provider. Format: idps/{identity_provider} |
-
-
-
-
-
-
 <a name="bytebase-v1-UpdateIdentityProviderRequest"></a>
 
 ### UpdateIdentityProviderRequest
@@ -7053,7 +6807,6 @@ The identity provider&#39;s `name` field is used to identify the identity provid
 | CreateIdentityProvider | [CreateIdentityProviderRequest](#bytebase-v1-CreateIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | UpdateIdentityProvider | [UpdateIdentityProviderRequest](#bytebase-v1-UpdateIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | DeleteIdentityProvider | [DeleteIdentityProviderRequest](#bytebase-v1-DeleteIdentityProviderRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
-| UndeleteIdentityProvider | [UndeleteIdentityProviderRequest](#bytebase-v1-UndeleteIdentityProviderRequest) | [IdentityProvider](#bytebase-v1-IdentityProvider) |  |
 | TestIdentityProvider | [TestIdentityProviderRequest](#bytebase-v1-TestIdentityProviderRequest) | [TestIdentityProviderResponse](#bytebase-v1-TestIdentityProviderResponse) |  |
 
  
@@ -7225,7 +6978,11 @@ MaskingExceptionPolicy is the allowlist of users who can access sensitive data.
 | member | [string](#string) |  | Member is the principal who bind to this exception policy instance.
 
 - `user:{email}`: An email address that represents a specific Bytebase account. For example, `alice@example.com`. - `group:{email}`: An email address for group. |
-| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this exception policy instance. |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with this exception policy instance. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec If the condition is empty, means the user can access all databases without expiration.
+
+Support variables: resource.instance_id: the instance resource id. Only support &#34;==&#34; operation. resource.database_name: the database name. Only support &#34;==&#34; operation. resource.schema_name: the schema name. Only support &#34;==&#34; operation. resource.table_name: the table name. Only support &#34;==&#34; operation. resource.column_name: the column name. Only support &#34;==&#34; operation. request.time: the expiration. Only support &#34;&lt;&#34; operation in `request.time &lt; timestamp(&#34;{ISO datetime string format}&#34;)` All variables should join with &#34;&amp;&amp;&#34; condition.
+
+For example: resource.instance_id == &#34;local&#34; &amp;&amp; resource.database_name == &#34;employee&#34; &amp;&amp; request.time &lt; timestamp(&#34;2025-04-30T11:10:39.000Z&#34;) resource.instance_id == &#34;local&#34; &amp;&amp; resource.database_name == &#34;employee&#34; |
 
 
 
@@ -7256,7 +7013,13 @@ MaskingExceptionPolicy is the allowlist of users who can access sensitive data.
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | id | [string](#string) |  | A unique identifier for a node in UUID format. |
-| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition for the masking rule. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Support variables: environment_id: the environment resource id. project_id: the project resource id. instance_id: the instance resource id. database_name: the database name. table_name: the table name. column_name: the column name. classification_level: the classification level.
+
+Each variable support following operations: ==: the value equals the target. !=: the value not equals the target. in: the value matches one of the targets. !(in): the value not matches any of the targets.
+
+For example: environment_id == &#34;test&#34; &amp;&amp; project_id == &#34;sample-project&#34; instance_id == &#34;sample-instance&#34; &amp;&amp; database_name == &#34;employee&#34; &amp;&amp; table_name in [&#34;table1&#34;, &#34;table2&#34;] environment_id != &#34;test&#34; || !(project_id in [&#34;poject1&#34;, &#34;prject2&#34;]) instance_id == &#34;sample-instance&#34; &amp;&amp; (database_name == &#34;db1&#34; || database_name == &#34;db2&#34;) |
 | semantic_type | [string](#string) |  |  |
 
 
@@ -7651,7 +7414,7 @@ When paginating, all other parameters provided to `ListPlans` must match the cal
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | name | [string](#string) |  | The name of the plan. `plan` is a system generated ID. Format: projects/{project}/plans/{plan} |
-| issue | [string](#string) |  | The resource name of the issue associated with this plan. Format: projects/{project}/issues/{issue} |
+| issue | [string](#string) |  | The issue associated with the plan. Can be empty. Format: projects/{project}/issues/{issue} |
 | title | [string](#string) |  |  |
 | description | [string](#string) |  |  |
 | steps | [Plan.Step](#bytebase-v1-Plan-Step) | repeated |  |
@@ -8038,7 +7801,11 @@ When paginating, all other parameters provided to `ListPlans` must match the cal
 | page_token | [string](#string) |  | A page token, received from a previous `SearchPlans` call. Provide this to retrieve the subsequent page.
 
 When paginating, all other parameters provided to `SearchPlans` must match the call that provided the page token. |
-| filter | [string](#string) |  | Filter is used to filter plans returned in the list. |
+| filter | [string](#string) |  | Filter is used to filter plans returned in the list. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filters: - creator: the plan creator full name in &#34;users/{email or id}&#34; format, support &#34;==&#34; operator. - create_time: issue create time in &#34;2006-01-02T15:04:05Z07:00&#34; format, support &#34;&gt;=&#34; or &#34;&lt;=&#34; operator. - has_pipeline: the plan has pipeline or not, support &#34;==&#34; operator, the value should be &#34;true&#34; or &#34;false&#34;. - has_issue: the plan has issue or not, support &#34;==&#34; operator, the value should be &#34;true&#34; or &#34;false&#34;.
+
+For example: creator == &#34;users/ed@bytebase.com&#34; &amp;&amp; create_time &gt;= &#34;2025-01-02T15:04:05Z07:00&#34; has_pipeline == false &amp;&amp; has_issue == true |
 
 
 
@@ -8369,8 +8136,26 @@ When paginating, all other parameters provided to `ListProjects` must match the 
 | enforce_issue_title | [bool](#bool) |  | Enforce issue title created by user instead of generated by Bytebase. |
 | auto_enable_backup | [bool](#bool) |  | Whether to automatically enable backup. |
 | skip_backup_errors | [bool](#bool) |  | Whether to skip backup errors and continue the data migration. |
-| postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the pre-appended &#34;set role &lt;db_owner&gt;&#34; statement. |
+| postgres_database_tenant_mode | [bool](#bool) |  | Whether to enable the database tenant mode for PostgreSQL. If enabled, the issue will be created with the prepend &#34;set role &lt;db_owner&gt;&#34; statement. |
 | allow_self_approval | [bool](#bool) |  | Whether to allow the issue creator to self-approve the issue. |
+| execution_retry_policy | [Project.ExecutionRetryPolicy](#bytebase-v1-Project-ExecutionRetryPolicy) |  | Execution retry policy for the task run. |
+| ci_sampling_size | [int32](#int32) |  | The maximum databases of rows to sample during CI data validation. Without specification, sampling is disabled, resulting in a full validation. |
+| parallel_tasks_per_rollout | [int32](#int32) |  | The maximum number of parallel tasks to run during the rollout. |
+
+
+
+
+
+
+<a name="bytebase-v1-Project-ExecutionRetryPolicy"></a>
+
+### Project.ExecutionRetryPolicy
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| maximum_retries | [int32](#int32) |  | The maximum number of retries for the lock timeout issue. |
 
 
 
@@ -8401,7 +8186,9 @@ When paginating, all other parameters provided to `ListProjects` must match the 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | show_deleted | [bool](#bool) |  | Show deleted projects if specified. |
-| filter | [string](#string) |  | Filter the project. Supported filters: - name - resource_id - exclude_default: if not include the default project. - state
+| filter | [string](#string) |  | Filter the project. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filters: - name: the project name, support &#34;==&#34; and &#34;.matches()&#34; operator. - resource_id: the project id, support &#34;==&#34; and &#34;.matches()&#34; operator. - exclude_default: if not include the default project, should be &#34;true&#34; or &#34;false&#34;, support &#34;==&#34; operator. - state: check the State enum for the values, support &#34;==&#34; operator.
 
 For example: name = &#34;project name&#34; name.matches(&#34;project name&#34;) resource_id = &#34;project id&#34; resource_id.matches(&#34;project id&#34;) exclude_default == true state == &#34;DELETED&#34; You can combine filter conditions like: name = &#34;project name&#34; &amp;&amp; resource_id.matches(&#34;project id&#34;) name.matches(&#34;project name&#34;) || resource_id = &#34;project id&#34; |
 | page_size | [int32](#int32) |  | The maximum number of projects to return. The service may return fewer than this value. If unspecified, at most 10 projects will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
@@ -8764,9 +8551,7 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | code | [int32](#int32) |  | The advice code. |
 | title | [string](#string) |  | The advice title. |
 | content | [string](#string) |  | The advice content. |
-| line | [int32](#int32) |  | The advice line number in the SQL statement. |
-| column | [int32](#int32) |  | The advice column number in the SQL statement. |
-| start_position | [Position](#bytebase-v1-Position) |  | To supersede `line` and `column` above. The start_position is inclusive and the end_position is exclusive. TODO: use range instead |
+| start_position | [Position](#bytebase-v1-Position) |  | The start_position is inclusive and the end_position is exclusive. TODO: use range instead |
 | end_position | [Position](#bytebase-v1-Position) |  |  |
 
 
@@ -9034,6 +8819,23 @@ TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the
 | statement | [string](#string) |  | The query statement for the result. |
 | postgres_error | [QueryResult.PostgresError](#bytebase-v1-QueryResult-PostgresError) |  |  |
 | allow_export | [bool](#bool) |  | The query result is allowed to be exported or not. |
+| messages | [QueryResult.Message](#bytebase-v1-QueryResult-Message) | repeated | Informational or debug messages returned by the database engine during query execution. Examples include PostgreSQL&#39;s RAISE NOTICE, MSSQL&#39;s PRINT, or Oracle&#39;s DBMS_OUTPUT.PUT_LINE. |
+
+
+
+
+
+
+<a name="bytebase-v1-QueryResult-Message"></a>
+
+### QueryResult.Message
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| level | [QueryResult.Message.Level](#bytebase-v1-QueryResult-Message-Level) |  |  |
+| content | [string](#string) |  |  |
 
 
 
@@ -9158,7 +8960,11 @@ for field description.
 | ----- | ---- | ----- | ----------- |
 | page_size | [int32](#int32) |  | The maximum number of histories to return. The service may return fewer than this value. If unspecified, at most 10 history entries will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
 | page_token | [string](#string) |  | A page token, received from a previous `ListQueryHistory` call. Provide this to retrieve the subsequent page. |
-| filter | [string](#string) |  | filter is the filter to apply on the search query history, follow the [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) syntax. Support filter by: - database, for example: database = &#34;instances/{instance}/databases/{database}&#34; - instance, for example: instance = &#34;instances/{instance}&#34; - type, for example: type = &#34;QUERY&#34; |
+| filter | [string](#string) |  | Filter is the filter to apply on the search query history The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filter: - project: the project full name in &#34;projects/{id}&#34; format, support &#34;==&#34; operator. - database: the database full name in &#34;instances/{id}/databases/{name}&#34; format, support &#34;==&#34; operator. - instance: the instance full name in &#34;instances/{id}&#34; format, support &#34;==&#34; operator. - type: the type, should be &#34;QUERY&#34; or &#34;EXPORT&#34;, support &#34;==&#34; operator. - statement: the SQL statemnt, support &#34;.matches()&#34; operator.
+
+For example: project == &#34;projects/{project}&#34; database == &#34;instances/{instance}/databases/{database}&#34; instance == &#34;instances/{instance}&#34; type == &#34;QUERY&#34; type == &#34;EXPORT&#34; statement.matches(&#34;select&#34;) type == &#34;QUERY&#34; &amp;&amp; statement.matches(&#34;select&#34;) |
 
 
 
@@ -9235,6 +9041,23 @@ for field description.
 | REDIS_RUN_COMMANDS_ON_UNSPECIFIED | 0 | UNSPECIFIED defaults to SINGLE_NODE. |
 | SINGLE_NODE | 1 |  |
 | ALL_NODES | 2 |  |
+
+
+
+<a name="bytebase-v1-QueryResult-Message-Level"></a>
+
+### QueryResult.Message.Level
+
+
+| Name | Number | Description |
+| ---- | ------ | ----------- |
+| LEVEL_UNSPECIFIED | 0 | Unspecified. |
+| INFO | 1 |  |
+| WARNING | 2 |  |
+| DEBUG | 3 |  |
+| LOG | 4 |  |
+| NOTICE | 5 |  |
+| EXCEPTION | 6 |  |
 
 
  
@@ -9745,6 +9568,21 @@ The name field is used to identify the sql review to update. |
 
 
 
+<a name="bytebase-v1-GetRiskRequest"></a>
+
+### GetRiskRequest
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| name | [string](#string) |  | The name of the risk to retrieve. Format: risks/{risk} |
+
+
+
+
+
+
 <a name="bytebase-v1-ListRisksRequest"></a>
 
 ### ListRisksRequest
@@ -9792,7 +9630,19 @@ When paginating, all other parameters provided to `LiskRisks` must match the cal
 | title | [string](#string) |  |  |
 | level | [int32](#int32) |  |  |
 | active | [bool](#bool) |  |  |
-| condition | [google.type.Expr](#google-type-Expr) |  |  |
+| condition | [google.type.Expr](#google-type-Expr) |  | The condition that is associated with the risk. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+All supported variables: affected_rows: affected row count in the DDL/DML, support &#34;==&#34;, &#34;!=&#34;, &#34;&lt;&#34;, &#34;&lt;=&#34;, &#34;&gt;&#34;, &#34;&gt;=&#34; operations. table_rows: table row count number, support &#34;==&#34;, &#34;!=&#34;, &#34;&lt;&#34;, &#34;&lt;=&#34;, &#34;&gt;&#34;, &#34;&gt;=&#34; operations. environment_id: the environment resource id, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operations. project_id: the project resource id, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34;, &#34;contains()&#34;, &#34;matches()&#34;, &#34;startsWith()&#34;, &#34;endsWith()&#34; operations. db_engine: the database engine type, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operations. Check the Engine enum for the values. sql_type: the SQL type, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34; operations. when the risk source is DDL, check https://github.com/bytebase/bytebase/blob/main/frontend/src/plugins/cel/types/values.ts#L70 for supported values. when the risk source is DML, check https://github.com/bytebase/bytebase/blob/main/frontend/src/plugins/cel/types/values.ts#L71 for supported values. database_name: the database name, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34;, &#34;contains()&#34;, &#34;matches()&#34;, &#34;startsWith()&#34;, &#34;endsWith()&#34; operations. schema_name: the schema name, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34;, &#34;contains()&#34;, &#34;matches()&#34;, &#34;startsWith()&#34;, &#34;endsWith()&#34; operations. table_name: the table name, support &#34;==&#34;, &#34;!=&#34;, &#34;in [xx]&#34;, &#34;!(in [xx])&#34;, &#34;contains()&#34;, &#34;matches()&#34;, &#34;startsWith()&#34;, &#34;endsWith()&#34; operations. sql_statement: the SQL statement, support &#34;contains()&#34;, &#34;matches()&#34;, &#34;startsWith()&#34;, &#34;endsWith()&#34; operations. export_rows: export data count, support &#34;==&#34;, &#34;!=&#34;, &#34;&lt;&#34;, &#34;&lt;=&#34;, &#34;&gt;&#34;, &#34;&gt;=&#34; operations. expiration_days: the role expiration days for the request, support &#34;==&#34;, &#34;!=&#34;, &#34;&lt;&#34;, &#34;&lt;=&#34;, &#34;&gt;&#34;, &#34;&gt;=&#34; operations.
+
+When the risk source is DDL/DML, support following variables: affected_rows table_rows environment_id project_id db_engine sql_type database_name schema_name table_name sql_statement
+
+When the risk source is CREATE_DATABASE, support following variables: environment_id project_id db_engine database_name
+
+When the risk source is DATA_EXPORT, support following variables: environment_id project_id db_engine database_name schema_name table_name export_rows
+
+When the risk source is REQUEST_QUERY, support following variables: environment_id project_id db_engine database_name schema_name table_name expiration_days
+
+When the risk source is REQUEST_EXPORT, support following variables: environment_id project_id db_engine database_name schema_name table_name expiration_days export_rows |
 
 
 
@@ -9849,6 +9699,7 @@ The risk&#39;s `name` field is used to identify the risk to update. Format: risk
 | ----------- | ------------ | ------------- | ------------|
 | ListRisks | [ListRisksRequest](#bytebase-v1-ListRisksRequest) | [ListRisksResponse](#bytebase-v1-ListRisksResponse) |  |
 | CreateRisk | [CreateRiskRequest](#bytebase-v1-CreateRiskRequest) | [Risk](#bytebase-v1-Risk) |  |
+| GetRisk | [GetRiskRequest](#bytebase-v1-GetRiskRequest) | [Risk](#bytebase-v1-Risk) |  |
 | UpdateRisk | [UpdateRiskRequest](#bytebase-v1-UpdateRiskRequest) | [Risk](#bytebase-v1-Risk) |  |
 | DeleteRisk | [DeleteRiskRequest](#bytebase-v1-DeleteRiskRequest) | [.google.protobuf.Empty](#google-protobuf-Empty) |  |
 
@@ -10552,6 +10403,7 @@ When paginating, all other parameters provided to `ListTaskRuns` must match the 
 | ----- | ---- | ----- | ----------- |
 | connection_limit | [bool](#bool) |  |  |
 | task | [TaskRun.SchedulerInfo.WaitingCause.Task](#bytebase-v1-TaskRun-SchedulerInfo-WaitingCause-Task) |  |  |
+| parallel_tasks_limit | [bool](#bool) |  |  |
 
 
 
@@ -10607,6 +10459,7 @@ When paginating, all other parameters provided to `ListTaskRuns` must match the 
 | task_run_status_update | [TaskRunLogEntry.TaskRunStatusUpdate](#bytebase-v1-TaskRunLogEntry-TaskRunStatusUpdate) |  |  |
 | transaction_control | [TaskRunLogEntry.TransactionControl](#bytebase-v1-TaskRunLogEntry-TransactionControl) |  |  |
 | prior_backup | [TaskRunLogEntry.PriorBackup](#bytebase-v1-TaskRunLogEntry-PriorBackup) |  |  |
+| retry_info | [TaskRunLogEntry.RetryInfo](#bytebase-v1-TaskRunLogEntry-RetryInfo) |  |  |
 
 
 
@@ -10677,6 +10530,23 @@ When paginating, all other parameters provided to `ListTaskRuns` must match the 
 | end_time | [google.protobuf.Timestamp](#google-protobuf-Timestamp) |  |  |
 | prior_backup_detail | [TaskRun.PriorBackupDetail](#bytebase-v1-TaskRun-PriorBackupDetail) |  |  |
 | error | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="bytebase-v1-TaskRunLogEntry-RetryInfo"></a>
+
+### TaskRunLogEntry.RetryInfo
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| error | [string](#string) |  |  |
+| retry_count | [int32](#int32) |  |  |
+| maximum_retries | [int32](#int32) |  |  |
 
 
 
@@ -10901,6 +10771,7 @@ Read from `pg_stat_activity`
 | TASK_RUN_STATUS_UPDATE | 4 |  |
 | TRANSACTION_CONTROL | 5 |  |
 | PRIOR_BACKUP | 6 |  |
+| RETRY_INFO | 7 |  |
 
 
  
@@ -11168,7 +11039,11 @@ Type of the SheetPayload.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| filter | [string](#string) |  | To filter the search result. Format: only support the following spec for now: - `creator = users/{email}`, `creator != users/{email}` - `starred = true`, `starred = false`. - `visibility = &#34;VISIBILITY_PRIVATE&#34;`, `visibility = &#34;VISIBILITY_PROJECT_READ | VISIBILITY_PROJECT_WRITE&#34;`, etc. Not support empty filter for now. |
+| filter | [string](#string) |  | To filter the search result. The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+
+Supported filter: - creator: the worksheet creator in &#34;users/{email}&#34; format, support &#34;==&#34; and &#34;!=&#34; operator. - starred: should be &#34;true&#34; or &#34;false&#34;, filter starred/unstarred sheets, support &#34;==&#34; operator. - visibility: check Visibility enum in the Worksheet message for values, support &#34;==&#34; and &#34;in [xx]&#34; operator.
+
+For example: creator == &#34;users/{email}&#34; creator != &#34;users/{email}&#34; starred == true starred == false visibility in [&#34;VISIBILITY_PRIVATE&#34;, &#34;VISIBILITY_PROJECT_READ&#34;, &#34;VISIBILITY_PROJECT_WRITE&#34;] visibility == &#34;VISIBILITY_PRIVATE&#34; |
 | page_size | [int32](#int32) |  | Not used. The maximum number of worksheets to return. The service may return fewer than this value. If unspecified, at most 10 worksheets will be returned. The maximum value is 1000; values above 1000 will be coerced to 1000. |
 | page_token | [string](#string) |  | Not used. A page token, received from a previous `SearchWorksheets` call. Provide this to retrieve the subsequent page.
 

@@ -45,13 +45,9 @@ const (
 
 	// AccessTokenCookieName is the cookie name of access token.
 	AccessTokenCookieName = "access-token"
-	// UserIDCookieName is the cookie name of user ID.
-	UserIDCookieName = "user"
 
 	// GatewayMetadataAccessTokenKey is the gateway metadata key for access token.
 	GatewayMetadataAccessTokenKey = "bytebase-access-token"
-	// GatewayMetadataUserIDKey is the gateway metadata key for user ID.
-	GatewayMetadataUserIDKey = "bytebase-user"
 	// GatewayMetadataRequestOriginKey is the gateway metadata key for the request origin header.
 	GatewayMetadataRequestOriginKey = "bytebase-request-origin"
 )
@@ -208,7 +204,7 @@ func (in *APIAuthInterceptor) getPrincipalID(ctx context.Context, accessTokenStr
 	}
 
 	// Only update for authorized request.
-	in.profile.LastActiveTS = time.Now().Unix()
+	in.profile.LastActiveTS.Store(time.Now().Unix())
 	return principalID, nil
 }
 

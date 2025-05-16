@@ -14,8 +14,8 @@
         :custom-click="true"
         :parent="project.name"
         :filter="filter"
-        @update:selected-databases="
-          databaseSelectState.selectedDatabaseNameList = Array.from($event)
+        v-model:selected-database-names="
+          databaseSelectState.selectedDatabaseNameList
         "
       />
     </NTabPane>
@@ -29,8 +29,8 @@
             ? [databaseSelectState.selectedDatabaseGroup]
             : []
         "
-        @update:selected-database-groups="
-          databaseSelectState.selectedDatabaseGroup = head(Array.from($event))
+        @update:selected-database-group-names="
+          databaseSelectState.selectedDatabaseGroup = head($event)
         "
       />
     </NTabPane>

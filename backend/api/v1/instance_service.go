@@ -155,12 +155,17 @@ func parseListInstanceFilter(filter string) (*store.ListResourceFilter, error) {
 				if !ok {
 					return "", status.Errorf(codes.InvalidArgument, "expect string, got %T, hint: filter literals should be string", value)
 				}
+				if strValue == "" {
+					return "", status.Errorf(codes.InvalidArgument, `empty value for %q`, variable)
+				}
 
 				switch variable {
 				case "name":
 					return "LOWER(instance.metadata->>'title') LIKE '%" + strings.ToLower(strValue) + "%'", nil
 				case "resource_id":
 					return "LOWER(instance.resource_id) LIKE '%" + strings.ToLower(strValue) + "%'", nil
+				case "host", "port":
+					return "ds ->> '" + variable + "' LIKE '%" + strValue + "%'", nil
 				default:
 					return "", status.Errorf(codes.InvalidArgument, "unsupport variable %q", variable)
 				}
@@ -434,20 +439,14 @@ func (s *InstanceService) UpdateInstance(ctx context.Context, request *v1pb.Upda
 			if err != nil {
 				return nil, status.Error(codes.InvalidArgument, err.Error())
 			}
-			environment, err := s.store.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{
-				ResourceID:  &environmentID,
-				ShowDeleted: true,
-			})
+			environment, err := s.store.GetEnvironmentByID(ctx, environmentID)
 			if err != nil {
 				return nil, status.Error(codes.Internal, err.Error())
 			}
 			if environment == nil {
 				return nil, status.Errorf(codes.NotFound, "environment %q not found", environmentID)
 			}
-			if environment.Deleted {
-				return nil, status.Errorf(codes.FailedPrecondition, "environment %q is deleted", environmentID)
-			}
-			patch.EnvironmentID = &environment.ResourceID
+			patch.EnvironmentID = &environmentID
 		case "external_link":
 			patch.Metadata.ExternalLink = request.Instance.ExternalLink
 		case "data_sources":

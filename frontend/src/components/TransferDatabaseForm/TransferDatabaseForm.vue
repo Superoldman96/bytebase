@@ -33,9 +33,7 @@
             :filter="filter"
             :show-selection="true"
             :custom-click="true"
-            @update:selected-databases="
-              state.selectedDatabaseNameList = Array.from($event)
-            "
+            v-model:selected-database-names="state.selectedDatabaseNameList"
           />
         </div>
       </div>
@@ -91,11 +89,12 @@ import type { ComposedDatabase, ComposedProject } from "@/types";
 import {
   DEFAULT_PROJECT_NAME,
   defaultProject,
+  formatEnvironmentName,
   isValidProjectName,
 } from "@/types";
 import { UpdateDatabaseRequest } from "@/types/proto/v1/database_service";
-import type { Environment } from "@/types/proto/v1/environment_service";
 import type { InstanceResource } from "@/types/proto/v1/instance_service";
+import type { Environment } from "@/types/v1/environment";
 import { hasProjectPermissionV2 } from "@/utils";
 import { DrawerContent, ProjectSelect } from "../v2";
 import { PagedDatabaseTable } from "../v2/Model/DatabaseV1Table";
@@ -153,8 +152,11 @@ const { project: sourceProject } = useProjectByName(sourceProjectName);
 
 const filter = computed(() => ({
   instance: state.instanceFilter?.name,
-  environment: state.environmentFilter?.name,
+  environment: state.environmentFilter
+    ? formatEnvironmentName(state.environmentFilter.id)
+    : undefined,
   query: state.searchText,
+  excludeUnassigned: state.transferSource !== "DEFAULT",
 }));
 
 const allowTransfer = computed(() => state.selectedDatabaseNameList.length > 0);

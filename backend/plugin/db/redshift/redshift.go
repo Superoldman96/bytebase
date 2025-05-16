@@ -60,7 +60,7 @@ type Driver struct {
 	datashare        bool
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -204,15 +204,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 			sqlResult, err := tx.ExecContext(ctx, command.Text)
 			if err != nil {
 				return 0, &db.ErrorWithPosition{
-					Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-					Start: &storepb.TaskRunResult_Position{
-						Line:   int32(command.FirstStatementLine),
-						Column: int32(command.FirstStatementColumn),
-					},
-					End: &storepb.TaskRunResult_Position{
-						Line:   int32(command.LastLine),
-						Column: int32(command.LastColumn),
-					},
+					Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+					Start: command.Start,
+					End:   command.End,
 				}
 			}
 			rowsAffected, err := sqlResult.RowsAffected()
@@ -362,7 +356,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

@@ -37,21 +37,20 @@ func configureGrpcRouters(
 	schemaSyncer *schemasync.Syncer,
 	webhookManager *webhook.Manager,
 	iamManager *iam.Manager,
-	postCreateUser apiv1.CreateUserFunc,
-	secret string) error {
+	secret string,
+) error {
 	// Register services.
-	authService := apiv1.NewAuthService(stores, secret, licenseService, metricReporter, profile, stateCfg, iamManager, postCreateUser)
-	userService := apiv1.NewUserService(stores, secret, licenseService, metricReporter, profile, stateCfg, iamManager, postCreateUser)
+	authService := apiv1.NewAuthService(stores, secret, licenseService, metricReporter, profile, stateCfg, iamManager)
+	userService := apiv1.NewUserService(stores, secret, licenseService, metricReporter, profile, stateCfg, iamManager)
 	v1pb.RegisterAuditLogServiceServer(grpcServer, apiv1.NewAuditLogService(stores, iamManager, licenseService))
 	v1pb.RegisterAuthServiceServer(grpcServer, authService)
 	v1pb.RegisterUserServiceServer(grpcServer, userService)
-	v1pb.RegisterActuatorServiceServer(grpcServer, apiv1.NewActuatorService(stores, profile, licenseService))
+	v1pb.RegisterActuatorServiceServer(grpcServer, apiv1.NewActuatorService(stores, profile, schemaSyncer, licenseService))
 	v1pb.RegisterSubscriptionServiceServer(grpcServer, apiv1.NewSubscriptionService(
 		stores,
 		profile,
 		metricReporter,
 		licenseService))
-	v1pb.RegisterEnvironmentServiceServer(grpcServer, apiv1.NewEnvironmentService(stores, licenseService))
 	v1pb.RegisterInstanceServiceServer(grpcServer, apiv1.NewInstanceService(
 		stores,
 		licenseService,
@@ -68,7 +67,6 @@ func configureGrpcRouters(
 	v1pb.RegisterWorkspaceServiceServer(grpcServer, apiv1.NewWorkspaceService(stores, iamManager))
 	v1pb.RegisterIdentityProviderServiceServer(grpcServer, apiv1.NewIdentityProviderService(stores, licenseService))
 	v1pb.RegisterSettingServiceServer(grpcServer, apiv1.NewSettingService(stores, profile, licenseService, stateCfg))
-	v1pb.RegisterAnomalyServiceServer(grpcServer, apiv1.NewAnomalyService(stores))
 	sqlService := apiv1.NewSQLService(stores, sheetManager, schemaSyncer, dbFactory, licenseService, profile, iamManager)
 	v1pb.RegisterSQLServiceServer(grpcServer, sqlService)
 	v1pb.RegisterRiskServiceServer(grpcServer, apiv1.NewRiskService(stores, licenseService))
@@ -109,9 +107,6 @@ func configureGrpcRouters(
 	if err := v1pb.RegisterUserServiceHandler(ctx, mux, grpcConn); err != nil {
 		return err
 	}
-	if err := v1pb.RegisterAnomalyServiceHandler(ctx, mux, grpcConn); err != nil {
-		return err
-	}
 	if err := v1pb.RegisterAuditLogServiceHandler(ctx, mux, grpcConn); err != nil {
 		return err
 	}
@@ -131,9 +126,6 @@ func configureGrpcRouters(
 		return err
 	}
 	if err := v1pb.RegisterDatabaseCatalogServiceHandler(ctx, mux, grpcConn); err != nil {
-		return err
-	}
-	if err := v1pb.RegisterEnvironmentServiceHandler(ctx, mux, grpcConn); err != nil {
 		return err
 	}
 	if err := v1pb.RegisterGroupServiceHandler(ctx, mux, grpcConn); err != nil {
