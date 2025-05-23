@@ -121,14 +121,17 @@ export interface ListDatabasesRequest {
   pageToken: string;
   /**
    * Filter is used to filter databases returned in the list.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
    * Supported filter:
-   * - environment
-   * - name
-   * - project
-   * - instance
-   * - engine
-   * - label
-   * - exclude_unassigned: Not show unassigned databases if specified
+   * - environment: the environment full name in "environments/{id}" format, support "==" operator.
+   * - name: the database name, support ".matches()" operator.
+   * - project: the project full name in "projects/{id}" format, support "==" operator.
+   * - instance: the instance full name in "instances/{id}" format, support "==" operator.
+   * - engine: the database engine, check Engine enum for values. Support "==", "in [xx]", "!(in [xx])" operator.
+   * - label: the database label in "{key}:{value1},{value2}" format. Support "==" operator.
+   * - exclude_unassigned: should be "true" or "false", will not show unassigned databases if it's true, support "==" operator.
+   * - drifted: should be "true" or "false", show drifted databases if it's true, support "==" operator.
    *
    * For example:
    * environment == "environments/{environment resource id}"
@@ -142,6 +145,7 @@ export interface ListDatabasesRequest {
    * label == "tenant:asia,europe"
    * label == "region:asia" && label == "tenant:bytebase"
    * exclude_unassigned == true
+   * drifted == true
    * You can combine filter conditions like:
    * environment == "environments/prod" && name.matches("employee")
    */
@@ -194,6 +198,20 @@ export interface BatchUpdateDatabasesResponse {
   databases: Database[];
 }
 
+export interface BatchSyncDatabasesRequest {
+  /**
+   * The parent resource shared by all databases being updated.
+   * Format: instances/{instance}
+   * If the operation spans parents, a dash (-) may be accepted as a wildcard.
+   */
+  parent: string;
+  /** The list of database names to sync. */
+  names: string[];
+}
+
+export interface BatchSyncDatabasesResponse {
+}
+
 export interface SyncDatabaseRequest {
   /**
    * The name of the database to sync.
@@ -213,9 +231,11 @@ export interface GetDatabaseMetadataRequest {
   name: string;
   /**
    * Filter is used to filter databases returned in the list.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
    * Supported filter:
-   * - schema
-   * - table
+   * - schema: the schema name, support "==" operator.
+   * - table: the table name, support "==" operator.
    *
    * For example:
    * schema == "schema-a"
@@ -498,6 +518,13 @@ export interface TableMetadata {
   sortingKeys: string[];
   triggers: TriggerMetadata[];
   skipDump: boolean;
+  /** https://docs.pingcap.com/tidb/stable/information-schema-tables/ */
+  shardingInfo: string;
+  /**
+   * https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes
+   * CLUSTERED or NONCLUSTERED.
+   */
+  primaryKeyType: string;
 }
 
 /** CheckConstraintMetadata is the metadata for check constraints. */
@@ -548,6 +575,7 @@ export interface TablePartitionMetadata {
   /** The subpartitions is the list of subpartitions in a table partition. */
   subpartitions: TablePartitionMetadata[];
   indexes: IndexMetadata[];
+  checkConstraints: CheckConstraintMetadata[];
 }
 
 /**
@@ -2427,6 +2455,125 @@ export const BatchUpdateDatabasesResponse: MessageFns<BatchUpdateDatabasesRespon
   fromPartial(object: DeepPartial<BatchUpdateDatabasesResponse>): BatchUpdateDatabasesResponse {
     const message = createBaseBatchUpdateDatabasesResponse();
     message.databases = object.databases?.map((e) => Database.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseBatchSyncDatabasesRequest(): BatchSyncDatabasesRequest {
+  return { parent: "", names: [] };
+}
+
+export const BatchSyncDatabasesRequest: MessageFns<BatchSyncDatabasesRequest> = {
+  encode(message: BatchSyncDatabasesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.parent !== "") {
+      writer.uint32(10).string(message.parent);
+    }
+    for (const v of message.names) {
+      writer.uint32(18).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchSyncDatabasesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSyncDatabasesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parent = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.names.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchSyncDatabasesRequest {
+    return {
+      parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
+      names: globalThis.Array.isArray(object?.names) ? object.names.map((e: any) => globalThis.String(e)) : [],
+    };
+  },
+
+  toJSON(message: BatchSyncDatabasesRequest): unknown {
+    const obj: any = {};
+    if (message.parent !== "") {
+      obj.parent = message.parent;
+    }
+    if (message.names?.length) {
+      obj.names = message.names;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSyncDatabasesRequest>): BatchSyncDatabasesRequest {
+    return BatchSyncDatabasesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BatchSyncDatabasesRequest>): BatchSyncDatabasesRequest {
+    const message = createBaseBatchSyncDatabasesRequest();
+    message.parent = object.parent ?? "";
+    message.names = object.names?.map((e) => e) || [];
+    return message;
+  },
+};
+
+function createBaseBatchSyncDatabasesResponse(): BatchSyncDatabasesResponse {
+  return {};
+}
+
+export const BatchSyncDatabasesResponse: MessageFns<BatchSyncDatabasesResponse> = {
+  encode(_: BatchSyncDatabasesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchSyncDatabasesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchSyncDatabasesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): BatchSyncDatabasesResponse {
+    return {};
+  },
+
+  toJSON(_: BatchSyncDatabasesResponse): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchSyncDatabasesResponse>): BatchSyncDatabasesResponse {
+    return BatchSyncDatabasesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<BatchSyncDatabasesResponse>): BatchSyncDatabasesResponse {
+    const message = createBaseBatchSyncDatabasesResponse();
     return message;
   },
 };
@@ -4485,6 +4632,8 @@ function createBaseTableMetadata(): TableMetadata {
     sortingKeys: [],
     triggers: [],
     skipDump: false,
+    shardingInfo: "",
+    primaryKeyType: "",
   };
 }
 
@@ -4549,6 +4698,12 @@ export const TableMetadata: MessageFns<TableMetadata> = {
     }
     if (message.skipDump !== false) {
       writer.uint32(168).bool(message.skipDump);
+    }
+    if (message.shardingInfo !== "") {
+      writer.uint32(178).string(message.shardingInfo);
+    }
+    if (message.primaryKeyType !== "") {
+      writer.uint32(186).string(message.primaryKeyType);
     }
     return writer;
   },
@@ -4720,6 +4875,22 @@ export const TableMetadata: MessageFns<TableMetadata> = {
           message.skipDump = reader.bool();
           continue;
         }
+        case 22: {
+          if (tag !== 178) {
+            break;
+          }
+
+          message.shardingInfo = reader.string();
+          continue;
+        }
+        case 23: {
+          if (tag !== 186) {
+            break;
+          }
+
+          message.primaryKeyType = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4765,6 +4936,8 @@ export const TableMetadata: MessageFns<TableMetadata> = {
         ? object.triggers.map((e: any) => TriggerMetadata.fromJSON(e))
         : [],
       skipDump: isSet(object.skipDump) ? globalThis.Boolean(object.skipDump) : false,
+      shardingInfo: isSet(object.shardingInfo) ? globalThis.String(object.shardingInfo) : "",
+      primaryKeyType: isSet(object.primaryKeyType) ? globalThis.String(object.primaryKeyType) : "",
     };
   },
 
@@ -4830,6 +5003,12 @@ export const TableMetadata: MessageFns<TableMetadata> = {
     if (message.skipDump !== false) {
       obj.skipDump = message.skipDump;
     }
+    if (message.shardingInfo !== "") {
+      obj.shardingInfo = message.shardingInfo;
+    }
+    if (message.primaryKeyType !== "") {
+      obj.primaryKeyType = message.primaryKeyType;
+    }
     return obj;
   },
 
@@ -4866,6 +5045,8 @@ export const TableMetadata: MessageFns<TableMetadata> = {
     message.sortingKeys = object.sortingKeys?.map((e) => e) || [];
     message.triggers = object.triggers?.map((e) => TriggerMetadata.fromPartial(e)) || [];
     message.skipDump = object.skipDump ?? false;
+    message.shardingInfo = object.shardingInfo ?? "";
+    message.primaryKeyType = object.primaryKeyType ?? "";
     return message;
   },
 };
@@ -4955,6 +5136,7 @@ function createBaseTablePartitionMetadata(): TablePartitionMetadata {
     useDefault: "",
     subpartitions: [],
     indexes: [],
+    checkConstraints: [],
   };
 }
 
@@ -4980,6 +5162,9 @@ export const TablePartitionMetadata: MessageFns<TablePartitionMetadata> = {
     }
     for (const v of message.indexes) {
       IndexMetadata.encode(v!, writer.uint32(58).fork()).join();
+    }
+    for (const v of message.checkConstraints) {
+      CheckConstraintMetadata.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -5047,6 +5232,14 @@ export const TablePartitionMetadata: MessageFns<TablePartitionMetadata> = {
           message.indexes.push(IndexMetadata.decode(reader, reader.uint32()));
           continue;
         }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.checkConstraints.push(CheckConstraintMetadata.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5070,6 +5263,9 @@ export const TablePartitionMetadata: MessageFns<TablePartitionMetadata> = {
         : [],
       indexes: globalThis.Array.isArray(object?.indexes)
         ? object.indexes.map((e: any) => IndexMetadata.fromJSON(e))
+        : [],
+      checkConstraints: globalThis.Array.isArray(object?.checkConstraints)
+        ? object.checkConstraints.map((e: any) => CheckConstraintMetadata.fromJSON(e))
         : [],
     };
   },
@@ -5097,6 +5293,9 @@ export const TablePartitionMetadata: MessageFns<TablePartitionMetadata> = {
     if (message.indexes?.length) {
       obj.indexes = message.indexes.map((e) => IndexMetadata.toJSON(e));
     }
+    if (message.checkConstraints?.length) {
+      obj.checkConstraints = message.checkConstraints.map((e) => CheckConstraintMetadata.toJSON(e));
+    }
     return obj;
   },
 
@@ -5112,6 +5311,7 @@ export const TablePartitionMetadata: MessageFns<TablePartitionMetadata> = {
     message.useDefault = object.useDefault ?? "";
     message.subpartitions = object.subpartitions?.map((e) => TablePartitionMetadata.fromPartial(e)) || [];
     message.indexes = object.indexes?.map((e) => IndexMetadata.fromPartial(e)) || [];
+    message.checkConstraints = object.checkConstraints?.map((e) => CheckConstraintMetadata.fromPartial(e)) || [];
     return message;
   },
 };
@@ -10613,6 +10813,73 @@ export const DatabaseServiceDefinition = {
               125,
               58,
               115,
+              121,
+              110,
+              99,
+            ]),
+          ],
+        },
+      },
+    },
+    batchSyncDatabases: {
+      name: "BatchSyncDatabases",
+      requestType: BatchSyncDatabasesRequest,
+      requestStream: false,
+      responseType: BatchSyncDatabasesResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          800010: [new Uint8Array([17, 98, 98, 46, 100, 97, 116, 97, 98, 97, 115, 101, 115, 46, 115, 121, 110, 99])],
+          800016: [new Uint8Array([1])],
+          578365826: [
+            new Uint8Array([
+              49,
+              58,
+              1,
+              42,
+              34,
+              44,
+              47,
+              118,
+              49,
+              47,
+              123,
+              112,
+              97,
+              114,
+              101,
+              110,
+              116,
+              61,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              47,
+              42,
+              125,
+              47,
+              100,
+              97,
+              116,
+              97,
+              98,
+              97,
+              115,
+              101,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              83,
               121,
               110,
               99,

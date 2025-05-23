@@ -233,25 +233,6 @@
         
           
           <li>
-            <a href="#store%2fanomaly.proto">store/anomaly.proto</a>
-            <ul>
-              
-                <li>
-                  <a href="#bytebase.store.AnomalyConnectionPayload"><span class="badge">M</span>AnomalyConnectionPayload</a>
-                </li>
-              
-                <li>
-                  <a href="#bytebase.store.AnomalyDatabaseSchemaDriftPayload"><span class="badge">M</span>AnomalyDatabaseSchemaDriftPayload</a>
-                </li>
-              
-              
-              
-              
-            </ul>
-          </li>
-        
-          
-          <li>
             <a href="#store%2fapproval.proto">store/approval.proto</a>
             <ul>
               
@@ -279,10 +260,6 @@
                   <a href="#bytebase.store.IssuePayloadApproval.Approver"><span class="badge">M</span>IssuePayloadApproval.Approver</a>
                 </li>
               
-              
-                <li>
-                  <a href="#bytebase.store.ApprovalNode.GroupValue"><span class="badge">E</span>ApprovalNode.GroupValue</a>
-                </li>
               
                 <li>
                   <a href="#bytebase.store.ApprovalNode.Type"><span class="badge">E</span>ApprovalNode.Type</a>
@@ -1062,6 +1039,10 @@
                   <a href="#bytebase.store.Project"><span class="badge">M</span>Project</a>
                 </li>
               
+                <li>
+                  <a href="#bytebase.store.Project.ExecutionRetryPolicy"><span class="badge">M</span>Project.ExecutionRetryPolicy</a>
+                </li>
+              
               
               
               
@@ -1424,10 +1405,6 @@
                   <a href="#bytebase.store.TaskRunResult"><span class="badge">M</span>TaskRunResult</a>
                 </li>
               
-                <li>
-                  <a href="#bytebase.store.TaskRunResult.Position"><span class="badge">M</span>TaskRunResult.Position</a>
-                </li>
-              
               
               
               
@@ -1465,6 +1442,10 @@
               
                 <li>
                   <a href="#bytebase.store.TaskRunLog.PriorBackupStart"><span class="badge">M</span>TaskRunLog.PriorBackupStart</a>
+                </li>
+              
+                <li>
+                  <a href="#bytebase.store.TaskRunLog.RetryInfo"><span class="badge">M</span>TaskRunLog.RetryInfo</a>
                 </li>
               
                 <li>
@@ -2045,82 +2026,6 @@ TODO: use range instead. </p></td>
     
       
       <div class="file-heading">
-        <h2 id="store/anomaly.proto">store/anomaly.proto</h2><a href="#title">Top</a>
-      </div>
-      <p></p>
-
-      
-        <h3 id="bytebase.store.AnomalyConnectionPayload">AnomalyConnectionPayload</h3>
-        <p></p>
-
-        
-          <table class="field-table">
-            <thead>
-              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
-            </thead>
-            <tbody>
-              
-                <tr>
-                  <td>detail</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>Connection failure detail </p></td>
-                </tr>
-              
-            </tbody>
-          </table>
-
-          
-
-        
-      
-        <h3 id="bytebase.store.AnomalyDatabaseSchemaDriftPayload">AnomalyDatabaseSchemaDriftPayload</h3>
-        <p></p>
-
-        
-          <table class="field-table">
-            <thead>
-              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
-            </thead>
-            <tbody>
-              
-                <tr>
-                  <td>version</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>The schema version corresponds to the expected schema </p></td>
-                </tr>
-              
-                <tr>
-                  <td>expect</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>The expected latest schema stored in the migration history table </p></td>
-                </tr>
-              
-                <tr>
-                  <td>actual</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>The actual schema dumped from the database </p></td>
-                </tr>
-              
-            </tbody>
-          </table>
-
-          
-
-        
-      
-
-      
-
-      
-
-      
-    
-      
-      <div class="file-heading">
         <h2 id="store/approval.proto">store/approval.proto</h2><a href="#title">Top</a>
       </div>
       <p></p>
@@ -2168,17 +2073,10 @@ TODO: use range instead. </p></td>
                 </tr>
               
                 <tr>
-                  <td>group_value</td>
-                  <td><a href="#bytebase.store.ApprovalNode.GroupValue">ApprovalNode.GroupValue</a></td>
-                  <td></td>
-                  <td><p> </p></td>
-                </tr>
-              
-                <tr>
                   <td>role</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p>Format: roles/{role} </p></td>
+                  <td><p> </p></td>
                 </tr>
               
             </tbody>
@@ -2246,13 +2144,6 @@ TODO: use range instead. </p></td>
                 <tr>
                   <td>description</td>
                   <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p> </p></td>
-                </tr>
-              
-                <tr>
-                  <td>creator_id</td>
-                  <td><a href="#int32">int32</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -2349,47 +2240,6 @@ If `true`, other fields are available. </p></td>
         
       
 
-      
-        <h3 id="bytebase.store.ApprovalNode.GroupValue">ApprovalNode.GroupValue</h3>
-        <p>The predefined user groups are:</p><p>- WORKSPACE_OWNER</p><p>- WORKSPACE_DBA</p><p>- PROJECT_OWNER</p><p>- PROJECT_MEMBER</p>
-        <table class="enum-table">
-          <thead>
-            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
-          </thead>
-          <tbody>
-            
-              <tr>
-                <td>GROUP_VALUE_UNSPECIFILED</td>
-                <td>0</td>
-                <td><p></p></td>
-              </tr>
-            
-              <tr>
-                <td>WORKSPACE_OWNER</td>
-                <td>1</td>
-                <td><p></p></td>
-              </tr>
-            
-              <tr>
-                <td>WORKSPACE_DBA</td>
-                <td>2</td>
-                <td><p></p></td>
-              </tr>
-            
-              <tr>
-                <td>PROJECT_OWNER</td>
-                <td>3</td>
-                <td><p></p></td>
-              </tr>
-            
-              <tr>
-                <td>PROJECT_MEMBER</td>
-                <td>4</td>
-                <td><p></p></td>
-              </tr>
-            
-          </tbody>
-        </table>
       
         <h3 id="bytebase.store.ApprovalNode.Type">ApprovalNode.Type</h3>
         <p>Type of the ApprovalNode.</p><p>type determines who should approve this node.</p><p>ANY_IN_GROUP means the ApprovalNode can be approved by an user from our predefined user group.</p><p>See GroupValue below for the predefined user groups.</p>
@@ -3108,6 +2958,13 @@ Format: projects/{project}/sheets/{sheet} </p></td>
                 <tr>
                   <td>type</td>
                   <td><a href="#bytebase.store.ChangelogPayload.Type">ChangelogPayload.Type</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>git_commit</td>
+                  <td><a href="#string">string</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -5194,6 +5051,21 @@ Reference: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family
                   <td><p> </p></td>
                 </tr>
               
+                <tr>
+                  <td>sharding_info</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>https://docs.pingcap.com/tidb/stable/information-schema-tables/ </p></td>
+                </tr>
+              
+                <tr>
+                  <td>primary_key_type</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes
+CLUSTERED or NONCLUSTERED. </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -5275,6 +5147,13 @@ in syntax [SUB]PARTITION {number}. </p></td>
                 <tr>
                   <td>indexes</td>
                   <td><a href="#bytebase.store.IndexMetadata">IndexMetadata</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>check_constraints</td>
+                  <td><a href="#bytebase.store.CheckConstraintMetadata">CheckConstraintMetadata</a></td>
                   <td>repeated</td>
                   <td><p> </p></td>
                 </tr>
@@ -9697,7 +9576,7 @@ for example, the environment resource can have the sql review config tag, like &
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>Whether to enable the database tenant mode for PostgreSQL.
-If enabled, the issue will be created with the pre-appended &#34;set role &lt;db_owner&gt;&#34; statement. </p></td>
+If enabled, the issue will be created with the prepend &#34;set role &lt;db_owner&gt;&#34; statement. </p></td>
                 </tr>
               
                 <tr>
@@ -9705,6 +9584,52 @@ If enabled, the issue will be created with the pre-appended &#34;set role &lt;db
                   <td><a href="#bool">bool</a></td>
                   <td></td>
                   <td><p>Whether to allow the issue creator to self-approve the issue. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>execution_retry_policy</td>
+                  <td><a href="#bytebase.store.Project.ExecutionRetryPolicy">Project.ExecutionRetryPolicy</a></td>
+                  <td></td>
+                  <td><p>Execution retry policy for the task run. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>ci_sampling_size</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p>The maximum number of databases to sample during CI data validation.
+Without specification, sampling is disabled, resulting in a full validation. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>parallel_tasks_per_rollout</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p>The maximum number of parallel tasks to run during the rollout. </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="bytebase.store.Project.ExecutionRetryPolicy">Project.ExecutionRetryPolicy</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>maximum_retries</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p>The maximum number of retries for the lock timeout issue. </p></td>
                 </tr>
               
             </tbody>
@@ -10977,19 +10902,19 @@ and write back to the schema metadata. </p></td>
             <tbody>
               
                 <tr>
-                  <td>title</td>
-                  <td><a href="#string">string</a></td>
-                  <td></td>
-                  <td><p>The display name of the environment. </p></td>
-                </tr>
-              
-                <tr>
                   <td>id</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
                   <td><p>The resource id of the environment.
 This value should be 4-63 characters, and valid characters
 are /[a-z][0-9]-/. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>title</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p>The display name of the environment. </p></td>
                 </tr>
               
                 <tr>
@@ -12306,6 +12231,13 @@ Format: instances/{instance}/databases/{database} </p></td>
                   <td><p> </p></td>
                 </tr>
               
+                <tr>
+                  <td>parallel_tasks_limit</td>
+                  <td><a href="#bool">bool</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -12346,14 +12278,14 @@ Format: instances/{instance}/databases/{database} </p></td>
               
                 <tr>
                   <td>start_position</td>
-                  <td><a href="#bytebase.store.TaskRunResult.Position">TaskRunResult.Position</a></td>
+                  <td><a href="#bytebase.store.Position">Position</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>The following fields are used for error reporting. </p></td>
                 </tr>
               
                 <tr>
                   <td>end_position</td>
-                  <td><a href="#bytebase.store.TaskRunResult.Position">TaskRunResult.Position</a></td>
+                  <td><a href="#bytebase.store.Position">Position</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -12370,37 +12302,6 @@ Format: instances/{instance}/databases/{database} </p></td>
                   <td><a href="#bytebase.store.PriorBackupDetail">PriorBackupDetail</a></td>
                   <td></td>
                   <td><p>The prior backup detail that will be used to rollback the task run. </p></td>
-                </tr>
-              
-            </tbody>
-          </table>
-
-          
-
-        
-      
-        <h3 id="bytebase.store.TaskRunResult.Position">TaskRunResult.Position</h3>
-        <p>The following fields are used for error reporting.</p><p>TODO(zp): Use common Position instead.</p>
-
-        
-          <table class="field-table">
-            <thead>
-              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
-            </thead>
-            <tbody>
-              
-                <tr>
-                  <td>line</td>
-                  <td><a href="#int32">int32</a></td>
-                  <td></td>
-                  <td><p> </p></td>
-                </tr>
-              
-                <tr>
-                  <td>column</td>
-                  <td><a href="#int32">int32</a></td>
-                  <td></td>
-                  <td><p> </p></td>
                 </tr>
               
             </tbody>
@@ -12514,6 +12415,13 @@ Format: instances/{instance}/databases/{database} </p></td>
                 <tr>
                   <td>prior_backup_end</td>
                   <td><a href="#bytebase.store.TaskRunLog.PriorBackupEnd">TaskRunLog.PriorBackupEnd</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>retry_info</td>
+                  <td><a href="#bytebase.store.TaskRunLog.RetryInfo">TaskRunLog.RetryInfo</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -12661,6 +12569,44 @@ Format: instances/{instance}/databases/{database} </p></td>
         <p></p>
 
         
+
+        
+      
+        <h3 id="bytebase.store.TaskRunLog.RetryInfo">TaskRunLog.RetryInfo</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>error</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>retry_count</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>maximum_retries</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
 
         
       
@@ -12887,6 +12833,12 @@ Format: instances/{instance}/databases/{database} </p></td>
               <tr>
                 <td>PRIOR_BACKUP_END</td>
                 <td>10</td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>RETRY_INFO</td>
+                <td>11</td>
                 <td><p></p></td>
               </tr>
             

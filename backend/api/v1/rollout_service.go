@@ -81,7 +81,7 @@ func (s *RolloutService) PreviewRollout(ctx context.Context, request *v1pb.Previ
 	}
 	steps := convertPlanSteps(request.Plan.Steps)
 
-	rollout, err := GetPipelineCreate(ctx, s.store, s.sheetManager, s.licenseService, s.dbFactory, request.GetPlan().GetName(), steps, nil /* snapshot */, project)
+	rollout, err := GetPipelineCreate(ctx, s.store, s.sheetManager, s.dbFactory, request.GetPlan().GetName(), steps, nil /* snapshot */, project)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to get pipeline create, error: %v", err)
 	}
@@ -229,7 +229,7 @@ func (s *RolloutService) CreateRollout(ctx context.Context, request *v1pb.Create
 	if rolloutTitle == "" {
 		rolloutTitle = plan.Name
 	}
-	pipelineCreate, err := GetPipelineCreate(ctx, s.store, s.sheetManager, s.licenseService, s.dbFactory, rolloutTitle, plan.Config.GetSteps(), plan.Config.GetDeployment(), project)
+	pipelineCreate, err := GetPipelineCreate(ctx, s.store, s.sheetManager, s.dbFactory, rolloutTitle, plan.Config.GetSteps(), plan.Config.GetDeployment(), project)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to get pipeline create, error: %v", err)
 	}
@@ -562,7 +562,7 @@ func (s *RolloutService) BatchRunTasks(ctx context.Context, request *v1pb.BatchR
 	// the user has bb.taskruns.create permission.
 	ok, err = s.iamManager.CheckPermission(ctx, iam.PermissionTaskRunsCreate, user)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
 	}
 	if !ok {
 		if issueN != nil {
@@ -589,6 +589,10 @@ func (s *RolloutService) BatchRunTasks(ctx context.Context, request *v1pb.BatchR
 		if task.Payload.GetSheetId() != 0 {
 			sheetUID := int(task.Payload.GetSheetId())
 			create.SheetUID = &sheetUID
+		}
+		if request.GetRunTime() != nil {
+			t := request.GetRunTime().AsTime()
+			create.RunAt = &t
 		}
 		taskRunCreates = append(taskRunCreates, create)
 	}
@@ -948,7 +952,7 @@ func isChangeDatabasePlan(steps []*storepb.PlanConfig_Step) bool {
 }
 
 // GetPipelineCreate gets a pipeline create message from a plan.
-func GetPipelineCreate(ctx context.Context, s *store.Store, sheetManager *sheet.Manager, licenseService enterprise.LicenseService, dbFactory *dbfactory.DBFactory, rolloutTitle string, steps []*storepb.PlanConfig_Step, deployment *storepb.PlanConfig_Deployment /* nullable */, project *store.ProjectMessage) (*store.PipelineMessage, error) {
+func GetPipelineCreate(ctx context.Context, s *store.Store, sheetManager *sheet.Manager, dbFactory *dbfactory.DBFactory, rolloutTitle string, steps []*storepb.PlanConfig_Step, deployment *storepb.PlanConfig_Deployment /* nullable */, project *store.ProjectMessage) (*store.PipelineMessage, error) {
 	// Flatten all specs from steps.
 	var specs []*storepb.PlanConfig_Spec
 	for _, step := range steps {
@@ -965,12 +969,12 @@ func GetPipelineCreate(ctx context.Context, s *store.Store, sheetManager *sheet.
 	// Step 2 - list snapshot environments.
 	snapshotEnvironments := deployment.GetEnvironments()
 	if len(snapshotEnvironments) == 0 {
-		environments, err := s.ListEnvironmentV2(ctx, &store.FindEnvironmentMessage{})
+		environments, err := s.GetEnvironmentSetting(ctx)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to list environments")
 		}
-		for _, e := range environments {
-			snapshotEnvironments = append(snapshotEnvironments, e.ResourceID)
+		for _, e := range environments.GetEnvironments() {
+			snapshotEnvironments = append(snapshotEnvironments, e.Id)
 		}
 	}
 	environmentIndex := make(map[string]int)
@@ -981,7 +985,7 @@ func GetPipelineCreate(ctx context.Context, s *store.Store, sheetManager *sheet.
 	// Step 3 - convert all task creates.
 	var taskCreates []*store.TaskMessage
 	for _, spec := range transformSpecs {
-		tcs, err := getTaskCreatesFromSpec(ctx, s, sheetManager, licenseService, dbFactory, spec, project)
+		tcs, err := getTaskCreatesFromSpec(ctx, s, sheetManager, dbFactory, spec, project)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get task creates from spec")
 		}
@@ -1001,16 +1005,15 @@ func GetPipelineCreate(ctx context.Context, s *store.Store, sheetManager *sheet.
 
 	// Step 5 - build tasks for each stage.
 	for _, spec := range transformSpecs {
-		tc, err := getTaskCreatesFromSpec(ctx, s, sheetManager, licenseService, dbFactory, spec, project)
+		tc, err := getTaskCreatesFromSpec(ctx, s, sheetManager, dbFactory, spec, project)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get task creates from spec")
 		}
 		for _, t := range tc {
-			e, err := s.GetEnvironmentV2(ctx, &store.FindEnvironmentMessage{ResourceID: &t.EnvironmentID})
-			if err != nil {
-				return nil, status.Error(codes.Internal, err.Error())
+			environmentIndex, ok := environmentIndex[t.EnvironmentID]
+			if !ok {
+				continue
 			}
-			environmentIndex := environmentIndex[e.ResourceID]
 			stages[environmentIndex].TaskList = append(stages[environmentIndex].TaskList, t)
 		}
 	}
@@ -1037,12 +1040,12 @@ func getPipelineCreateToTargetStage(ctx context.Context, s *store.Store, snapsho
 		return nil, errors.Wrapf(err, "failed to get environment id from %q", *targetEnvironment)
 	}
 	if len(snapshotEnvironments) == 0 {
-		environments, err := s.ListEnvironmentV2(ctx, &store.FindEnvironmentMessage{})
+		environments, err := s.GetEnvironmentSetting(ctx)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to list environments")
 		}
-		for _, e := range environments {
-			snapshotEnvironments = append(snapshotEnvironments, e.ResourceID)
+		for _, e := range environments.GetEnvironments() {
+			snapshotEnvironments = append(snapshotEnvironments, e.Id)
 		}
 	}
 

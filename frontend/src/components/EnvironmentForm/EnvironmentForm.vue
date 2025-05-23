@@ -15,10 +15,8 @@ import { useI18n } from "vue-i18n";
 import { onBeforeRouteLeave } from "vue-router";
 import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import { hasFeature } from "@/store";
-import { defaultEnvironmentTier } from "@/store/modules/v1/environment";
 import { VirtualRoleType } from "@/types";
-import type { Environment } from "@/types/proto/v1/environment_service";
-import { EnvironmentTier } from "@/types/proto/v1/environment_service";
+import type { Environment } from "@/types/v1/environment";
 import type { Policy } from "@/types/proto/v1/org_policy_service";
 import { PolicyType } from "@/types/proto/v1/org_policy_service";
 import { FeatureModal } from "../FeatureGuard";
@@ -29,7 +27,6 @@ const props = withDefaults(
     create?: boolean;
     environment: Environment;
     rolloutPolicy: Policy;
-    environmentTier: EnvironmentTier;
   }>(),
   {
     create: false,
@@ -42,7 +39,6 @@ const emit = defineEmits<{
     params: {
       environment: Partial<Environment>;
       rolloutPolicy: Policy;
-      environmentTier: EnvironmentTier;
     }
   ): void;
   (event: "update", environment: Environment): void;
@@ -54,8 +50,7 @@ const emit = defineEmits<{
       policy: Policy;
     }
   ): void;
-  (event: "archive", environment: Environment): void;
-  (event: "restore", environment: Environment): void;
+  (event: "delete", environment: Environment): void;
   (event: "cancel"): void;
 }>();
 
@@ -64,7 +59,6 @@ const context = provideEnvironmentFormContext({
   create: toRef(props, "create"),
   environment: toRef(props, "environment"),
   rolloutPolicy: toRef(props, "rolloutPolicy"),
-  environmentTier: toRef(props, "environmentTier"),
 });
 const { valueChanged, events, missingFeature } = context;
 
@@ -86,8 +80,8 @@ onBeforeRouteLeave((to, from, next) => {
 });
 
 useEmitteryEventListener(events, "create", (params) => {
-  const { rolloutPolicy, environmentTier } = params;
-  if (environmentTier === EnvironmentTier.PROTECTED) {
+  const { rolloutPolicy, environment } = params;
+  if (environment.tags?.protected === "protected") {
     if (!hasFeature("bb.feature.custom-approval")) {
       missingFeature.value = "bb.feature.environment-tier-policy";
       return;
@@ -111,8 +105,7 @@ useEmitteryEventListener(events, "create", (params) => {
 });
 useEmitteryEventListener(events, "update", (environment) => {
   if (
-    environment.tier != props.environment.tier &&
-    environment.tier !== defaultEnvironmentTier &&
+    environment.tags.protected === "protected" &&
     !hasFeature("bb.feature.environment-tier-policy")
   ) {
     missingFeature.value = "bb.feature.environment-tier-policy";
@@ -141,11 +134,8 @@ useEmitteryEventListener(events, "update-policy", (params) => {
 
   emit("update-policy", params);
 });
-useEmitteryEventListener(events, "archive", (environment) => {
-  emit("archive", environment);
-});
-useEmitteryEventListener(events, "restore", (environment) => {
-  emit("restore", environment);
+useEmitteryEventListener(events, "delete", (environment) => {
+  emit("delete", environment);
 });
 useEmitteryEventListener(events, "cancel", () => {
   emit("cancel");

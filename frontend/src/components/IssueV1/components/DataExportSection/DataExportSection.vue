@@ -21,13 +21,17 @@
 
 <script lang="ts" setup>
 import { NEmpty } from "naive-ui";
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import DatabaseInfo from "@/components/DatabaseInfo.vue";
-import { databaseForTask, useIssueContext } from "@/components/IssueV1/logic";
+import { useIssueContext } from "@/components/IssueV1/logic";
+import { databaseForTask } from "@/components/Rollout/RolloutDetail";
 import NoPermissionPlaceholder from "@/components/misc/NoPermissionPlaceholder.vue";
+import { useDatabaseV1Store } from "@/store";
+import { isValidDatabaseName } from "@/types";
 import { hasProjectPermissionV2 } from "@/utils";
 import ExportOptionSection from "./ExportOptionSection";
 
+const databaseStore = useDatabaseV1Store();
 const { isCreating, issue, selectedTask } = useIssueContext();
 
 // For database data export issue, the stageList should always be only 1 stage.
@@ -36,7 +40,7 @@ const stageList = computed(() => {
 });
 
 const database = computed(() => {
-  return databaseForTask(issue.value, selectedTask.value);
+  return databaseForTask(issue.value.projectEntity, selectedTask.value);
 });
 
 const placeholder = computed(() => {
@@ -48,4 +52,18 @@ const placeholder = computed(() => {
   }
   return "NO_DATA";
 });
+
+// For data export issue, there should be only 1 database.
+watch(
+  () => database.value.name,
+  async (databaseName) => {
+    if (!databaseName || !isValidDatabaseName(databaseName)) {
+      return;
+    }
+    await databaseStore.getOrFetchDatabaseByName(databaseName);
+  },
+  {
+    immediate: true,
+  }
+);
 </script>

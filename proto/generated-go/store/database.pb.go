@@ -1528,11 +1528,16 @@ type TableMetadata struct {
 	Owner            string                     `protobuf:"bytes,18,opt,name=owner,proto3" json:"owner,omitempty"`
 	// The sorting_keys is a tuple of column names or arbitrary expressions. ClickHouse specific field.
 	// Reference: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#order_by
-	SortingKeys   []string           `protobuf:"bytes,19,rep,name=sorting_keys,json=sortingKeys,proto3" json:"sorting_keys,omitempty"`
-	Triggers      []*TriggerMetadata `protobuf:"bytes,20,rep,name=triggers,proto3" json:"triggers,omitempty"`
-	SkipDump      bool               `protobuf:"varint,21,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SortingKeys []string           `protobuf:"bytes,19,rep,name=sorting_keys,json=sortingKeys,proto3" json:"sorting_keys,omitempty"`
+	Triggers    []*TriggerMetadata `protobuf:"bytes,20,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	SkipDump    bool               `protobuf:"varint,21,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
+	// https://docs.pingcap.com/tidb/stable/information-schema-tables/
+	ShardingInfo string `protobuf:"bytes,22,opt,name=sharding_info,json=shardingInfo,proto3" json:"sharding_info,omitempty"`
+	// https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes
+	// CLUSTERED or NONCLUSTERED.
+	PrimaryKeyType string `protobuf:"bytes,23,opt,name=primary_key_type,json=primaryKeyType,proto3" json:"primary_key_type,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TableMetadata) Reset() {
@@ -1705,6 +1710,20 @@ func (x *TableMetadata) GetSkipDump() bool {
 	return false
 }
 
+func (x *TableMetadata) GetShardingInfo() string {
+	if x != nil {
+		return x.ShardingInfo
+	}
+	return ""
+}
+
+func (x *TableMetadata) GetPrimaryKeyType() string {
+	if x != nil {
+		return x.PrimaryKeyType
+	}
+	return ""
+}
+
 type CheckConstraintMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The name is the name of a check constraint.
@@ -1865,10 +1884,11 @@ type TablePartitionMetadata struct {
 	// in syntax [SUB]PARTITION {number}.
 	UseDefault string `protobuf:"bytes,5,opt,name=use_default,json=useDefault,proto3" json:"use_default,omitempty"`
 	// The subpartitions is the list of subpartitions in a table partition.
-	Subpartitions []*TablePartitionMetadata `protobuf:"bytes,6,rep,name=subpartitions,proto3" json:"subpartitions,omitempty"`
-	Indexes       []*IndexMetadata          `protobuf:"bytes,7,rep,name=indexes,proto3" json:"indexes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Subpartitions    []*TablePartitionMetadata  `protobuf:"bytes,6,rep,name=subpartitions,proto3" json:"subpartitions,omitempty"`
+	Indexes          []*IndexMetadata           `protobuf:"bytes,7,rep,name=indexes,proto3" json:"indexes,omitempty"`
+	CheckConstraints []*CheckConstraintMetadata `protobuf:"bytes,8,rep,name=check_constraints,json=checkConstraints,proto3" json:"check_constraints,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TablePartitionMetadata) Reset() {
@@ -1946,6 +1966,13 @@ func (x *TablePartitionMetadata) GetSubpartitions() []*TablePartitionMetadata {
 func (x *TablePartitionMetadata) GetIndexes() []*IndexMetadata {
 	if x != nil {
 		return x.Indexes
+	}
+	return nil
+}
+
+func (x *TablePartitionMetadata) GetCheckConstraints() []*CheckConstraintMetadata {
+	if x != nil {
+		return x.CheckConstraints
 	}
 	return nil
 }
@@ -3916,7 +3943,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fMODE_DEFAULT\x10\x01\x12\x14\n" +
 	"\x10MODE_APPEND_ONLY\x10\x02\x12\x14\n" +
-	"\x10MODE_INSERT_ONLY\x10\x03\"\xb8\x06\n" +
+	"\x10MODE_INSERT_ONLY\x10\x03\"\x87\a\n" +
 	"\rTableMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x128\n" +
 	"\acolumns\x18\x02 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\x127\n" +
@@ -3941,7 +3968,9 @@ const file_store_database_proto_rawDesc = "" +
 	"\x05owner\x18\x12 \x01(\tR\x05owner\x12!\n" +
 	"\fsorting_keys\x18\x13 \x03(\tR\vsortingKeys\x12;\n" +
 	"\btriggers\x18\x14 \x03(\v2\x1f.bytebase.store.TriggerMetadataR\btriggers\x12\x1b\n" +
-	"\tskip_dump\x18\x15 \x01(\bR\bskipDump\"M\n" +
+	"\tskip_dump\x18\x15 \x01(\bR\bskipDump\x12#\n" +
+	"\rsharding_info\x18\x16 \x01(\tR\fshardingInfo\x12(\n" +
+	"\x10primary_key_type\x18\x17 \x01(\tR\x0eprimaryKeyType\"M\n" +
 	"\x17CheckConstraintMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -3951,7 +3980,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\x14external_server_name\x18\x02 \x01(\tR\x12externalServerName\x124\n" +
 	"\x16external_database_name\x18\x03 \x01(\tR\x14externalDatabaseName\x128\n" +
-	"\acolumns\x18\x04 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\"\xd8\x03\n" +
+	"\acolumns\x18\x04 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\"\xae\x04\n" +
 	"\x16TablePartitionMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12?\n" +
 	"\x04type\x18\x02 \x01(\x0e2+.bytebase.store.TablePartitionMetadata.TypeR\x04type\x12\x1e\n" +
@@ -3962,7 +3991,8 @@ const file_store_database_proto_rawDesc = "" +
 	"\vuse_default\x18\x05 \x01(\tR\n" +
 	"useDefault\x12L\n" +
 	"\rsubpartitions\x18\x06 \x03(\v2&.bytebase.store.TablePartitionMetadataR\rsubpartitions\x127\n" +
-	"\aindexes\x18\a \x03(\v2\x1d.bytebase.store.IndexMetadataR\aindexes\"\x8a\x01\n" +
+	"\aindexes\x18\a \x03(\v2\x1d.bytebase.store.IndexMetadataR\aindexes\x12T\n" +
+	"\x11check_constraints\x18\b \x03(\v2'.bytebase.store.CheckConstraintMetadataR\x10checkConstraints\"\x8a\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\t\n" +
 	"\x05RANGE\x10\x01\x12\x11\n" +
@@ -4263,35 +4293,36 @@ var file_store_database_proto_depIdxs = []int32{
 	3,  // 28: bytebase.store.TablePartitionMetadata.type:type_name -> bytebase.store.TablePartitionMetadata.Type
 	20, // 29: bytebase.store.TablePartitionMetadata.subpartitions:type_name -> bytebase.store.TablePartitionMetadata
 	30, // 30: bytebase.store.TablePartitionMetadata.indexes:type_name -> bytebase.store.IndexMetadata
-	46, // 31: bytebase.store.ColumnMetadata.default:type_name -> google.protobuf.StringValue
-	22, // 32: bytebase.store.ColumnMetadata.generation:type_name -> bytebase.store.GenerationMetadata
-	4,  // 33: bytebase.store.ColumnMetadata.identity_generation:type_name -> bytebase.store.ColumnMetadata.IdentityGeneration
-	5,  // 34: bytebase.store.GenerationMetadata.type:type_name -> bytebase.store.GenerationMetadata.Type
-	24, // 35: bytebase.store.ViewMetadata.dependency_columns:type_name -> bytebase.store.DependencyColumn
-	21, // 36: bytebase.store.ViewMetadata.columns:type_name -> bytebase.store.ColumnMetadata
-	14, // 37: bytebase.store.ViewMetadata.triggers:type_name -> bytebase.store.TriggerMetadata
-	24, // 38: bytebase.store.MaterializedViewMetadata.dependency_columns:type_name -> bytebase.store.DependencyColumn
-	14, // 39: bytebase.store.MaterializedViewMetadata.triggers:type_name -> bytebase.store.TriggerMetadata
-	30, // 40: bytebase.store.MaterializedViewMetadata.indexes:type_name -> bytebase.store.IndexMetadata
-	26, // 41: bytebase.store.FunctionMetadata.dependency_tables:type_name -> bytebase.store.DependencyTable
-	36, // 42: bytebase.store.DatabaseConfig.schemas:type_name -> bytebase.store.SchemaCatalog
-	37, // 43: bytebase.store.SchemaCatalog.tables:type_name -> bytebase.store.TableCatalog
-	38, // 44: bytebase.store.TableCatalog.columns:type_name -> bytebase.store.ColumnCatalog
-	39, // 45: bytebase.store.TableCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
-	41, // 46: bytebase.store.ColumnCatalog.labels:type_name -> bytebase.store.ColumnCatalog.LabelsEntry
-	39, // 47: bytebase.store.ColumnCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
-	47, // 48: bytebase.store.ColumnCatalog.masking_level:type_name -> bytebase.store.MaskingLevel
-	6,  // 49: bytebase.store.ObjectSchema.type:type_name -> bytebase.store.ObjectSchema.Type
-	42, // 50: bytebase.store.ObjectSchema.struct_kind:type_name -> bytebase.store.ObjectSchema.StructKind
-	43, // 51: bytebase.store.ObjectSchema.array_kind:type_name -> bytebase.store.ObjectSchema.ArrayKind
-	44, // 52: bytebase.store.ObjectSchema.StructKind.properties:type_name -> bytebase.store.ObjectSchema.StructKind.PropertiesEntry
-	39, // 53: bytebase.store.ObjectSchema.ArrayKind.kind:type_name -> bytebase.store.ObjectSchema
-	39, // 54: bytebase.store.ObjectSchema.StructKind.PropertiesEntry.value:type_name -> bytebase.store.ObjectSchema
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	18, // 31: bytebase.store.TablePartitionMetadata.check_constraints:type_name -> bytebase.store.CheckConstraintMetadata
+	46, // 32: bytebase.store.ColumnMetadata.default:type_name -> google.protobuf.StringValue
+	22, // 33: bytebase.store.ColumnMetadata.generation:type_name -> bytebase.store.GenerationMetadata
+	4,  // 34: bytebase.store.ColumnMetadata.identity_generation:type_name -> bytebase.store.ColumnMetadata.IdentityGeneration
+	5,  // 35: bytebase.store.GenerationMetadata.type:type_name -> bytebase.store.GenerationMetadata.Type
+	24, // 36: bytebase.store.ViewMetadata.dependency_columns:type_name -> bytebase.store.DependencyColumn
+	21, // 37: bytebase.store.ViewMetadata.columns:type_name -> bytebase.store.ColumnMetadata
+	14, // 38: bytebase.store.ViewMetadata.triggers:type_name -> bytebase.store.TriggerMetadata
+	24, // 39: bytebase.store.MaterializedViewMetadata.dependency_columns:type_name -> bytebase.store.DependencyColumn
+	14, // 40: bytebase.store.MaterializedViewMetadata.triggers:type_name -> bytebase.store.TriggerMetadata
+	30, // 41: bytebase.store.MaterializedViewMetadata.indexes:type_name -> bytebase.store.IndexMetadata
+	26, // 42: bytebase.store.FunctionMetadata.dependency_tables:type_name -> bytebase.store.DependencyTable
+	36, // 43: bytebase.store.DatabaseConfig.schemas:type_name -> bytebase.store.SchemaCatalog
+	37, // 44: bytebase.store.SchemaCatalog.tables:type_name -> bytebase.store.TableCatalog
+	38, // 45: bytebase.store.TableCatalog.columns:type_name -> bytebase.store.ColumnCatalog
+	39, // 46: bytebase.store.TableCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
+	41, // 47: bytebase.store.ColumnCatalog.labels:type_name -> bytebase.store.ColumnCatalog.LabelsEntry
+	39, // 48: bytebase.store.ColumnCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
+	47, // 49: bytebase.store.ColumnCatalog.masking_level:type_name -> bytebase.store.MaskingLevel
+	6,  // 50: bytebase.store.ObjectSchema.type:type_name -> bytebase.store.ObjectSchema.Type
+	42, // 51: bytebase.store.ObjectSchema.struct_kind:type_name -> bytebase.store.ObjectSchema.StructKind
+	43, // 52: bytebase.store.ObjectSchema.array_kind:type_name -> bytebase.store.ObjectSchema.ArrayKind
+	44, // 53: bytebase.store.ObjectSchema.StructKind.properties:type_name -> bytebase.store.ObjectSchema.StructKind.PropertiesEntry
+	39, // 54: bytebase.store.ObjectSchema.ArrayKind.kind:type_name -> bytebase.store.ObjectSchema
+	39, // 55: bytebase.store.ObjectSchema.StructKind.PropertiesEntry.value:type_name -> bytebase.store.ObjectSchema
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_store_database_proto_init() }

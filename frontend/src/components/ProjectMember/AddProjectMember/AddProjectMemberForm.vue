@@ -5,6 +5,7 @@
       :required="true"
       :include-all-users="true"
       :include-service-account="true"
+      :disabled="disableMemberChange"
     >
       <template #suffix>
         <NButton v-if="allowRemove" text @click="$emit('remove')">
@@ -15,18 +16,22 @@
       </template>
     </MembersBindingSelect>
 
-    <div class="w-full">
+    <div class="w-full space-y-2">
       <div class="flex items-center gap-x-1">
         <span>{{ $t("settings.members.assign-role") }}</span>
-        <span class="text-red-600">*</span>
+        <RequiredStar />
       </div>
-      <ProjectRoleSelect v-model:role="state.role" class="mt-2" />
+      <RoleSelect
+        v-model:value="state.role"
+        :include-workspace-roles="false"
+        :suffix="''"
+        :support-roles="supportRoles"
+      />
     </div>
-    <div class="w-full">
+    <div class="w-full space-y-2">
       <span>{{ $t("common.reason") }}</span>
       <NInput
         v-model:value="state.reason"
-        class="mt-2"
         type="textarea"
         rows="2"
         :placeholder="$t('project.members.assign-reason')"
@@ -37,36 +42,37 @@
         state.role === PresetRoleType.SQL_EDITOR_USER ||
         state.role === PresetRoleType.PROJECT_EXPORTER
       "
-      class="w-full"
+      class="w-full space-y-2"
     >
-      <div class="flex items-center gap-x-1 mb-2">
+      <div class="flex items-center gap-x-1">
         <span>{{ $t("common.databases") }}</span>
-        <span class="text-red-600">*</span>
+        <RequiredStar />
       </div>
       <QuerierDatabaseResourceForm
         v-model:database-resources="state.databaseResources"
-        :project-name="project.name"
+        :project-name="projectName"
         :required-feature="'bb.feature.access-control'"
         :include-cloumn="false"
       />
     </div>
     <template v-if="state.role === PresetRoleType.PROJECT_EXPORTER">
-      <div class="w-full flex flex-col justify-start items-start">
-        <span class="mb-2">
-          {{ $t("issue.grant-request.export-rows") }}
-        </span>
+      <div class="w-full flex flex-col justify-start items-start space-y-2">
+        <div class="flex items-center gap-x-1">
+          <span>{{ $t("issue.grant-request.export-rows") }}</span>
+          <RequiredStar />
+        </div>
         <MaxRowCountSelect v-model:value="state.maxRowCount" />
       </div>
     </template>
 
     <div class="w-full flex flex-col gap-y-2">
-      <span>{{ $t("common.expiration") }}</span>
+      <div class="flex items-center gap-x-1">
+        <span>{{ $t("common.expiration") }}</span>
+        <RequiredStar />
+      </div>
       <ExpirationSelector
+        :role="state.role"
         v-model:timestamp-in-ms="state.expirationTimestampInMS"
-        :enable-expiration-limit="
-          state.role === PresetRoleType.SQL_EDITOR_USER ||
-          state.role === PresetRoleType.PROJECT_EXPORTER
-        "
         class="grid-cols-3 sm:grid-cols-4"
       />
     </div>
@@ -75,27 +81,35 @@
 
 <script lang="ts" setup>
 /* eslint-disable vue/no-mutating-props */
-import dayjs from "dayjs";
-import { head, isUndefined } from "lodash-es";
+import { isUndefined } from "lodash-es";
 import { NInput, NButton } from "naive-ui";
 import { computed, reactive, watch } from "vue";
 import ExpirationSelector from "@/components/ExpirationSelector.vue";
 import QuerierDatabaseResourceForm from "@/components/GrantRequestPanel/DatabaseResourceForm/index.vue";
 import MaxRowCountSelect from "@/components/GrantRequestPanel/MaxRowCountSelect.vue";
 import MembersBindingSelect from "@/components/Member/MembersBindingSelect.vue";
-import { ProjectRoleSelect } from "@/components/v2/Select";
-import type { ComposedProject, DatabaseResource } from "@/types";
+import RequiredStar from "@/components/RequiredStar.vue";
+import { RoleSelect } from "@/components/v2/Select";
+import type { DatabaseResource } from "@/types";
 import { PresetRoleType } from "@/types";
-import { Expr } from "@/types/proto/google/type/expr";
 import type { Binding } from "@/types/proto/v1/iam_policy";
-import { displayRoleTitle, extractDatabaseResourceName } from "@/utils";
-import { stringifyDatabaseResources } from "@/utils/issue/cel";
+import { buildConditionExpr } from "@/utils/issue/cel";
 
-const props = defineProps<{
-  project: ComposedProject;
-  binding: Binding;
-  allowRemove: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    projectName: string;
+    binding: Binding;
+    allowRemove: boolean;
+    disableMemberChange?: boolean;
+    supportRoles?: string[];
+    databaseResource?: DatabaseResource;
+  }>(),
+  {
+    disableMemberChange: false,
+    supportRoles: () => [],
+    databaseResource: undefined,
+  }
+);
 
 defineEmits<{
   (event: "remove"): void;
@@ -115,10 +129,14 @@ interface LocalState {
 
 const getInitialState = (): LocalState => {
   const defaultState: LocalState = {
+    role: props.binding.role ? props.binding.role : undefined,
     memberList: props.binding.members,
     reason: "",
     // Default to never expire.
     maxRowCount: 1000,
+    databaseResources: props.databaseResource
+      ? [{ ...props.databaseResource }]
+      : undefined,
   };
 
   return defaultState;
@@ -139,34 +157,23 @@ watch(
 watch(
   () => state,
   () => {
-    const conditionName = generateConditionTitle();
     props.binding.members = state.memberList;
     if (state.role) {
       props.binding.role = state.role;
     }
-    const expression: string[] = [];
-    if (state.expirationTimestampInMS && state.expirationTimestampInMS > 0) {
-      expression.push(
-        `request.time < timestamp("${dayjs(state.expirationTimestampInMS).toISOString()}")`
-      );
-    }
-    if (
-      state.role === PresetRoleType.SQL_EDITOR_USER ||
-      state.role === PresetRoleType.PROJECT_EXPORTER
-    ) {
-      if (state.databaseResources) {
-        expression.push(stringifyDatabaseResources(state.databaseResources));
-      }
-    }
-    if (state.role === PresetRoleType.PROJECT_EXPORTER) {
-      if (state.maxRowCount) {
-        expression.push(`request.row_limit <= ${state.maxRowCount}`);
-      }
-    }
-    props.binding.condition = Expr.create({
-      title: conditionName,
+    props.binding.condition = buildConditionExpr({
+      role: state.role ?? "",
       description: state.reason,
-      expression: expression.length > 0 ? expression.join(" && ") : undefined,
+      expirationTimestampInMS: state.expirationTimestampInMS,
+      rowLimit:
+        state.role === PresetRoleType.PROJECT_EXPORTER
+          ? state.maxRowCount
+          : undefined,
+      databaseResources:
+        state.role === PresetRoleType.SQL_EDITOR_USER ||
+        state.role === PresetRoleType.PROJECT_EXPORTER
+          ? state.databaseResources
+          : undefined,
     });
   },
   {
@@ -174,62 +181,18 @@ watch(
   }
 );
 
-const generateConditionTitle = () => {
-  if (!state.role) {
-    return "";
-  }
-
-  const title = [displayRoleTitle(state.role)];
-  if (
-    state.role === PresetRoleType.SQL_EDITOR_USER ||
-    state.role === PresetRoleType.PROJECT_EXPORTER
-  ) {
-    let conditionSuffix = "";
-    if (!state.databaseResources || state.databaseResources.length === 0) {
-      conditionSuffix = `All databases`;
-    } else if (state.databaseResources.length <= 3) {
-      const databaseResourceNames = state.databaseResources.map((ds) =>
-        getDatabaseResourceName(ds)
-      );
-      conditionSuffix = `${databaseResourceNames.join(", ")}`;
-    } else {
-      const firstDatabaseResourceName = getDatabaseResourceName(
-        head(state.databaseResources)!
-      );
-      conditionSuffix = `${firstDatabaseResourceName} and ${
-        state.databaseResources.length - 1
-      } more`;
-    }
-    title.push(conditionSuffix);
-  }
-  if (state.expirationTimestampInMS && state.expirationTimestampInMS > 0) {
-    title.push(
-      `${dayjs().format("L")}-${dayjs(state.expirationTimestampInMS).format("L")}`
-    );
-  }
-
-  return title.join(" ");
-};
-
-const getDatabaseResourceName = (databaseResource: DatabaseResource) => {
-  const { databaseName } = extractDatabaseResourceName(
-    databaseResource.databaseFullName
-  );
-  if (databaseResource.table) {
-    if (databaseResource.schema) {
-      return `${databaseName}.${databaseResource.schema}.${databaseResource.table}`;
-    } else {
-      return `${databaseName}.${databaseResource.table}`;
-    }
-  } else if (databaseResource.schema) {
-    return `${databaseName}.${databaseResource.schema}`;
-  } else {
-    return databaseName;
-  }
-};
-
 defineExpose({
+  databaseResources: computed(() => state.databaseResources),
+  expirationTimestampInMS: computed(() => state.expirationTimestampInMS),
   allowConfirm: computed(() => {
+    if (!state.role) {
+      return false;
+    }
+    if (state.role === PresetRoleType.PROJECT_EXPORTER) {
+      if (!state.maxRowCount) {
+        return false;
+      }
+    }
     if (state.memberList.length <= 0) {
       return false;
     }

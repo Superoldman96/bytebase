@@ -36,8 +36,6 @@ import (
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
-type CreateUserFunc func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error
-
 var (
 	invalidUserOrPasswordError = status.Errorf(codes.Unauthenticated, "The email or password is not valid.")
 )
@@ -52,11 +50,10 @@ type AuthService struct {
 	profile        *config.Profile
 	stateCfg       *state.State
 	iamManager     *iam.Manager
-	postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) *AuthService {
+func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager) *AuthService {
 	return &AuthService{
 		store:          store,
 		secret:         secret,
@@ -65,7 +62,6 @@ func NewAuthService(store *store.Store, secret string, licenseService enterprise
 		profile:        profile,
 		stateCfg:       stateCfg,
 		iamManager:     iamManager,
-		postCreateUser: postCreateUser,
 	}
 }
 
@@ -183,7 +179,6 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 		}
 		if err := grpc.SetHeader(ctx, metadata.New(map[string]string{
 			auth.GatewayMetadataAccessTokenKey:   response.Token,
-			auth.GatewayMetadataUserIDKey:        fmt.Sprintf("%d", loginUser.ID),
 			auth.GatewayMetadataRequestOriginKey: origin,
 		})); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to set grpc header, error: %v", err)
@@ -266,7 +261,6 @@ func (s *AuthService) Logout(ctx context.Context, _ *v1pb.LogoutRequest) (*empty
 
 	if err := grpc.SetHeader(ctx, metadata.New(map[string]string{
 		auth.GatewayMetadataAccessTokenKey: "",
-		auth.GatewayMetadataUserIDKey:      "",
 	})); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to set grpc header, error: %v", err)
 	}
@@ -443,7 +437,7 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 	if userInfo.HasGroups {
 		// Sync user groups with the identity provider.
 		// The userInfo.Groups is the groups that the user belongs to in the identity provider.
-		if err := s.syncUserGroups(ctx, user, userInfo.Groups); err != nil {
+		if err := s.syncUserGroups(ctx, newUser, userInfo.Groups); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to sync user groups: %v", err)
 		}
 	}
@@ -491,6 +485,7 @@ func (s *AuthService) syncUserGroups(ctx context.Context, user *store.UserMessag
 		return status.Errorf(codes.Internal, "failed to list groups: %v", err)
 	}
 
+	groupChanged := false
 	for _, bbGroup := range bbGroups {
 		var isMember bool
 		for _, group := range groups {
@@ -524,6 +519,14 @@ func (s *AuthService) syncUserGroups(ctx context.Context, user *store.UserMessag
 			}); err != nil {
 				return status.Errorf(codes.Internal, "failed to update group %q: %v", bbGroup.Email, err)
 			}
+			groupChanged = true
+		}
+	}
+
+	// Reload IAM cache if group membership changed.
+	if groupChanged {
+		if err := s.iamManager.ReloadCache(ctx); err != nil {
+			return status.Errorf(codes.Internal, "failed to reload IAM cache: %v", err)
 		}
 	}
 

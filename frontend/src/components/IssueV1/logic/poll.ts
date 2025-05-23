@@ -1,5 +1,6 @@
+import { isEqual } from "lodash-es";
 import { watch } from "vue";
-import { databaseForTask } from "@/components/IssueV1/logic";
+import { databaseForTask } from "@/components/Rollout/RolloutDetail";
 import { useProgressivePoll } from "@/composables/useProgressivePoll";
 import {
   experimentalFetchIssueByUID,
@@ -20,7 +21,7 @@ const clearCache = (issue: ComposedIssue) => {
   const tasks = flattenTaskV1List(issue.rolloutEntity);
 
   for (const task of tasks) {
-    const database = databaseForTask(issue, task);
+    const database = databaseForTask(issue.projectEntity, task);
     switch (task.type) {
       case Task_Type.DATABASE_CREATE:
         useInstanceV1Store()
@@ -61,7 +62,9 @@ export const usePollIssue = () => {
         clearCache(updatedIssue);
       }
 
-      issue.value = updatedIssue;
+      if (!isEqual(issue.value, updatedIssue)) {
+        issue.value = updatedIssue;
+      }
     });
   };
 

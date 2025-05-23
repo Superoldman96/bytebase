@@ -9,6 +9,7 @@ import {
   SYSTEM_BOT_USER_NAME,
   isValidUserName,
   unknownUser,
+  userBindingPrefix,
 } from "@/types";
 import { State, stateToJSON } from "@/types/proto/v1/common";
 import type { UpdateUserRequest, User } from "@/types/proto/v1/user_service";
@@ -64,6 +65,12 @@ export const useUserStore = defineStore("user", () => {
   const systemBotUser = computedAsync(() => {
     return getOrFetchUserByIdentifier(SYSTEM_BOT_USER_NAME);
   });
+
+  const fetchCurrentUser = async () => {
+    const user = await userServiceClient.getCurrentUser({});
+    setUser(user);
+    return user;
+  };
 
   const fetchUserList = async (params: {
     pageSize: number;
@@ -131,6 +138,31 @@ export const useUserStore = defineStore("user", () => {
     return setUser(restoredUser);
   };
 
+  const batchGetUsers = async (userNameList: string[]) => {
+    const distinctList = uniq(userNameList)
+      .filter(
+        (name) =>
+          Boolean(name) &&
+          (name.startsWith(userNamePrefix) ||
+            name.startsWith(userBindingPrefix))
+      )
+      .map((name) => ensureUserFullName(name))
+      .filter(
+        (name) =>
+          isValidUserName(name) && getUserByIdentifier(name) === undefined
+      );
+    if (distinctList.length === 0) {
+      return [];
+    }
+    const { users } = await userServiceClient.batchGetUsers({
+      names: distinctList,
+    });
+    for (const user of users) {
+      setUser(user);
+    }
+    return users;
+  };
+
   const getOrFetchUserByIdentifier = async (
     identifier: string,
     silent = true
@@ -167,28 +199,17 @@ export const useUserStore = defineStore("user", () => {
   return {
     allUser,
     systemBotUser,
+    fetchCurrentUser,
     fetchUserList,
     createUser,
     updateUser,
+    batchGetUsers,
     getOrFetchUserByIdentifier,
     getUserByIdentifier,
     archiveUser,
     restoreUser,
   };
 });
-
-export const batchGetOrFetchUsers = async (userNameList: string[]) => {
-  const userStore = useUserStore();
-  const distinctList = uniq(userNameList);
-  await Promise.all(
-    distinctList.map((userName) => {
-      if (!isValidUserName(userName)) {
-        return;
-      }
-      return userStore.getOrFetchUserByIdentifier(userName, true /* silent */);
-    })
-  );
-};
 
 export const getUpdateMaskFromUsers = (
   origin: User,

@@ -1,37 +1,41 @@
 <template>
-  <div
-    v-bind="$attrs"
-    class="text-sm flex flex-col lg:flex-row items-start lg:items-center bg-blue-100 py-3 px-4 text-main gap-y-2 gap-x-4 overflow-x-auto"
-  >
-    {{
-      $t("database.selected-n-databases", {
-        n: databases.length,
-      })
-    }}
-    <div class="flex items-center">
-      <template v-for="action in actions" :key="action.text">
-        <NTooltip :disabled="!action.disabled || !action.tooltip(action.text)">
-          <template #trigger>
-            <NButton
-              quaternary
-              size="small"
-              type="primary"
-              :disabled="action.disabled"
-              @click="action.click"
-            >
-              <template #icon>
-                <component :is="action.icon" class="h-4 w-4" />
-              </template>
-              <span class="text-sm">{{ action.text }}</span>
-            </NButton>
-          </template>
-          <span class="w-56 text-sm">
-            {{ action.tooltip(action.text.toLowerCase()) }}
-          </span>
-        </NTooltip>
-      </template>
+  <NScrollbar x-scrollable>
+    <div
+      v-bind="$attrs"
+      class="text-sm flex flex-col lg:flex-row items-start lg:items-center bg-blue-100 py-3 px-4 text-main gap-y-2 gap-x-4"
+    >
+      <span class="whitespace-nowrap">{{
+        $t("database.selected-n-databases", {
+          n: databases.length,
+        })
+      }}</span>
+      <div class="flex items-center">
+        <template v-for="action in actions" :key="action.text">
+          <NTooltip
+            :disabled="!action.disabled || !action.tooltip(action.text)"
+          >
+            <template #trigger>
+              <NButton
+                quaternary
+                size="small"
+                type="primary"
+                :disabled="action.disabled"
+                @click="action.click"
+              >
+                <template #icon>
+                  <component :is="action.icon" class="h-4 w-4" />
+                </template>
+                <span class="text-sm">{{ action.text }}</span>
+              </NButton>
+            </template>
+            <span class="w-56 text-sm">
+              {{ action.tooltip(action.text.toLowerCase()) }}
+            </span>
+          </NTooltip>
+        </template>
+      </div>
     </div>
-  </div>
+  </NScrollbar>
 
   <SchemaEditorModal
     v-if="state.showSchemaEditorModal"
@@ -109,7 +113,7 @@ import {
   ChevronsDownIcon,
   SquareStackIcon,
 } from "lucide-vue-next";
-import { NButton, NTooltip } from "naive-ui";
+import { NButton, NTooltip, useDialog, NScrollbar } from "naive-ui";
 import type { VNode } from "vue";
 import { computed, h, reactive } from "vue";
 import { useI18n } from "vue-i18n";
@@ -194,6 +198,7 @@ const dbSchemaStore = useDBSchemaV1Store();
 const disableSchemaEditor = useAppFeature(
   "bb.feature.issue.disable-schema-editor"
 );
+const dialog = useDialog();
 
 const selectedProjectNames = computed(() => {
   return new Set(props.databases.map((db) => db.project));
@@ -294,12 +299,38 @@ const operations = computed(() => {
   });
 });
 
+const showDatabaseDriftedWarningDialog = () => {
+  return new Promise((resolve) => {
+    dialog.create({
+      type: "warning",
+      positiveText: t("common.confirm"),
+      negativeText: t("common.cancel"),
+      title: t("issue.schema-drift-detected.self"),
+      content: t("issue.schema-drift-detected.description"),
+      autoFocus: false,
+      onNegativeClick: () => {
+        resolve(false);
+      },
+      onPositiveClick: () => {
+        resolve(true);
+      },
+    });
+  });
+};
+
 const generateMultiDb = async (
   type:
     | "bb.issue.database.schema.update"
     | "bb.issue.database.data.update"
     | "bb.issue.database.data.export"
 ) => {
+  // Check if any database is drifted.
+  if (props.databases.some((d) => d.drifted)) {
+    const confirmed = await showDatabaseDriftedWarningDialog();
+    if (!confirmed) {
+      return;
+    }
+  }
   if (
     props.databases.length === 1 &&
     type === "bb.issue.database.schema.update" &&
@@ -328,7 +359,6 @@ const generateMultiDb = async (
   });
 };
 
-// TODO: batch request
 const syncSchema = async () => {
   if (state.loading) {
     return;
@@ -341,20 +371,17 @@ const syncSchema = async () => {
   try {
     state.loading = true;
     await useGracefulRequest(async () => {
-      const requests = props.databases.map((db) => {
-        databaseStore.syncDatabase(db.name).then(() => {
-          dbSchemaStore.getOrFetchDatabaseMetadata({
-            database: db.name,
-            skipCache: true,
-          });
-        });
-      });
-      await Promise.all(requests);
-      pushNotification({
-        module: "bytebase",
-        style: "SUCCESS",
-        title: t("db.successfully-synced-schema"),
-      });
+      await databaseStore.batchSyncDatabases(
+        props.databases.map((db) => db.name)
+      );
+      for (const db of props.databases) {
+        dbSchemaStore.removeCache(db.name);
+      }
+    });
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: t("db.successfully-synced-schema"),
     });
   } catch {
     pushNotification({

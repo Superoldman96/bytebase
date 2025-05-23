@@ -138,7 +138,7 @@ func getListProjectFilter(filter string) (*store.ListResourceFilter, error) {
 			positionalArgs = append(positionalArgs, value.(string))
 			return fmt.Sprintf("project.resource_id = $%d", len(positionalArgs)), nil
 		case "exclude_default":
-			if _, ok := value.(bool); ok {
+			if excludeDefault, ok := value.(bool); excludeDefault && ok {
 				positionalArgs = append(positionalArgs, base.DefaultProjectID)
 				return fmt.Sprintf("project.resource_id != $%d", len(positionalArgs)), nil
 			}
@@ -339,6 +339,7 @@ func (s *ProjectService) UpdateProject(ctx context.Context, request *v1pb.Update
 		"auto_enable_backup",
 		"skip_backup_errors",
 		"postgres_database_tenant_mode",
+		"ci_sampling_size",
 	}
 	for _, path := range request.UpdateMask.Paths {
 		if slices.Contains(issueProjectSettingFeatureRelatedPaths, path) {
@@ -410,6 +411,18 @@ func (s *ProjectService) UpdateProject(ctx context.Context, request *v1pb.Update
 		case "allow_self_approval":
 			projectSettings := project.Setting
 			projectSettings.AllowSelfApproval = request.Project.AllowSelfApproval
+			patch.Setting = projectSettings
+		case "execution_retry_policy":
+			projectSettings := project.Setting
+			projectSettings.ExecutionRetryPolicy = convertToStoreExecutionRetryPolicy(request.Project.ExecutionRetryPolicy)
+			patch.Setting = projectSettings
+		case "ci_sampling_size":
+			projectSettings := project.Setting
+			projectSettings.CiSamplingSize = request.Project.CiSamplingSize
+			patch.Setting = projectSettings
+		case "parallel_tasks_per_rollout":
+			projectSettings := project.Setting
+			projectSettings.ParallelTasksPerRollout = request.Project.ParallelTasksPerRollout
 			patch.Setting = projectSettings
 		default:
 			return nil, status.Errorf(codes.InvalidArgument, `unsupport update_mask "%s"`, path)
@@ -1004,32 +1017,8 @@ func convertToActivityTypeStrings(types []v1pb.Activity_Type) ([]string, error) 
 			result = append(result, string(base.ActivityIssueApprovalNotify))
 		case v1pb.Activity_TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE:
 			result = append(result, string(base.ActivityPipelineStageStatusUpdate))
-		case v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE:
-			result = append(result, string(base.ActivityPipelineTaskStatusUpdate))
 		case v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE:
 			result = append(result, string(base.ActivityPipelineTaskRunStatusUpdate))
-		case v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE:
-			result = append(result, string(base.ActivityPipelineTaskStatementUpdate))
-		case v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE:
-			result = append(result, string(base.ActivityPipelineTaskEarliestAllowedTimeUpdate))
-		case v1pb.Activity_TYPE_MEMBER_CREATE:
-			result = append(result, string(base.ActivityMemberCreate))
-		case v1pb.Activity_TYPE_MEMBER_ROLE_UPDATE:
-			result = append(result, string(base.ActivityMemberRoleUpdate))
-		case v1pb.Activity_TYPE_MEMBER_ACTIVATE:
-			result = append(result, string(base.ActivityMemberActivate))
-		case v1pb.Activity_TYPE_MEMBER_DEACTIVATE:
-			result = append(result, string(base.ActivityMemberDeactivate))
-		case v1pb.Activity_TYPE_PROJECT_REPOSITORY_PUSH:
-			result = append(result, string(base.ActivityProjectRepositoryPush))
-		case v1pb.Activity_TYPE_PROJECT_DATABASE_TRANSFER:
-			result = append(result, string(base.ActivityProjectDatabaseTransfer))
-		case v1pb.Activity_TYPE_PROJECT_MEMBER_CREATE:
-			result = append(result, string(base.ActivityProjectMemberCreate))
-		case v1pb.Activity_TYPE_PROJECT_MEMBER_DELETE:
-			result = append(result, string(base.ActivityProjectMemberDelete))
-		case v1pb.Activity_TYPE_SQL_EDITOR_QUERY:
-			result = append(result, string(base.ActivitySQLQuery))
 		case v1pb.Activity_TYPE_NOTIFY_ISSUE_APPROVED:
 			result = append(result, string(base.ActivityNotifyIssueApproved))
 		case v1pb.Activity_TYPE_NOTIFY_PIPELINE_ROLLOUT:
@@ -1057,32 +1046,8 @@ func convertNotificationTypeStrings(types []string) []v1pb.Activity_Type {
 			result = append(result, v1pb.Activity_TYPE_ISSUE_APPROVAL_NOTIFY)
 		case string(base.ActivityPipelineStageStatusUpdate):
 			result = append(result, v1pb.Activity_TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE)
-		case string(base.ActivityPipelineTaskStatusUpdate):
-			result = append(result, v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE)
 		case string(base.ActivityPipelineTaskRunStatusUpdate):
 			result = append(result, v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE)
-		case string(base.ActivityPipelineTaskStatementUpdate):
-			result = append(result, v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE)
-		case string(base.ActivityPipelineTaskEarliestAllowedTimeUpdate):
-			result = append(result, v1pb.Activity_TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE)
-		case string(base.ActivityMemberCreate):
-			result = append(result, v1pb.Activity_TYPE_MEMBER_CREATE)
-		case string(base.ActivityMemberRoleUpdate):
-			result = append(result, v1pb.Activity_TYPE_MEMBER_ROLE_UPDATE)
-		case string(base.ActivityMemberActivate):
-			result = append(result, v1pb.Activity_TYPE_MEMBER_ACTIVATE)
-		case string(base.ActivityMemberDeactivate):
-			result = append(result, v1pb.Activity_TYPE_MEMBER_DEACTIVATE)
-		case string(base.ActivityProjectRepositoryPush):
-			result = append(result, v1pb.Activity_TYPE_PROJECT_REPOSITORY_PUSH)
-		case string(base.ActivityProjectDatabaseTransfer):
-			result = append(result, v1pb.Activity_TYPE_PROJECT_DATABASE_TRANSFER)
-		case string(base.ActivityProjectMemberCreate):
-			result = append(result, v1pb.Activity_TYPE_PROJECT_MEMBER_CREATE)
-		case string(base.ActivityProjectMemberDelete):
-			result = append(result, v1pb.Activity_TYPE_PROJECT_MEMBER_DELETE)
-		case string(base.ActivitySQLQuery):
-			result = append(result, v1pb.Activity_TYPE_SQL_EDITOR_QUERY)
 		case string(base.ActivityNotifyIssueApproved):
 			result = append(result, v1pb.Activity_TYPE_NOTIFY_ISSUE_APPROVED)
 		case string(base.ActivityNotifyPipelineRollout):
@@ -1200,6 +1165,9 @@ func convertToV1IamPolicy(ctx context.Context, stores *store.Store, iamPolicy *s
 			}
 			members = append(members, memberInBinding)
 		}
+		if len(members) == 0 {
+			continue
+		}
 		v1pbBinding := &v1pb.Binding{
 			Role:      binding.Role,
 			Members:   members,
@@ -1243,6 +1211,9 @@ func convertToStoreIamPolicy(ctx context.Context, stores *store.Store, iamPolicy
 				return nil, err
 			}
 			members = append(members, storeMember)
+		}
+		if len(members) == 0 {
+			continue
 		}
 
 		storeBinding := &storepb.Binding{
@@ -1318,6 +1289,31 @@ func convertToProject(projectMessage *store.ProjectMessage) *v1pb.Project {
 		SkipBackupErrors:           projectMessage.Setting.SkipBackupErrors,
 		PostgresDatabaseTenantMode: projectMessage.Setting.PostgresDatabaseTenantMode,
 		AllowSelfApproval:          projectMessage.Setting.AllowSelfApproval,
+		ExecutionRetryPolicy:       convertToV1ExecutionRetryPolicy(projectMessage.Setting.ExecutionRetryPolicy),
+		CiSamplingSize:             projectMessage.Setting.CiSamplingSize,
+		ParallelTasksPerRollout:    projectMessage.Setting.ParallelTasksPerRollout,
+	}
+}
+
+func convertToV1ExecutionRetryPolicy(policy *storepb.Project_ExecutionRetryPolicy) *v1pb.Project_ExecutionRetryPolicy {
+	if policy == nil {
+		return &v1pb.Project_ExecutionRetryPolicy{
+			MaximumRetries: 0,
+		}
+	}
+	return &v1pb.Project_ExecutionRetryPolicy{
+		MaximumRetries: policy.MaximumRetries,
+	}
+}
+
+func convertToStoreExecutionRetryPolicy(policy *v1pb.Project_ExecutionRetryPolicy) *storepb.Project_ExecutionRetryPolicy {
+	if policy == nil {
+		return &storepb.Project_ExecutionRetryPolicy{
+			MaximumRetries: 0,
+		}
+	}
+	return &storepb.Project_ExecutionRetryPolicy{
+		MaximumRetries: policy.MaximumRetries,
 	}
 }
 
@@ -1330,6 +1326,8 @@ func convertToProjectMessage(resourceID string, project *v1pb.Project) (*store.P
 		SkipBackupErrors:           project.SkipBackupErrors,
 		PostgresDatabaseTenantMode: project.PostgresDatabaseTenantMode,
 		AllowSelfApproval:          project.AllowSelfApproval,
+		CiSamplingSize:             project.CiSamplingSize,
+		ParallelTasksPerRollout:    project.ParallelTasksPerRollout,
 	}
 	return &store.ProjectMessage{
 		ResourceID: resourceID,
@@ -1375,15 +1373,14 @@ func (*ProjectService) validateBindings(bindings []*v1pb.Binding, roles []*v1pb.
 		existingRoles[role.Name] = true
 	}
 	for _, binding := range bindings {
+		if len(binding.Members) == 0 {
+			continue
+		}
 		if binding.Role == "" {
 			return errors.Errorf("IAM Binding role is required")
 		}
 		if !existingRoles[binding.Role] {
 			return errors.Errorf("IAM Binding role %s does not exist", binding.Role)
-		}
-		// Each of the bindings must contain at least one member.
-		if len(binding.Members) == 0 {
-			return errors.Errorf("Each IAM binding must have at least one member")
 		}
 
 		// Users within each binding must be unique.

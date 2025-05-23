@@ -5,7 +5,7 @@ import {
   planServiceClient,
   rolloutServiceClient,
 } from "@/grpcweb";
-import { useProjectV1Store, useUserStore, batchGetOrFetchUsers } from "@/store";
+import { useProjectV1Store, useUserStore } from "@/store";
 import type { ComposedIssue, ComposedProject, ComposedTaskRun } from "@/types";
 import {
   emptyIssue,
@@ -38,7 +38,7 @@ export const composeIssue = async (
     userStore
       .getOrFetchUserByIdentifier(rawIssue.creator)
       .then((user) => user ?? unknownUser()),
-    batchGetOrFetchUsers(rawIssue.subscribers),
+    userStore.batchGetUsers(rawIssue.subscribers),
   ]);
 
   const issue: ComposedIssue = {
@@ -59,6 +59,7 @@ export const composeIssue = async (
       });
       issue.planEntity = plan;
     }
+
     if (hasProjectPermissionV2(projectEntity, "bb.planCheckRuns.list")) {
       // Only show the latest plan check runs.
       const { planCheckRuns } = await planServiceClient.listPlanCheckRuns({
@@ -74,6 +75,7 @@ export const composeIssue = async (
         name: issue.rollout,
       });
     }
+
     if (hasProjectPermissionV2(projectEntity, "bb.taskRuns.list")) {
       const { taskRuns } = await rolloutServiceClient.listTaskRuns({
         parent: `${issue.rollout}/stages/-/tasks/-`,

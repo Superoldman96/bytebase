@@ -15,27 +15,20 @@
     <div
       class="space-y-4 h-full w-[calc(100vw-8rem)] lg:w-[60rem] max-w-[calc(100vw-8rem)] overflow-x-auto"
     >
-      <div>
-        <div class="space-y-3">
-          <div class="w-full flex items-center space-x-2">
-            <AdvancedSearch
-              v-model:params="state.params"
-              :autofocus="false"
-              :placeholder="$t('database.filter-database')"
-              :scope-options="scopeOptions"
-            />
-          </div>
-
-          <PagedDatabaseTable
-            mode="ALL_SHORT"
-            :filter="filter"
-            :parent="projectName"
-            :custom-click="true"
-            :show-sql-editor-button="false"
-            @update:selected-databases="handleDatabasesSelectionChanged"
-          />
-        </div>
-      </div>
+      <AdvancedSearch
+        v-model:params="state.params"
+        :autofocus="false"
+        :placeholder="$t('database.filter-database')"
+        :scope-options="scopeOptions"
+      />
+      <PagedDatabaseTable
+        mode="ALL_SHORT"
+        :filter="filter"
+        :parent="projectName"
+        :custom-click="true"
+        :show-sql-editor-button="false"
+        v-model:selected-database-names="state.selectedDatabaseNames"
+      />
     </div>
 
     <template #footer>
@@ -103,7 +96,7 @@
 </template>
 
 <script lang="ts" setup>
-import { uniqBy } from "lodash-es";
+import { uniq, uniqBy } from "lodash-es";
 import { NButton, NCheckbox, NTooltip } from "naive-ui";
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
@@ -133,7 +126,7 @@ import SchemaEditorModal from "./SchemaEditorModal.vue";
 
 type LocalState = {
   showSchemaLessDatabaseList: boolean;
-  selectedDatabaseNames: Set<string>;
+  selectedDatabaseNames: string[];
   showSchemaEditorModal: boolean;
   params: SearchParams;
   // planOnly is used to indicate whether only to create plan.
@@ -178,7 +171,7 @@ const readonlyScopes = computed((): SearchScope[] => [
 ]);
 
 const state = reactive<LocalState>({
-  selectedDatabaseNames: new Set<string>(),
+  selectedDatabaseNames: [],
   showSchemaLessDatabaseList: false,
   showSchemaEditorModal: false,
   params: {
@@ -232,7 +225,7 @@ const isEditSchema = computed((): boolean => {
 });
 
 const flattenSelectedDatabaseNameList = computed(() => {
-  return [...state.selectedDatabaseNames];
+  return uniq(state.selectedDatabaseNames);
 });
 
 const flattenSelectedProjectList = computed(() => {
@@ -297,12 +290,6 @@ const generateMultiDb = async () => {
     },
     query,
   });
-};
-
-const handleDatabasesSelectionChanged = (
-  selectedDatabaseNameList: Set<string>
-) => {
-  state.selectedDatabaseNames = selectedDatabaseNameList;
 };
 
 const cancel = () => {

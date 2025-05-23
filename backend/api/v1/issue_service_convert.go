@@ -242,34 +242,8 @@ func convertToApprovalStep(step *storepb.ApprovalStep) *v1pb.ApprovalStep {
 func convertToApprovalNode(node *storepb.ApprovalNode) *v1pb.ApprovalNode {
 	v1node := &v1pb.ApprovalNode{}
 	v1node.Type = v1pb.ApprovalNode_Type(node.Type)
-	switch payload := node.Payload.(type) {
-	case *storepb.ApprovalNode_GroupValue_:
-		v1node.Payload = &v1pb.ApprovalNode_GroupValue_{
-			GroupValue: convertToApprovalNodeGroupValue(payload.GroupValue),
-		}
-	case *storepb.ApprovalNode_Role:
-		v1node.Payload = &v1pb.ApprovalNode_Role{
-			Role: payload.Role,
-		}
-	}
+	v1node.Role = node.Role
 	return v1node
-}
-
-func convertToApprovalNodeGroupValue(v storepb.ApprovalNode_GroupValue) v1pb.ApprovalNode_GroupValue {
-	switch v {
-	case storepb.ApprovalNode_GROUP_VALUE_UNSPECIFILED:
-		return v1pb.ApprovalNode_GROUP_VALUE_UNSPECIFILED
-	case storepb.ApprovalNode_WORKSPACE_OWNER:
-		return v1pb.ApprovalNode_WORKSPACE_OWNER
-	case storepb.ApprovalNode_WORKSPACE_DBA:
-		return v1pb.ApprovalNode_WORKSPACE_DBA
-	case storepb.ApprovalNode_PROJECT_OWNER:
-		return v1pb.ApprovalNode_PROJECT_OWNER
-	case storepb.ApprovalNode_PROJECT_MEMBER:
-		return v1pb.ApprovalNode_PROJECT_MEMBER
-	default:
-		return v1pb.ApprovalNode_GROUP_VALUE_UNSPECIFILED
-	}
 }
 
 func convertToGrantRequest(ctx context.Context, s *store.Store, v *storepb.GrantRequest) (*v1pb.GrantRequest, error) {

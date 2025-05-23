@@ -62,7 +62,7 @@ func (s *DatabaseGroupService) CreateDatabaseGroup(ctx context.Context, request 
 	if !isValidResourceID(request.DatabaseGroupId) {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid database group id %q", request.DatabaseGroupId)
 	}
-	if request.DatabaseGroup.DatabasePlaceholder == "" {
+	if request.DatabaseGroup.Title == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "database group database placeholder is required")
 	}
 	if request.DatabaseGroup.DatabaseExpr == nil || request.DatabaseGroup.DatabaseExpr.Expression == "" {
@@ -75,11 +75,23 @@ func (s *DatabaseGroupService) CreateDatabaseGroup(ctx context.Context, request 
 	storeDatabaseGroup := &store.DatabaseGroupMessage{
 		ResourceID:  request.DatabaseGroupId,
 		ProjectID:   project.ResourceID,
-		Placeholder: request.DatabaseGroup.DatabasePlaceholder,
+		Placeholder: request.DatabaseGroup.Title,
 		Expression:  request.DatabaseGroup.DatabaseExpr,
 	}
 	if request.ValidateOnly {
 		return s.convertStoreToAPIDatabaseGroupFull(ctx, storeDatabaseGroup, projectResourceID)
+	}
+
+	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "user not found")
+	}
+	hasPermission, err := s.iamManager.CheckPermission(ctx, iam.PermissionProjectsUpdate, user, project.ResourceID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to check permission with error: %v", err.Error())
+	}
+	if !hasPermission {
+		return nil, status.Errorf(codes.PermissionDenied, "user does not have permission %q", iam.PermissionProjectsUpdate)
 	}
 
 	databaseGroup, err := s.store.CreateDatabaseGroup(ctx, storeDatabaseGroup)
@@ -124,11 +136,11 @@ func (s *DatabaseGroupService) UpdateDatabaseGroup(ctx context.Context, request 
 	var updateDatabaseGroup store.UpdateDatabaseGroupMessage
 	for _, path := range request.UpdateMask.Paths {
 		switch path {
-		case "database_placeholder":
-			if request.DatabaseGroup.DatabasePlaceholder == "" {
+		case "title":
+			if request.DatabaseGroup.Title == "" {
 				return nil, status.Errorf(codes.InvalidArgument, "database group database placeholder is required")
 			}
-			updateDatabaseGroup.Placeholder = &request.DatabaseGroup.DatabasePlaceholder
+			updateDatabaseGroup.Placeholder = &request.DatabaseGroup.Title
 		case "database_expr":
 			if request.DatabaseGroup.DatabaseExpr == nil || request.DatabaseGroup.DatabaseExpr.Expression == "" {
 				return nil, status.Errorf(codes.InvalidArgument, "database group expr is required")
@@ -276,9 +288,9 @@ func (s *DatabaseGroupService) convertStoreToAPIDatabaseGroupFull(ctx context.Co
 
 func convertStoreToAPIDatabaseGroupBasic(databaseGroup *store.DatabaseGroupMessage, projectResourceID string) *v1pb.DatabaseGroup {
 	databaseGroupV1 := &v1pb.DatabaseGroup{
-		Name:                fmt.Sprintf("%s/%s%s", common.FormatProject(projectResourceID), common.DatabaseGroupNamePrefix, databaseGroup.ResourceID),
-		DatabasePlaceholder: databaseGroup.Placeholder,
-		DatabaseExpr:        databaseGroup.Expression,
+		Name:         fmt.Sprintf("%s/%s%s", common.FormatProject(projectResourceID), common.DatabaseGroupNamePrefix, databaseGroup.ResourceID),
+		Title:        databaseGroup.Placeholder,
+		DatabaseExpr: databaseGroup.Expression,
 	}
 	return databaseGroupV1
 }

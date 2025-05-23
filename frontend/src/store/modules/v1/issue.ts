@@ -4,20 +4,22 @@ import { defineStore } from "pinia";
 import type { WatchCallback } from "vue";
 import { ref, watch } from "vue";
 import { issueServiceClient } from "@/grpcweb";
-import type { ComposedIssue, IssueFilter } from "@/types";
-import { PresetRoleType } from "@/types";
+import {
+  SYSTEM_BOT_EMAIL,
+  type ComposedIssue,
+  type IssueFilter,
+} from "@/types";
 import type { ApprovalStep } from "@/types/proto/v1/issue_service";
 import {
   issueStatusToJSON,
   ApprovalNode_Type,
-  ApprovalNode_GroupValue,
 } from "@/types/proto/v1/issue_service";
 import { memberMapToRolesInProjectIAM } from "@/utils";
+import { userNamePrefix } from "./common";
 import {
   shallowComposeIssue,
   type ComposeIssueConfig,
 } from "./experimental-issue";
-import { useWorkspaceV1Store } from "./workspace";
 
 export type ListIssueParams = {
   find: IssueFilter;
@@ -27,20 +29,15 @@ export type ListIssueParams = {
 
 export const buildIssueFilter = (find: IssueFilter): string => {
   const filter: string[] = [];
-  if (find.principal) {
-    filter.push(`principal = "${find.principal}"`);
-  }
   if (find.creator) {
-    filter.push(`creator = "${find.creator}"`);
+    filter.push(`creator == "${find.creator}"`);
   }
   if (find.subscriber) {
-    filter.push(`subscriber = "${find.subscriber}"`);
+    filter.push(`subscriber == "${find.subscriber}"`);
   }
-  if (find.statusList) {
+  if (find.statusList && find.statusList.length > 0) {
     filter.push(
-      `status = "${find.statusList
-        .map((s) => issueStatusToJSON(s))
-        .join(" | ")}"`
+      `status in [${find.statusList.map((s) => `"${issueStatusToJSON(s)}"`).join(",")}]`
     );
   }
   if (find.createdTsAfter) {
@@ -54,22 +51,22 @@ export const buildIssueFilter = (find: IssueFilter): string => {
     );
   }
   if (find.type) {
-    filter.push(`type = "${find.type}"`);
+    filter.push(`type == "${find.type}"`);
   }
   if (find.taskType) {
-    filter.push(`task_type = "${find.taskType}"`);
+    filter.push(`task_type == "${find.taskType}"`);
   }
   if (find.instance) {
-    filter.push(`instance = "${find.instance}"`);
+    filter.push(`instance == "${find.instance}"`);
   }
   if (find.database) {
-    filter.push(`database = "${find.database}"`);
+    filter.push(`database == "${find.database}"`);
   }
   if (find.labels && find.labels.length > 0) {
-    filter.push(`labels = "${find.labels.join(" & ")}"`);
+    filter.push(`labels in [${find.labels.map((l) => `"${l}"`).join(",")}]`);
   }
   if (find.hasPipeline !== undefined) {
-    filter.push(`has_pipeline = "${find.hasPipeline}"`);
+    filter.push(`has_pipeline == "${find.hasPipeline}"`);
   }
   return filter.join(" && ");
 };
@@ -107,9 +104,10 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
 
   const fetchIssueByName = async (
     name: string,
-    composeIssueConfig?: ComposeIssueConfig
+    composeIssueConfig?: ComposeIssueConfig,
+    silent: boolean = false
   ) => {
-    const issue = await issueServiceClient.getIssue({ name });
+    const issue = await issueServiceClient.getIssue({ name }, { silent });
     return shallowComposeIssue(issue, composeIssueConfig);
   };
 
@@ -120,82 +118,37 @@ export const useIssueV1Store = defineStore("issue_v1", () => {
   };
 });
 
-const convertApprovalNodeGroupToRole = (
-  group: ApprovalNode_GroupValue
-): string => {
-  switch (group) {
-    case ApprovalNode_GroupValue.PROJECT_MEMBER:
-      return PresetRoleType.PROJECT_DEVELOPER;
-    case ApprovalNode_GroupValue.PROJECT_OWNER:
-      return PresetRoleType.PROJECT_OWNER;
-    case ApprovalNode_GroupValue.WORKSPACE_DBA:
-      return PresetRoleType.WORKSPACE_DBA;
-    case ApprovalNode_GroupValue.WORKSPACE_OWNER:
-      return PresetRoleType.WORKSPACE_ADMIN;
-  }
-  return "";
-};
-
 // candidatesOfApprovalStepV1 return user name list in users/{email} format.
 // The list could includs users/ALL_USERS_USER_EMAIL
 export const candidatesOfApprovalStepV1 = (
   issue: ComposedIssue,
   step: ApprovalStep
 ) => {
-  const workspaceStore = useWorkspaceV1Store();
   const project = issue.projectEntity;
 
   const candidates = step.nodes.flatMap((node) => {
-    const {
-      type,
-      groupValue = ApprovalNode_GroupValue.UNRECOGNIZED,
-      role,
-    } = node;
+    const { type, role } = node;
     if (type !== ApprovalNode_Type.ANY_IN_GROUP) return [];
 
-    const candidatesForSystemRoles = (groupValue: ApprovalNode_GroupValue) => {
-      if (
-        groupValue === ApprovalNode_GroupValue.PROJECT_MEMBER ||
-        groupValue === ApprovalNode_GroupValue.PROJECT_OWNER
-      ) {
-        const targetRole = convertApprovalNodeGroupToRole(groupValue);
-        const projectMembersMap = memberMapToRolesInProjectIAM(
-          project.iamPolicy,
-          targetRole
-        );
-        return [...projectMembersMap.keys()];
-      }
-      if (
-        groupValue === ApprovalNode_GroupValue.WORKSPACE_DBA ||
-        groupValue === ApprovalNode_GroupValue.WORKSPACE_OWNER
-      ) {
-        return [
-          ...(workspaceStore.roleMapToUsers.get(
-            convertApprovalNodeGroupToRole(groupValue)
-          ) ?? new Set()),
-        ];
-      }
-      return [];
-    };
-
-    const candidatesForCustomRoles = (role: string) => {
+    const candidatesForRoles = (role: string) => {
       const memberMap = memberMapToRolesInProjectIAM(project.iamPolicy, role);
       return [...memberMap.keys()];
     };
-
-    if (groupValue !== ApprovalNode_GroupValue.UNRECOGNIZED) {
-      return candidatesForSystemRoles(groupValue);
-    }
     if (role) {
-      return candidatesForCustomRoles(role);
+      return candidatesForRoles(role);
     }
     return [];
   });
 
   return uniq(
     candidates.filter((user) => {
-      if (!issue.projectEntity.allowSelfApproval) {
-        return user !== issue.creator;
+      // Exclude system bot user.
+      if (user === `${userNamePrefix}${SYSTEM_BOT_EMAIL}`) {
+        return false;
+      }
+      // If the project does not allow self-approval, exclude the creator.
+      if (!issue.projectEntity.allowSelfApproval && user === issue.creator) {
+        return false;
       }
       return true;
     })

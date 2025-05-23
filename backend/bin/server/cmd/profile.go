@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/component/config"
 )
 
@@ -17,7 +16,7 @@ func getBaseProfile(dataDir string) *config.Profile {
 		sampleDatabasePort = flags.port + 3
 	}
 
-	return &config.Profile{
+	config := &config.Profile{
 		ExternalURL:        flags.externalURL,
 		Port:               flags.port,     // Using flags.port as our gRPC server port.
 		DatastorePort:      flags.port + 2, // Using flags.port + 2 as our datastore port.
@@ -25,17 +24,19 @@ func getBaseProfile(dataDir string) *config.Profile {
 		HA:                 flags.ha,
 		SaaS:               flags.saas,
 		EnableJSONLogging:  flags.enableJSONLogging,
-		Debug:              flags.debug,
 		IsDocker:           isDocker(),
 		DataDir:            dataDir,
-		ResourceDir:        common.GetResourceDir(dataDir),
 		Demo:               flags.demo,
 		Version:            version,
 		GitCommit:          gitcommit,
 		PgURL:              flags.pgURL,
 		DeployID:           uuid.NewString()[:8],
-		LastActiveTS:       time.Now().Unix(),
 	}
+
+	config.LastActiveTS.Store(time.Now().Unix())
+	config.RuntimeDebug.Store(flags.debug)
+	config.RuntimeMemoryProfileThreshold.Store(flags.memoryProfileThreshold)
+	return config
 }
 
 func isDocker() bool {

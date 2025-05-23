@@ -25,6 +25,8 @@ export interface BatchRunTasksRequest {
    */
   tasks: string[];
   reason: string;
+  /** The task run should run after run_time. */
+  runTime?: Timestamp | undefined;
 }
 
 export interface BatchRunTasksResponse {
@@ -534,6 +536,11 @@ export interface TaskRun {
     | undefined;
   /** Format: projects/{project}/sheets/{sheet} */
   sheet: string;
+  /**
+   * The task run should run after run_time.
+   * This can only be set when creating the task run calling BatchRunTasks.
+   */
+  runTime?: Timestamp | undefined;
 }
 
 export enum TaskRun_Status {
@@ -699,6 +706,7 @@ export interface TaskRun_SchedulerInfo {
 export interface TaskRun_SchedulerInfo_WaitingCause {
   connectionLimit?: boolean | undefined;
   task?: TaskRun_SchedulerInfo_WaitingCause_Task | undefined;
+  parallelTasksLimit?: boolean | undefined;
 }
 
 export interface TaskRun_SchedulerInfo_WaitingCause_Task {
@@ -724,6 +732,7 @@ export interface TaskRunLogEntry {
   taskRunStatusUpdate: TaskRunLogEntry_TaskRunStatusUpdate | undefined;
   transactionControl: TaskRunLogEntry_TransactionControl | undefined;
   priorBackup: TaskRunLogEntry_PriorBackup | undefined;
+  retryInfo: TaskRunLogEntry_RetryInfo | undefined;
 }
 
 export enum TaskRunLogEntry_Type {
@@ -734,6 +743,7 @@ export enum TaskRunLogEntry_Type {
   TASK_RUN_STATUS_UPDATE = "TASK_RUN_STATUS_UPDATE",
   TRANSACTION_CONTROL = "TRANSACTION_CONTROL",
   PRIOR_BACKUP = "PRIOR_BACKUP",
+  RETRY_INFO = "RETRY_INFO",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -760,6 +770,9 @@ export function taskRunLogEntry_TypeFromJSON(object: any): TaskRunLogEntry_Type 
     case 6:
     case "PRIOR_BACKUP":
       return TaskRunLogEntry_Type.PRIOR_BACKUP;
+    case 7:
+    case "RETRY_INFO":
+      return TaskRunLogEntry_Type.RETRY_INFO;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -783,6 +796,8 @@ export function taskRunLogEntry_TypeToJSON(object: TaskRunLogEntry_Type): string
       return "TRANSACTION_CONTROL";
     case TaskRunLogEntry_Type.PRIOR_BACKUP:
       return "PRIOR_BACKUP";
+    case TaskRunLogEntry_Type.RETRY_INFO:
+      return "RETRY_INFO";
     case TaskRunLogEntry_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -805,6 +820,8 @@ export function taskRunLogEntry_TypeToNumber(object: TaskRunLogEntry_Type): numb
       return 5;
     case TaskRunLogEntry_Type.PRIOR_BACKUP:
       return 6;
+    case TaskRunLogEntry_Type.RETRY_INFO:
+      return 7;
     case TaskRunLogEntry_Type.UNRECOGNIZED:
     default:
       return -1;
@@ -983,6 +1000,12 @@ export interface TaskRunLogEntry_PriorBackup {
   error: string;
 }
 
+export interface TaskRunLogEntry_RetryInfo {
+  error: string;
+  retryCount: number;
+  maximumRetries: number;
+}
+
 export interface GetTaskRunSessionRequest {
   /** Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun} */
   parent: string;
@@ -1033,7 +1056,7 @@ export interface PreviewTaskRunRollbackResponse {
 }
 
 function createBaseBatchRunTasksRequest(): BatchRunTasksRequest {
-  return { parent: "", tasks: [], reason: "" };
+  return { parent: "", tasks: [], reason: "", runTime: undefined };
 }
 
 export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
@@ -1046,6 +1069,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     }
     if (message.reason !== "") {
       writer.uint32(26).string(message.reason);
+    }
+    if (message.runTime !== undefined) {
+      Timestamp.encode(message.runTime, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -1081,6 +1107,14 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
           message.reason = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.runTime = Timestamp.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1095,6 +1129,7 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
       parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => globalThis.String(e)) : [],
       reason: isSet(object.reason) ? globalThis.String(object.reason) : "",
+      runTime: isSet(object.runTime) ? fromJsonTimestamp(object.runTime) : undefined,
     };
   },
 
@@ -1109,6 +1144,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     if (message.reason !== "") {
       obj.reason = message.reason;
     }
+    if (message.runTime !== undefined) {
+      obj.runTime = fromTimestamp(message.runTime).toISOString();
+    }
     return obj;
   },
 
@@ -1120,6 +1158,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     message.parent = object.parent ?? "";
     message.tasks = object.tasks?.map((e) => e) || [];
     message.reason = object.reason ?? "";
+    message.runTime = (object.runTime !== undefined && object.runTime !== null)
+      ? Timestamp.fromPartial(object.runTime)
+      : undefined;
     return message;
   },
 };
@@ -3139,6 +3180,7 @@ function createBaseTaskRun(): TaskRun {
     priorBackupDetail: undefined,
     schedulerInfo: undefined,
     sheet: "",
+    runTime: undefined,
   };
 }
 
@@ -3182,6 +3224,9 @@ export const TaskRun: MessageFns<TaskRun> = {
     }
     if (message.sheet !== "") {
       writer.uint32(154).string(message.sheet);
+    }
+    if (message.runTime !== undefined) {
+      Timestamp.encode(message.runTime, writer.uint32(170).fork()).join();
     }
     return writer;
   },
@@ -3297,6 +3342,14 @@ export const TaskRun: MessageFns<TaskRun> = {
           message.sheet = reader.string();
           continue;
         }
+        case 21: {
+          if (tag !== 170) {
+            break;
+          }
+
+          message.runTime = Timestamp.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3325,6 +3378,7 @@ export const TaskRun: MessageFns<TaskRun> = {
         : undefined,
       schedulerInfo: isSet(object.schedulerInfo) ? TaskRun_SchedulerInfo.fromJSON(object.schedulerInfo) : undefined,
       sheet: isSet(object.sheet) ? globalThis.String(object.sheet) : "",
+      runTime: isSet(object.runTime) ? fromJsonTimestamp(object.runTime) : undefined,
     };
   },
 
@@ -3369,6 +3423,9 @@ export const TaskRun: MessageFns<TaskRun> = {
     if (message.sheet !== "") {
       obj.sheet = message.sheet;
     }
+    if (message.runTime !== undefined) {
+      obj.runTime = fromTimestamp(message.runTime).toISOString();
+    }
     return obj;
   },
 
@@ -3401,6 +3458,9 @@ export const TaskRun: MessageFns<TaskRun> = {
       ? TaskRun_SchedulerInfo.fromPartial(object.schedulerInfo)
       : undefined;
     message.sheet = object.sheet ?? "";
+    message.runTime = (object.runTime !== undefined && object.runTime !== null)
+      ? Timestamp.fromPartial(object.runTime)
+      : undefined;
     return message;
   },
 };
@@ -3762,7 +3822,7 @@ export const TaskRun_SchedulerInfo: MessageFns<TaskRun_SchedulerInfo> = {
 };
 
 function createBaseTaskRun_SchedulerInfo_WaitingCause(): TaskRun_SchedulerInfo_WaitingCause {
-  return { connectionLimit: undefined, task: undefined };
+  return { connectionLimit: undefined, task: undefined, parallelTasksLimit: undefined };
 }
 
 export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInfo_WaitingCause> = {
@@ -3772,6 +3832,9 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     }
     if (message.task !== undefined) {
       TaskRun_SchedulerInfo_WaitingCause_Task.encode(message.task, writer.uint32(18).fork()).join();
+    }
+    if (message.parallelTasksLimit !== undefined) {
+      writer.uint32(24).bool(message.parallelTasksLimit);
     }
     return writer;
   },
@@ -3799,6 +3862,14 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
           message.task = TaskRun_SchedulerInfo_WaitingCause_Task.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.parallelTasksLimit = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3812,6 +3883,7 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     return {
       connectionLimit: isSet(object.connectionLimit) ? globalThis.Boolean(object.connectionLimit) : undefined,
       task: isSet(object.task) ? TaskRun_SchedulerInfo_WaitingCause_Task.fromJSON(object.task) : undefined,
+      parallelTasksLimit: isSet(object.parallelTasksLimit) ? globalThis.Boolean(object.parallelTasksLimit) : undefined,
     };
   },
 
@@ -3822,6 +3894,9 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     }
     if (message.task !== undefined) {
       obj.task = TaskRun_SchedulerInfo_WaitingCause_Task.toJSON(message.task);
+    }
+    if (message.parallelTasksLimit !== undefined) {
+      obj.parallelTasksLimit = message.parallelTasksLimit;
     }
     return obj;
   },
@@ -3835,6 +3910,7 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     message.task = (object.task !== undefined && object.task !== null)
       ? TaskRun_SchedulerInfo_WaitingCause_Task.fromPartial(object.task)
       : undefined;
+    message.parallelTasksLimit = object.parallelTasksLimit ?? undefined;
     return message;
   },
 };
@@ -4004,6 +4080,7 @@ function createBaseTaskRunLogEntry(): TaskRunLogEntry {
     taskRunStatusUpdate: undefined,
     transactionControl: undefined,
     priorBackup: undefined,
+    retryInfo: undefined,
   };
 }
 
@@ -4035,6 +4112,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
     }
     if (message.priorBackup !== undefined) {
       TaskRunLogEntry_PriorBackup.encode(message.priorBackup, writer.uint32(66).fork()).join();
+    }
+    if (message.retryInfo !== undefined) {
+      TaskRunLogEntry_RetryInfo.encode(message.retryInfo, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -4118,6 +4198,14 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
           message.priorBackup = TaskRunLogEntry_PriorBackup.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.retryInfo = TaskRunLogEntry_RetryInfo.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4144,6 +4232,7 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
         ? TaskRunLogEntry_TransactionControl.fromJSON(object.transactionControl)
         : undefined,
       priorBackup: isSet(object.priorBackup) ? TaskRunLogEntry_PriorBackup.fromJSON(object.priorBackup) : undefined,
+      retryInfo: isSet(object.retryInfo) ? TaskRunLogEntry_RetryInfo.fromJSON(object.retryInfo) : undefined,
     };
   },
 
@@ -4176,6 +4265,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
     if (message.priorBackup !== undefined) {
       obj.priorBackup = TaskRunLogEntry_PriorBackup.toJSON(message.priorBackup);
     }
+    if (message.retryInfo !== undefined) {
+      obj.retryInfo = TaskRunLogEntry_RetryInfo.toJSON(message.retryInfo);
+    }
     return obj;
   },
 
@@ -4206,6 +4298,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
       : undefined;
     message.priorBackup = (object.priorBackup !== undefined && object.priorBackup !== null)
       ? TaskRunLogEntry_PriorBackup.fromPartial(object.priorBackup)
+      : undefined;
+    message.retryInfo = (object.retryInfo !== undefined && object.retryInfo !== null)
+      ? TaskRunLogEntry_RetryInfo.fromPartial(object.retryInfo)
       : undefined;
     return message;
   },
@@ -4900,6 +4995,98 @@ export const TaskRunLogEntry_PriorBackup: MessageFns<TaskRunLogEntry_PriorBackup
       ? TaskRun_PriorBackupDetail.fromPartial(object.priorBackupDetail)
       : undefined;
     message.error = object.error ?? "";
+    return message;
+  },
+};
+
+function createBaseTaskRunLogEntry_RetryInfo(): TaskRunLogEntry_RetryInfo {
+  return { error: "", retryCount: 0, maximumRetries: 0 };
+}
+
+export const TaskRunLogEntry_RetryInfo: MessageFns<TaskRunLogEntry_RetryInfo> = {
+  encode(message: TaskRunLogEntry_RetryInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.error !== "") {
+      writer.uint32(10).string(message.error);
+    }
+    if (message.retryCount !== 0) {
+      writer.uint32(16).int32(message.retryCount);
+    }
+    if (message.maximumRetries !== 0) {
+      writer.uint32(24).int32(message.maximumRetries);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskRunLogEntry_RetryInfo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskRunLogEntry_RetryInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.retryCount = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.maximumRetries = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskRunLogEntry_RetryInfo {
+    return {
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+      retryCount: isSet(object.retryCount) ? globalThis.Number(object.retryCount) : 0,
+      maximumRetries: isSet(object.maximumRetries) ? globalThis.Number(object.maximumRetries) : 0,
+    };
+  },
+
+  toJSON(message: TaskRunLogEntry_RetryInfo): unknown {
+    const obj: any = {};
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    if (message.retryCount !== 0) {
+      obj.retryCount = Math.round(message.retryCount);
+    }
+    if (message.maximumRetries !== 0) {
+      obj.maximumRetries = Math.round(message.maximumRetries);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskRunLogEntry_RetryInfo>): TaskRunLogEntry_RetryInfo {
+    return TaskRunLogEntry_RetryInfo.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskRunLogEntry_RetryInfo>): TaskRunLogEntry_RetryInfo {
+    const message = createBaseTaskRunLogEntry_RetryInfo();
+    message.error = object.error ?? "";
+    message.retryCount = object.retryCount ?? 0;
+    message.maximumRetries = object.maximumRetries ?? 0;
     return message;
   },
 };
