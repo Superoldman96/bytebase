@@ -1,7 +1,7 @@
 <template>
-  <div class="w-full flex flex-col justify-start items-start pt-6 space-y-4">
-    <div class="space-y-2 mb-4">
-      <div class="text-lg font-medium text-main">
+  <div class="w-full flex flex-col justify-start items-start space-y-4">
+    <div class="space-y-2">
+      <div class="font-medium">
         {{ $t("project.settings.issue-related.labels.self") }}
         <div class="textinfolabel">
           {{ $t("project.settings.issue-related.labels.description") }}
@@ -20,151 +20,246 @@
         @update:value="onLabelsUpdate"
       />
     </div>
-    <h3 class="flex flex-row items-center gap-2">
-      <span class="text-lg font-medium text-main">{{
-        $t("project.settings.issue-related.self")
-      }}</span>
-      <FeatureBadge feature="bb.feature.issue-project-setting" />
-    </h3>
     <div class="w-full flex flex-col justify-start items-start gap-2">
       <div>
-        <NCheckbox
-          v-model:checked="state.allowModifyStatement"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="
-            $t('project.settings.issue-related.allow-modify-statement.self')
-          "
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.allowModifyStatement"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{
+              $t("project.settings.issue-related.allow-modify-statement.self")
+            }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t(
               "project.settings.issue-related.allow-modify-statement.description"
             )
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.autoResolveIssue"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="$t('project.settings.issue-related.auto-resolve-issue.self')"
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.autoResolveIssue"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.auto-resolve-issue.self") }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t("project.settings.issue-related.auto-resolve-issue.description")
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.forceIssueLabels"
-          size="large"
-          :disabled="
-            !allowUpdateIssueProjectSetting ||
-            state.issueLabels.length === 0 ||
-            loading
-          "
-        >
-          <template #default>
-            <div class="flex items-center gap-x-2">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.forceIssueLabels"
+            :text="true"
+            :disabled="
+              !allowUpdateIssueProjectSetting ||
+              state.issueLabels.length === 0 ||
+              loading
+            "
+          />
+          <div class="textlabel flex items-center gap-x-2">
+            {{
+              $t(
+                "project.settings.issue-related.labels.force-issue-labels.self"
+              )
+            }}
+            <NTooltip v-if="allowEdit && state.issueLabels.length === 0">
+              <template #trigger>
+                <TriangleAlertIcon class="w-4 text-warning" />
+              </template>
               {{
                 $t(
-                  "project.settings.issue-related.labels.force-issue-labels.self"
+                  "project.settings.issue-related.labels.force-issue-labels.warning"
                 )
               }}
-              <NTooltip v-if="allowEdit && state.issueLabels.length === 0">
-                <template #trigger>
-                  <TriangleAlertIcon class="w-4 text-warning" />
-                </template>
-                {{
-                  $t(
-                    "project.settings.issue-related.labels.force-issue-labels.warning"
-                  )
-                }}
-              </NTooltip>
-            </div>
-          </template>
-        </NCheckbox>
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+            </NTooltip>
+          </div>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t(
               "project.settings.issue-related.labels.force-issue-labels.description"
             )
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.enforceIssueTitle"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="$t('project.settings.issue-related.enforce-issue-title.self')"
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.enforceIssueTitle"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.enforce-issue-title.self") }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t("project.settings.issue-related.enforce-issue-title.description")
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.allowSelfApproval"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="$t('project.settings.issue-related.allow-self-approval.self')"
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.allowSelfApproval"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.allow-self-approval.self") }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t("project.settings.issue-related.allow-self-approval.description")
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.autoEnableBackup"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="$t('project.settings.issue-related.auto-enable-backup.self')"
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.autoEnableBackup"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.auto-enable-backup.self") }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t("project.settings.issue-related.auto-enable-backup.description")
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.skipBackupErrors"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="$t('project.settings.issue-related.skip-backup-errors.self')"
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.skipBackupErrors"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.skip-backup-errors.self") }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t("project.settings.issue-related.skip-backup-errors.description")
           }}
-        </p>
+        </div>
       </div>
       <div>
-        <NCheckbox
-          v-model:checked="state.postgresDatabaseTenantMode"
-          size="large"
-          :disabled="!allowUpdateIssueProjectSetting || loading"
-          :label="
-            $t(
-              'project.settings.issue-related.postgres-database-tenant-mode.self'
-            )
-          "
-        />
-        <p class="text-sm text-gray-400 pl-6 ml-0.5">
+        <div class="flex items-center gap-x-2">
+          <Switch
+            v-model:value="state.postgresDatabaseTenantMode"
+            :text="true"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+          />
+          <span class="textlabel">
+            {{
+              $t(
+                "project.settings.issue-related.postgres-database-tenant-mode.self"
+              )
+            }}
+          </span>
+        </div>
+        <div class="mt-1 mb-3 text-sm text-gray-400">
           {{
             $t(
               "project.settings.issue-related.postgres-database-tenant-mode.description"
             )
           }}
+        </div>
+      </div>
+      <div>
+        <p class="">
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.max-retries.self") }}
+          </span>
         </p>
+        <p class="mt-1 mb-3 text-sm text-gray-400">
+          {{ $t("project.settings.issue-related.max-retries.description") }}
+        </p>
+        <div class="mt-3 w-full flex flex-row justify-start items-center gap-4">
+          <NInputNumber
+            :value="state.executionRetryPolicy?.maximumRetries ?? 0"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+            class="w-60"
+            :min="0"
+            :precision="0"
+            @update:value="handleInput"
+          >
+            <template #suffix> Times </template>
+          </NInputNumber>
+        </div>
+      </div>
+      <div>
+        <p class="">
+          <span class="textlabel">
+            {{ $t("project.settings.issue-related.ci-sampling-size.self") }}
+          </span>
+        </p>
+        <p class="mt-1 mb-3 text-sm text-gray-400">
+          {{
+            $t("project.settings.issue-related.ci-sampling-size.description")
+          }}
+        </p>
+        <div class="mt-3 w-full flex flex-row justify-start items-center gap-4">
+          <NInputNumber
+            :value="state.ciSamplingSize"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+            class="w-60"
+            :min="0"
+            :precision="0"
+            @update:value="handleCiSamplingSizeInput"
+          >
+          </NInputNumber>
+        </div>
+      </div>
+      <div>
+        <p class="">
+          <span class="textlabel">
+            {{
+              $t(
+                "project.settings.issue-related.parallel_tasks_per_rollout.self"
+              )
+            }}
+          </span>
+        </p>
+        <p class="mt-1 mb-3 text-sm text-gray-400">
+          {{
+            $t(
+              "project.settings.issue-related.parallel_tasks_per_rollout.description"
+            )
+          }}
+        </p>
+        <div class="mt-3 w-full flex flex-row justify-start items-center gap-4">
+          <NInputNumber
+            :value="state.parallelTasksPerRollout"
+            :disabled="!allowUpdateIssueProjectSetting || loading"
+            class="w-60"
+            :min="0"
+            :precision="0"
+            @update:value="handleParallelTasksPerRolloutInput"
+          >
+          </NInputNumber>
+        </div>
       </div>
     </div>
   </div>
@@ -177,14 +272,17 @@ import {
   NDynamicTags,
   NTag,
   NColorPicker,
-  NCheckbox,
   NTooltip,
+  NInputNumber,
 } from "naive-ui";
 import { computed, reactive, ref } from "vue";
-import { FeatureBadge } from "@/components/FeatureGuard";
+import { Switch } from "@/components/v2";
 import { hasFeature, useProjectV1Store } from "@/store";
 import type { ComposedProject } from "@/types";
-import { Label } from "@/types/proto/v1/project_service";
+import {
+  Label,
+  Project_ExecutionRetryPolicy,
+} from "@/types/proto/v1/project_service";
 
 interface LocalState {
   issueLabels: Label[];
@@ -196,6 +294,9 @@ interface LocalState {
   autoEnableBackup: boolean;
   skipBackupErrors: boolean;
   postgresDatabaseTenantMode: boolean;
+  executionRetryPolicy: Project_ExecutionRetryPolicy | undefined;
+  ciSamplingSize: number;
+  parallelTasksPerRollout: number;
 }
 
 const getInitialLocalState = (): LocalState => {
@@ -210,6 +311,9 @@ const getInitialLocalState = (): LocalState => {
     autoEnableBackup: project.autoEnableBackup,
     skipBackupErrors: project.skipBackupErrors,
     postgresDatabaseTenantMode: project.postgresDatabaseTenantMode,
+    executionRetryPolicy: project.executionRetryPolicy,
+    ciSamplingSize: project.ciSamplingSize,
+    parallelTasksPerRollout: project.parallelTasksPerRollout,
   };
 };
 
@@ -340,8 +444,45 @@ const updateMask = computed(() => {
   ) {
     mask.push("postgres_database_tenant_mode");
   }
+  if (
+    !isEqual(
+      state.executionRetryPolicy?.maximumRetries ?? 0,
+      props.project.executionRetryPolicy?.maximumRetries ?? 0
+    )
+  ) {
+    mask.push("execution_retry_policy");
+  }
+  if (!isEqual(state.ciSamplingSize, props.project.ciSamplingSize || 0)) {
+    mask.push("ci_sampling_size");
+  }
+  if (
+    !isEqual(
+      state.parallelTasksPerRollout,
+      props.project.parallelTasksPerRollout || 0
+    )
+  ) {
+    mask.push("parallel_tasks_per_rollout");
+  }
   return mask;
 });
+
+const handleInput = (value: number | null) => {
+  if (value === null) return;
+  if (value === undefined) return;
+  state.executionRetryPolicy = Project_ExecutionRetryPolicy.create({
+    maximumRetries: value,
+  });
+};
+
+const handleCiSamplingSizeInput = (value: number | null) => {
+  if (value === null || value === undefined) return;
+  state.ciSamplingSize = value;
+};
+
+const handleParallelTasksPerRolloutInput = (value: number | null) => {
+  if (value === null || value === undefined) return;
+  state.parallelTasksPerRollout = value;
+};
 
 defineExpose({
   isDirty: valueChanged,

@@ -28,7 +28,6 @@ import (
 	// init() in pgx/v5/stdlib will register it's pgx driver.
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	component "github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/server"
@@ -71,7 +70,6 @@ type controller struct {
 	authServiceClient            v1pb.AuthServiceClient
 	userServiceClient            v1pb.UserServiceClient
 	settingServiceClient         v1pb.SettingServiceClient
-	environmentServiceClient     v1pb.EnvironmentServiceClient
 	instanceServiceClient        v1pb.InstanceServiceClient
 	databaseServiceClient        v1pb.DatabaseServiceClient
 	databaseCatalogServiceClient v1pb.DatabaseCatalogServiceClient
@@ -98,9 +96,6 @@ var (
 	externalPgPort string
 
 	nextDatabaseNumber = 20210113
-
-	// resourceDir is the shared resource directory.
-	resourceDir string
 )
 
 func getTestPort() int {
@@ -135,7 +130,7 @@ func (ctl *controller) StartServerWithExternalPg(ctx context.Context) (context.C
 
 	pgURL := fmt.Sprintf("postgresql://postgres:root-password@%s:%s/%s", externalPgHost, externalPgPort, databaseName)
 	serverPort := getTestPort()
-	profile := getTestProfileWithExternalPg(resourceDir, serverPort, pgURL)
+	profile := getTestProfileWithExternalPg(serverPort, pgURL)
 	server, err := server.NewServer(ctx, profile)
 	if err != nil {
 		return nil, err
@@ -188,7 +183,7 @@ func (ctl *controller) initWorkspaceProfile(ctx context.Context) error {
 	_, err := ctl.settingServiceClient.UpdateSetting(ctx, &v1pb.UpdateSettingRequest{
 		AllowMissing: true,
 		Setting: &v1pb.Setting{
-			Name: fmt.Sprintf("settings/%s", base.SettingWorkspaceProfile),
+			Name: "settings/" + v1pb.Setting_WORKSPACE_PROFILE.String(),
 			Value: &v1pb.Value{
 				Value: &v1pb.Value_WorkspaceProfileSettingValue{
 					WorkspaceProfileSettingValue: &v1pb.WorkspaceProfileSetting{
@@ -211,13 +206,12 @@ func (ctl *controller) initWorkspaceProfile(ctx context.Context) error {
 // GetTestProfileWithExternalPg will return a profile for testing with external Postgres.
 // We require port as an argument of GetTestProfile so that test can run in parallel in different ports,
 // pgURL for connect to Postgres.
-func getTestProfileWithExternalPg(resourceDir string, port int, pgURL string) *component.Profile {
+func getTestProfileWithExternalPg(port int, pgURL string) *component.Profile {
 	return &component.Profile{
 		Mode:               common.ReleaseModeDev,
 		ExternalURL:        fmt.Sprintf("http://localhost:%d", port),
 		Port:               port,
 		SampleDatabasePort: 0,
-		ResourceDir:        resourceDir,
 		PgURL:              pgURL,
 	}
 }
@@ -255,7 +249,6 @@ func (ctl *controller) start(ctx context.Context, port int) (context.Context, er
 	ctl.authServiceClient = v1pb.NewAuthServiceClient(ctl.grpcConn)
 	ctl.userServiceClient = v1pb.NewUserServiceClient(ctl.grpcConn)
 	ctl.settingServiceClient = v1pb.NewSettingServiceClient(ctl.grpcConn)
-	ctl.environmentServiceClient = v1pb.NewEnvironmentServiceClient(ctl.grpcConn)
 	ctl.instanceServiceClient = v1pb.NewInstanceServiceClient(ctl.grpcConn)
 	ctl.databaseServiceClient = v1pb.NewDatabaseServiceClient(ctl.grpcConn)
 	ctl.databaseCatalogServiceClient = v1pb.NewDatabaseCatalogServiceClient(ctl.grpcConn)

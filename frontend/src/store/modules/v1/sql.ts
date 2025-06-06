@@ -8,7 +8,7 @@ import type { ExportRequest, QueryRequest } from "@/types/proto/v1/sql_service";
 import { Advice, Advice_Status } from "@/types/proto/v1/sql_service";
 import { extractGrpcErrorMessage } from "@/utils/grpcweb";
 
-const getSqlReviewReports = (err: unknown): Advice[] => {
+export const getSqlReviewReports = (err: unknown): Advice[] => {
   const advices: Advice[] = [];
   if (err instanceof RichClientError) {
     for (const extra of err.extra) {
@@ -23,8 +23,10 @@ const getSqlReviewReports = (err: unknown): Advice[] => {
             code: sqlReviewReport.code,
             title: sqlReviewReport.title || "SQL Review Failed",
             content: sqlReviewReport.content,
-            line: sqlReviewReport.sqlReviewReport?.line,
-            column: sqlReviewReport.sqlReviewReport?.column,
+            startPosition: {
+              line: sqlReviewReport.sqlReviewReport?.line,
+              column: sqlReviewReport.sqlReviewReport?.column,
+            },
           })
         );
       }
@@ -64,10 +66,11 @@ export const useSQLStore = defineStore("sql", () => {
   };
 
   const exportData = async (params: ExportRequest) => {
-    return await sqlServiceClient.export(params, {
+    const { content } = await sqlServiceClient.export(params, {
       // Won't jump to 403 page when permission denied.
       ignoredCodes: [Status.PERMISSION_DENIED],
     });
+    return content;
   };
 
   return {

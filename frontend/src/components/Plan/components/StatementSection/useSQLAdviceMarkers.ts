@@ -2,6 +2,7 @@ import { maxBy } from "lodash-es";
 import { computed, type Ref } from "vue";
 import type { AdviceOption } from "@/components/MonacoEditor";
 import {
+  Plan_Spec,
   PlanCheckRun,
   PlanCheckRun_Result_Status,
   PlanCheckRun_Type,
@@ -20,8 +21,8 @@ export const useSQLAdviceMarkers = (
       if (!advices) return [];
       if (!advices.value) return [];
       return advices.value.map<AdviceOption>((advice) => {
-        const line = advice.line;
-        const column = advice.column ?? Number.MAX_SAFE_INTEGER;
+        const line = advice.startPosition?.line ?? 0;
+        const column = advice.startPosition?.column ?? Number.MAX_SAFE_INTEGER;
         const code = advice.code;
         return {
           severity: advice.status === Advice_Status.ERROR ? "ERROR" : "WARNING",
@@ -37,7 +38,7 @@ export const useSQLAdviceMarkers = (
       const { plan, selectedSpec } = context;
       const planCheckRunList = planCheckRunListForSpec(
         plan.value,
-        selectedSpec.value
+        selectedSpec.value as Plan_Spec
       );
       const types: PlanCheckRun_Type[] = [
         PlanCheckRun_Type.DATABASE_STATEMENT_ADVISE,

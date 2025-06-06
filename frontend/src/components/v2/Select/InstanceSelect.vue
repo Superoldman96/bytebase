@@ -22,6 +22,7 @@ import { computed, h, watch, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useInstanceV1Store } from "@/store";
 import {
+  DEBOUNCE_SEARCH_DELAY,
   UNKNOWN_INSTANCE_NAME,
   isValidInstanceName,
   unknownInstance,
@@ -106,10 +107,14 @@ const handleSearch = useDebounceFn(async (search: string) => {
   } finally {
     state.loading = false;
   }
-}, 200);
+}, DEBOUNCE_SEARCH_DELAY);
 
 watch(
-  () => [props.allowedEngineList, props.environmentName, props.projectName],
+  [
+    () => props.allowedEngineList,
+    () => props.environmentName,
+    () => props.projectName,
+  ],
   () => {
     handleSearch("");
   },
@@ -150,7 +155,12 @@ const options = computed(() => {
 // might not exist in the new list. In such case, we need to reset the selection
 // and emit the event.
 const resetInvalidSelection = () => {
-  if (!props.autoReset) return;
+  if (!props.autoReset) {
+    return;
+  }
+  if (state.loading) {
+    return;
+  }
   if (
     props.instanceName &&
     !state.rawInstanceList.find((item) => item.name === props.instanceName)
@@ -160,7 +170,12 @@ const resetInvalidSelection = () => {
 };
 
 watch(
-  [() => props.instanceName, state.rawInstanceList, props.projectName],
+  [
+    () => state.loading,
+    () => props.instanceName,
+    () => state.rawInstanceList,
+    () => props.projectName,
+  ],
   resetInvalidSelection,
   {
     immediate: true,

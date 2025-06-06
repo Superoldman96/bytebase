@@ -1,20 +1,23 @@
 import { computed, unref, watchEffect } from "vue";
 import {
   candidatesOfApprovalStepV1,
-  useAuthStore,
-  batchGetOrFetchUsers,
+  useCurrentUserV1,
+  userNamePrefix,
+  useUserStore,
 } from "@/store";
-import { userNamePrefix } from "@/store/modules/v1/common";
 import type {
   ReviewFlow,
   MaybeRef,
   ComposedIssue,
   WrappedReviewStep,
 } from "@/types";
-import { emptyFlow, PresetRoleType } from "@/types";
-import type { ApprovalNode, Issue } from "@/types/proto/v1/issue_service";
+import { emptyFlow } from "@/types";
+import type {
+  ApprovalNode,
+  ApprovalStep,
+  Issue,
+} from "@/types/proto/v1/issue_service";
 import {
-  ApprovalNode_GroupValue,
   ApprovalNode_Type,
   Issue_Approver_Status,
 } from "@/types/proto/v1/issue_service";
@@ -96,22 +99,24 @@ export const useWrappedReviewStepsV1 = (
   issue: MaybeRef<ComposedIssue>,
   context: ReviewContext
 ) => {
+  const userStore = useUserStore();
+  const currentUser = useCurrentUserV1();
+  // Format: users/{email}
   const currentUserName = computed(
-    () => `${userNamePrefix}${useAuthStore().currentUser.email}`
+    () => `${userNamePrefix}${currentUser.value.email}`
   );
 
   watchEffect(async () => {
     const { flow } = context;
     const approvers = flow.value.approvers;
     const steps = flow.value.template.flow?.steps;
-    await batchGetOrFetchUsers(
-      steps?.map((_, i) => approvers[i]?.principal) ?? []
-    );
+    const distinctUsers = steps?.map((_, i) => approvers[i]?.principal) ?? [];
+    await userStore.batchGetUsers(distinctUsers);
   });
 
   return computed(() => {
     const { flow, done } = context;
-    const steps = flow.value.template.flow?.steps;
+    const steps = flow.value.template.flow?.steps || [];
     const approvers = flow.value.approvers;
     const currentStepIndex = flow.value.currentStepIndex ?? -1;
 
@@ -140,9 +145,7 @@ export const useWrappedReviewStepsV1 = (
       return approvers[index]?.principal;
     };
 
-    const candidatesOfStep = (index: number) => {
-      const step = steps?.[index];
-      if (!step) return [];
+    const candidatesOfStep = (step: ApprovalStep) => {
       const users = candidatesOfApprovalStepV1(unref(issue), step);
       if (isUserIncludedInList(currentUserName.value, users)) {
         const idx = users.indexOf(currentUserName.value);
@@ -154,35 +157,23 @@ export const useWrappedReviewStepsV1 = (
       return users;
     };
 
-    return steps?.map<WrappedReviewStep>((step, index) => ({
+    return steps.map<WrappedReviewStep>((step, index) => ({
       index,
       step,
       status: statusOfStep(index),
       approver: approverOfStep(index),
-      candidates: candidatesOfStep(index),
+      candidates: candidatesOfStep(step),
     }));
   });
 };
 
 export const displayReviewRoleTitle = (node: ApprovalNode) => {
-  const {
-    type,
-    groupValue = ApprovalNode_GroupValue.UNRECOGNIZED,
-    role,
-  } = node;
+  const { type, role } = node;
   if (type !== ApprovalNode_Type.ANY_IN_GROUP) {
     return "";
   }
 
-  if (groupValue === ApprovalNode_GroupValue.WORKSPACE_OWNER) {
-    return displayRoleTitle(PresetRoleType.WORKSPACE_ADMIN);
-  } else if (groupValue === ApprovalNode_GroupValue.WORKSPACE_DBA) {
-    return displayRoleTitle(PresetRoleType.WORKSPACE_DBA);
-  } else if (groupValue === ApprovalNode_GroupValue.PROJECT_OWNER) {
-    return displayRoleTitle(PresetRoleType.PROJECT_OWNER);
-  } else if (groupValue === ApprovalNode_GroupValue.PROJECT_MEMBER) {
-    return displayRoleTitle(PresetRoleType.PROJECT_DEVELOPER);
-  } else if (role) {
+  if (role) {
     return displayRoleTitle(role);
   }
   return "";
