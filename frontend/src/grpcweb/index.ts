@@ -1,3 +1,5 @@
+import { createClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
 import { errorDetailsClientMiddleware } from "nice-grpc-error-details";
 import {
   createChannel,
@@ -5,17 +7,14 @@ import {
   FetchTransport,
   WebsocketTransport,
 } from "nice-grpc-web";
-import { ActuatorServiceDefinition } from "@/types/proto/v1/actuator_service";
-import { AnomalyServiceDefinition } from "@/types/proto/v1/anomaly_service";
+import { ActuatorService } from "@/types/proto-es/v1/actuator_service_pb";
 import { AuditLogServiceDefinition } from "@/types/proto/v1/audit_log_service";
 import { AuthServiceDefinition } from "@/types/proto/v1/auth_service";
-import { UserServiceDefinition } from "@/types/proto/v1/user_service";
 import { CelServiceDefinition } from "@/types/proto/v1/cel_service";
 import { ChangelistServiceDefinition } from "@/types/proto/v1/changelist_service";
+import { DatabaseCatalogServiceDefinition } from "@/types/proto/v1/database_catalog_service";
 import { DatabaseGroupServiceDefinition } from "@/types/proto/v1/database_group_service";
 import { DatabaseServiceDefinition } from "@/types/proto/v1/database_service";
-import { DatabaseCatalogServiceDefinition } from "@/types/proto/v1/database_catalog_service";
-import { EnvironmentServiceDefinition } from "@/types/proto/v1/environment_service";
 import { GroupServiceDefinition } from "@/types/proto/v1/group_service";
 import { IdentityProviderServiceDefinition } from "@/types/proto/v1/idp_service";
 import { InstanceRoleServiceDefinition } from "@/types/proto/v1/instance_role_service";
@@ -26,6 +25,7 @@ import { PlanServiceDefinition } from "@/types/proto/v1/plan_service";
 import { ProjectServiceDefinition } from "@/types/proto/v1/project_service";
 import { ReleaseServiceDefinition } from "@/types/proto/v1/release_service";
 import { ReviewConfigServiceDefinition } from "@/types/proto/v1/review_config_service";
+import { RevisionServiceDefinition } from "@/types/proto/v1/revision_service";
 import { RiskServiceDefinition } from "@/types/proto/v1/risk_service";
 import { RoleServiceDefinition } from "@/types/proto/v1/role_service";
 import { RolloutServiceDefinition } from "@/types/proto/v1/rollout_service";
@@ -33,6 +33,7 @@ import { SettingServiceDefinition } from "@/types/proto/v1/setting_service";
 import { SheetServiceDefinition } from "@/types/proto/v1/sheet_service";
 import { SQLServiceDefinition } from "@/types/proto/v1/sql_service";
 import { SubscriptionServiceDefinition } from "@/types/proto/v1/subscription_service";
+import { UserServiceDefinition } from "@/types/proto/v1/user_service";
 import { WorksheetServiceDefinition } from "@/types/proto/v1/worksheet_service";
 import { WorkspaceServiceDefinition } from "@/types/proto/v1/workspace_service";
 import {
@@ -84,11 +85,6 @@ export const userServiceClient = clientFactory.create(
 
 export const roleServiceClient = clientFactory.create(
   RoleServiceDefinition,
-  channel
-);
-
-export const environmentServiceClient = clientFactory.create(
-  EnvironmentServiceDefinition,
   channel
 );
 
@@ -182,16 +178,6 @@ export const subscriptionServiceClient = clientFactory.create(
   channel
 );
 
-export const actuatorServiceClient = clientFactory.create(
-  ActuatorServiceDefinition,
-  channel
-);
-
-export const anomalyServiceClient = clientFactory.create(
-  AnomalyServiceDefinition,
-  channel
-);
-
 export const changelistServiceClient = clientFactory.create(
   ChangelistServiceDefinition,
   channel
@@ -222,6 +208,11 @@ export const releaseServiceClient = clientFactory.create(
   channel
 );
 
+export const revisionServiceClient = clientFactory.create(
+  RevisionServiceDefinition,
+  channel
+);
+
 export const instanceRoleServiceClient = clientFactory.create(
   InstanceRoleServiceDefinition,
   channel
@@ -235,3 +226,15 @@ export const instanceRoleServiceClient = clientFactory.create(
 //   web: true,
 // });
 // const { users } = await authServiceClient.listUsers({});
+
+const transport = createConnectTransport({
+  baseUrl: address,
+  useBinaryFormat: true,
+  fetch: (input, init) => fetch(input, { ...init, credentials: "include" }),
+});
+
+export const actuatorServiceClientConnect = createClient(
+  ActuatorService,
+  transport
+);
+

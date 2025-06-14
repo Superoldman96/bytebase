@@ -33,8 +33,6 @@ import (
 var (
 	baseTableType = "BASE TABLE"
 	viewTableType = "VIEW"
-	// Sequence is available to TiDB only.
-	sequenceTableType = "SEQUENCE"
 
 	_ db.Driver = (*Driver)(nil)
 )
@@ -54,7 +52,7 @@ type Driver struct {
 	openCleanUp []func()
 }
 
-func newDriver(_ db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -78,10 +76,11 @@ func (d *Driver) Open(_ context.Context, dbType storepb.Engine, connCfg db.Conne
 		}
 		d.sshClient = sshClient
 		// Now we register the dialer with the ssh connection as a parameter.
-		mysql.RegisterDialContext("mysql+tcp", func(_ context.Context, addr string) (net.Conn, error) {
+		protocol = "mysql-tcp-" + uuid.NewString()[:8]
+		// Now we register the dialer with the ssh connection as a parameter.
+		mysql.RegisterDialContext(protocol, func(_ context.Context, addr string) (net.Conn, error) {
 			return sshClient.Dial("tcp", addr)
 		})
-		protocol = "mysql+tcp"
 	}
 
 	tlscfg, err := util.GetTLSConfig(connCfg.DataSource)
@@ -134,24 +133,25 @@ func (d *Driver) GetDB() *sql.DB {
 }
 
 // getVersion gets the version.
-func (d *Driver) getVersion(ctx context.Context) (string, string, error) {
+func (d *Driver) getVersion(ctx context.Context) (string, error) {
 	query := "SELECT VERSION()"
 	var version string
 	if err := d.db.QueryRowContext(ctx, query).Scan(&version); err != nil {
 		if err == sql.ErrNoRows {
-			return "", "", common.FormatDBErrorEmptyRowWithQuery(query)
+			return "", common.FormatDBErrorEmptyRowWithQuery(query)
 		}
-		return "", "", util.FormatErrorWithQuery(err, query)
+		return "", util.FormatErrorWithQuery(err, query)
 	}
 
 	return parseVersion(version)
 }
 
-func parseVersion(version string) (string, string, error) {
-	if loc := regexp.MustCompile(`^\d+.\d+.\d+`).FindStringIndex(version); loc != nil {
-		return version[loc[0]:loc[1]], version[loc[1]:], nil
+func parseVersion(version string) (string, error) {
+	// Examples: 8.0.11-TiDB-v8.5.0, 8.0.11-TiDB-v7.5.2-serverless.
+	if loc := regexp.MustCompile(`v\d+\.\d+\.\d+`).FindStringIndex(version); loc != nil {
+		return version[loc[0]:loc[1]], nil
 	}
-	return "", "", errors.Errorf("failed to parse version %q", version)
+	return "", errors.Errorf("failed to parse version %q", version)
 }
 
 // Execute executes a SQL statement.
@@ -245,15 +245,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 				opts.LogCommandResponse(indexes, 0, nil, err.Error())
 
 				return &db.ErrorWithPosition{
-					Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-					Start: &storepb.TaskRunResult_Position{
-						Line:   int32(command.FirstStatementLine),
-						Column: int32(command.FirstStatementColumn),
-					},
-					End: &storepb.TaskRunResult_Position{
-						Line:   int32(command.LastLine),
-						Column: int32(command.LastColumn),
-					},
+					Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+					Start: command.Start,
+					End:   command.End,
 				}
 			}
 
@@ -357,7 +351,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

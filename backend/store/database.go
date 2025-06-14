@@ -24,8 +24,6 @@ type DatabaseMessage struct {
 
 	Deleted  bool
 	Metadata *storepb.DatabaseMetadata
-	// Output only
-	SchemaVersion string
 }
 
 func (d *DatabaseMessage) String() string {
@@ -359,8 +357,8 @@ func (*Store) listDatabaseImplV2(ctx context.Context, txn *sql.Tx, find *FindDat
 	if v := find.EffectiveEnvironmentID; v != nil {
 		where, args = append(where, fmt.Sprintf(`
 		COALESCE(
-			(SELECT environment.resource_id FROM environment where environment.resource_id = db.environment),
-			(SELECT environment.resource_id FROM environment JOIN instance ON environment.resource_id = instance.environment WHERE instance.resource_id = db.instance)
+			db.environment,
+			instance.environment
 		) = $%d`, len(args)+1)), append(args, *v)
 	}
 	if v := find.InstanceID; v != nil {
@@ -377,17 +375,6 @@ func (*Store) listDatabaseImplV2(ctx context.Context, txn *sql.Tx, find *FindDat
 		where, args = append(where, fmt.Sprintf("instance.metadata->>'engine' = $%d", len(args)+1)), append(args, *v)
 	}
 	if !find.ShowDeleted {
-		where, args = append(where, fmt.Sprintf(`
-			COALESCE(
-				(SELECT environment.deleted AS instance_environment_status FROM environment JOIN instance ON environment.resource_id = instance.environment WHERE instance.resource_id = db.instance),
-				$%d
-			) = $%d`, len(args)+1, len(args)+2)), append(args, false, false)
-		where, args = append(where, fmt.Sprintf(`
-			COALESCE(
-				(SELECT environment.deleted AS db_environment_status FROM environment WHERE environment.resource_id = db.environment),
-				$%d
-			) = $%d`, len(args)+1, len(args)+2)), append(args, false, false)
-
 		where, args = append(where, fmt.Sprintf("instance.deleted = $%d", len(args)+1)), append(args, false)
 		// We don't show databases that are deleted by users already.
 		where, args = append(where, fmt.Sprintf("db.deleted = $%d", len(args)+1)), append(args, false)
@@ -397,23 +384,13 @@ func (*Store) listDatabaseImplV2(ctx context.Context, txn *sql.Tx, find *FindDat
 		SELECT
 			db.project,
 			COALESCE(
-				(SELECT environment.resource_id FROM environment WHERE environment.resource_id = db.environment),
-				(SELECT environment.resource_id FROM environment JOIN instance ON environment.resource_id = instance.environment WHERE instance.resource_id = db.instance)
+				db.environment,
+				instance.environment
 			),
-			(SELECT environment.resource_id FROM environment WHERE environment.resource_id = db.environment),
+			db.environment,
 			db.instance,
 			db.name,
 			db.deleted,
-			COALESCE(
-				(
-					SELECT revision.version
-					FROM revision
-					WHERE revision.instance = db.instance AND revision.db_name = db.name AND deleted_at IS NOT NULL
-					ORDER BY revision.version DESC
-					LIMIT 1
-				),
-				''
-			),
 			db.metadata
 		FROM db
 		LEFT JOIN instance ON db.instance = instance.resource_id
@@ -445,7 +422,6 @@ func (*Store) listDatabaseImplV2(ctx context.Context, txn *sql.Tx, find *FindDat
 			&databaseMessage.InstanceID,
 			&databaseMessage.DatabaseName,
 			&databaseMessage.Deleted,
-			&databaseMessage.SchemaVersion,
 			&metadataString,
 		); err != nil {
 			return nil, err

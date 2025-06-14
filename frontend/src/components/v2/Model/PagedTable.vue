@@ -36,7 +36,7 @@ import { useDebounceFn } from "@vueuse/core";
 import { sortBy, uniq } from "lodash-es";
 import { NSelect, NButton } from "naive-ui";
 import { computed, reactive, watch, ref, type Ref } from "vue";
-import { useIsLoggedIn, useCurrentUserV1 } from "@/store";
+import { useAuthStore, useCurrentUserV1 } from "@/store";
 import { useDynamicLocalStorage, getDefaultPagination } from "@/utils";
 
 type LocalState = {
@@ -51,8 +51,6 @@ type SessionState = {
   updatedTs: number;
   pageSize: number;
 };
-
-const SESSION_LIFE = 1 * 60 * 1000; // 1 minute
 
 const props = withDefaults(
   defineProps<{
@@ -77,6 +75,7 @@ const emit = defineEmits<{
   (event: "list:update", list: T[]): void;
 }>();
 
+const authStore = useAuthStore();
 const currentUser = useCurrentUserV1();
 
 const options = computed(() => {
@@ -105,8 +104,6 @@ const sessionState = useDynamicLocalStorage<SessionState>(
   }
 );
 
-const isLoggedIn = useIsLoggedIn();
-
 const pageSize = computed(() => {
   const sizeInSession = sessionState.value.pageSize ?? 0;
   if (!options.value.find((o) => o.value === sizeInSession)) {
@@ -121,7 +118,7 @@ const onPageSizeChange = (size: number) => {
 };
 
 const fetchData = async (refresh = false) => {
-  if (!isLoggedIn.value) {
+  if (!authStore.isLoggedIn || authStore.unauthenticatedOccurred) {
     return;
   }
 
@@ -176,17 +173,19 @@ const fetchNextPage = () => {
   fetchData(false);
 };
 
-if (Date.now() - sessionState.value.updatedTs > SESSION_LIFE) {
-  // Reset session if it's outdated.
-  resetSession();
-}
 fetchData(true);
-watch(isLoggedIn, () => {
-  // Reset session when logged out.
-  if (!isLoggedIn.value) {
+
+watch(
+  () => authStore.authSessionKey,
+  () => {
+    if (!authStore.isLoggedIn || authStore.unauthenticatedOccurred) {
+      return;
+    }
+    // Reset session when logging status changed.
     resetSession();
+    refresh();
   }
-});
+);
 
 watch(
   () => dataList.value,

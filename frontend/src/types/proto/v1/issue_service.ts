@@ -115,7 +115,28 @@ export interface ListIssuesRequest {
    * the call that provided the page token.
    */
   pageToken: string;
-  /** Filter is used to filter issues returned in the list. */
+  /**
+   * Filter is used to filter issues returned in the list.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
+   * Supported filters:
+   * - creator: issue creator full name in "users/{email or id}" format, support "==" operator.
+   * - subscriber: issue subscriber full name in "users/{email or id}" format, support "==" operator.
+   * - status: the issue status, support "==" and "in" operator, check the IssueStatus enum for the values.
+   * - create_time: issue create time in "2006-01-02T15:04:05Z07:00" format, support ">=" or "<=" operator.
+   * - type: the issue type, support "==" and "in" operator, check the Type enum in the Issue message for the values.
+   * - task_type: support "==" operator, the value can be "DDL", "DML" or "DATA_EXPORT"
+   * - instance: the instance full name in the "instances/{id}" format, support "==" operator.
+   * - database: the database full name in the "instances/{id}/databases/{name}" format, support "==" operator.
+   * - labels: the issue labels, support "==" and "in" operator.
+   * - has_pipeline: the issue has pipeline or not, support "==" operator, the value should be "true" or "false".
+   *
+   * For example:
+   * creator == "users/ed@bytebase.com" && status in ["OPEN", "DONE"]
+   * status == "CANCELED" && type == "DATABASE_CHANGE"
+   * instance == "instances/sample" && labels in ["label1", "label2"]
+   * has_pipeline == true && create_time >= "2025-01-02T15:04:05Z07:00"
+   */
   filter: string;
   /** Query is the query statement. */
   query: string;
@@ -153,7 +174,10 @@ export interface SearchIssuesRequest {
    * the call that provided the page token.
    */
   pageToken: string;
-  /** Filter is used to filter issues returned in the list. */
+  /**
+   * Filter is used to filter issues returned in the list.
+   * Check the filter field in the ListIssuesRequest message.
+   */
   filter: string;
   /** Query is the query statement. */
   query: string;
@@ -307,7 +331,7 @@ export enum Issue_Type {
   TYPE_UNSPECIFIED = "TYPE_UNSPECIFIED",
   DATABASE_CHANGE = "DATABASE_CHANGE",
   GRANT_REQUEST = "GRANT_REQUEST",
-  DATABASE_DATA_EXPORT = "DATABASE_DATA_EXPORT",
+  DATABASE_EXPORT = "DATABASE_EXPORT",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -323,8 +347,8 @@ export function issue_TypeFromJSON(object: any): Issue_Type {
     case "GRANT_REQUEST":
       return Issue_Type.GRANT_REQUEST;
     case 3:
-    case "DATABASE_DATA_EXPORT":
-      return Issue_Type.DATABASE_DATA_EXPORT;
+    case "DATABASE_EXPORT":
+      return Issue_Type.DATABASE_EXPORT;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -340,8 +364,8 @@ export function issue_TypeToJSON(object: Issue_Type): string {
       return "DATABASE_CHANGE";
     case Issue_Type.GRANT_REQUEST:
       return "GRANT_REQUEST";
-    case Issue_Type.DATABASE_DATA_EXPORT:
-      return "DATABASE_DATA_EXPORT";
+    case Issue_Type.DATABASE_EXPORT:
+      return "DATABASE_EXPORT";
     case Issue_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -356,7 +380,7 @@ export function issue_TypeToNumber(object: Issue_Type): number {
       return 1;
     case Issue_Type.GRANT_REQUEST:
       return 2;
-    case Issue_Type.DATABASE_DATA_EXPORT:
+    case Issue_Type.DATABASE_EXPORT:
       return 3;
     case Issue_Type.UNRECOGNIZED:
     default:
@@ -509,6 +533,7 @@ export interface GrantRequest {
    * Format: users/{email}.
    */
   user: string;
+  /** The condition for the role. Same as the condtion in IAM Binding message. */
   condition: Expr | undefined;
   expiration: Duration | undefined;
 }
@@ -517,11 +542,6 @@ export interface ApprovalTemplate {
   flow: ApprovalFlow | undefined;
   title: string;
   description: string;
-  /**
-   * The name of the creator in users/{email} format.
-   * TODO: we should mark it as OUTPUT_ONLY, but currently the frontend will post the approval setting with creator.
-   */
-  creator: string;
 }
 
 export interface ApprovalFlow {
@@ -593,11 +613,7 @@ export function approvalStep_TypeToNumber(object: ApprovalStep_Type): number {
 
 export interface ApprovalNode {
   type: ApprovalNode_Type;
-  groupValue?:
-    | ApprovalNode_GroupValue
-    | undefined;
-  /** Format: roles/{role} */
-  role?: string | undefined;
+  role: string;
 }
 
 /**
@@ -646,82 +662,6 @@ export function approvalNode_TypeToNumber(object: ApprovalNode_Type): number {
     case ApprovalNode_Type.ANY_IN_GROUP:
       return 1;
     case ApprovalNode_Type.UNRECOGNIZED:
-    default:
-      return -1;
-  }
-}
-
-/**
- * The predefined user groups are:
- * - WORKSPACE_OWNER
- * - WORKSPACE_DBA
- * - PROJECT_OWNER
- * - PROJECT_MEMBER
- */
-export enum ApprovalNode_GroupValue {
-  GROUP_VALUE_UNSPECIFILED = "GROUP_VALUE_UNSPECIFILED",
-  WORKSPACE_OWNER = "WORKSPACE_OWNER",
-  WORKSPACE_DBA = "WORKSPACE_DBA",
-  PROJECT_OWNER = "PROJECT_OWNER",
-  PROJECT_MEMBER = "PROJECT_MEMBER",
-  UNRECOGNIZED = "UNRECOGNIZED",
-}
-
-export function approvalNode_GroupValueFromJSON(object: any): ApprovalNode_GroupValue {
-  switch (object) {
-    case 0:
-    case "GROUP_VALUE_UNSPECIFILED":
-      return ApprovalNode_GroupValue.GROUP_VALUE_UNSPECIFILED;
-    case 1:
-    case "WORKSPACE_OWNER":
-      return ApprovalNode_GroupValue.WORKSPACE_OWNER;
-    case 2:
-    case "WORKSPACE_DBA":
-      return ApprovalNode_GroupValue.WORKSPACE_DBA;
-    case 3:
-    case "PROJECT_OWNER":
-      return ApprovalNode_GroupValue.PROJECT_OWNER;
-    case 4:
-    case "PROJECT_MEMBER":
-      return ApprovalNode_GroupValue.PROJECT_MEMBER;
-    case -1:
-    case "UNRECOGNIZED":
-    default:
-      return ApprovalNode_GroupValue.UNRECOGNIZED;
-  }
-}
-
-export function approvalNode_GroupValueToJSON(object: ApprovalNode_GroupValue): string {
-  switch (object) {
-    case ApprovalNode_GroupValue.GROUP_VALUE_UNSPECIFILED:
-      return "GROUP_VALUE_UNSPECIFILED";
-    case ApprovalNode_GroupValue.WORKSPACE_OWNER:
-      return "WORKSPACE_OWNER";
-    case ApprovalNode_GroupValue.WORKSPACE_DBA:
-      return "WORKSPACE_DBA";
-    case ApprovalNode_GroupValue.PROJECT_OWNER:
-      return "PROJECT_OWNER";
-    case ApprovalNode_GroupValue.PROJECT_MEMBER:
-      return "PROJECT_MEMBER";
-    case ApprovalNode_GroupValue.UNRECOGNIZED:
-    default:
-      return "UNRECOGNIZED";
-  }
-}
-
-export function approvalNode_GroupValueToNumber(object: ApprovalNode_GroupValue): number {
-  switch (object) {
-    case ApprovalNode_GroupValue.GROUP_VALUE_UNSPECIFILED:
-      return 0;
-    case ApprovalNode_GroupValue.WORKSPACE_OWNER:
-      return 1;
-    case ApprovalNode_GroupValue.WORKSPACE_DBA:
-      return 2;
-    case ApprovalNode_GroupValue.PROJECT_OWNER:
-      return 3;
-    case ApprovalNode_GroupValue.PROJECT_MEMBER:
-      return 4;
-    case ApprovalNode_GroupValue.UNRECOGNIZED:
     default:
       return -1;
   }
@@ -885,8 +825,6 @@ export interface IssueComment_TaskUpdate {
     | undefined;
   /** Format: projects/{project}/sheets/{sheet} */
   toSheet?: string | undefined;
-  fromEarliestAllowedTime?: Timestamp | undefined;
-  toEarliestAllowedTime?: Timestamp | undefined;
   toStatus?: IssueComment_TaskUpdate_Status | undefined;
 }
 
@@ -2687,7 +2625,7 @@ export const GrantRequest: MessageFns<GrantRequest> = {
 };
 
 function createBaseApprovalTemplate(): ApprovalTemplate {
-  return { flow: undefined, title: "", description: "", creator: "" };
+  return { flow: undefined, title: "", description: "" };
 }
 
 export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
@@ -2700,9 +2638,6 @@ export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
     }
     if (message.description !== "") {
       writer.uint32(26).string(message.description);
-    }
-    if (message.creator !== "") {
-      writer.uint32(34).string(message.creator);
     }
     return writer;
   },
@@ -2738,14 +2673,6 @@ export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
           message.description = reader.string();
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.creator = reader.string();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2760,7 +2687,6 @@ export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
       flow: isSet(object.flow) ? ApprovalFlow.fromJSON(object.flow) : undefined,
       title: isSet(object.title) ? globalThis.String(object.title) : "",
       description: isSet(object.description) ? globalThis.String(object.description) : "",
-      creator: isSet(object.creator) ? globalThis.String(object.creator) : "",
     };
   },
 
@@ -2775,9 +2701,6 @@ export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
     if (message.description !== "") {
       obj.description = message.description;
     }
-    if (message.creator !== "") {
-      obj.creator = message.creator;
-    }
     return obj;
   },
 
@@ -2791,7 +2714,6 @@ export const ApprovalTemplate: MessageFns<ApprovalTemplate> = {
       : undefined;
     message.title = object.title ?? "";
     message.description = object.description ?? "";
-    message.creator = object.creator ?? "";
     return message;
   },
 };
@@ -2933,7 +2855,7 @@ export const ApprovalStep: MessageFns<ApprovalStep> = {
 };
 
 function createBaseApprovalNode(): ApprovalNode {
-  return { type: ApprovalNode_Type.TYPE_UNSPECIFIED, groupValue: undefined, role: undefined };
+  return { type: ApprovalNode_Type.TYPE_UNSPECIFIED, role: "" };
 }
 
 export const ApprovalNode: MessageFns<ApprovalNode> = {
@@ -2941,11 +2863,8 @@ export const ApprovalNode: MessageFns<ApprovalNode> = {
     if (message.type !== ApprovalNode_Type.TYPE_UNSPECIFIED) {
       writer.uint32(8).int32(approvalNode_TypeToNumber(message.type));
     }
-    if (message.groupValue !== undefined) {
-      writer.uint32(16).int32(approvalNode_GroupValueToNumber(message.groupValue));
-    }
-    if (message.role !== undefined) {
-      writer.uint32(26).string(message.role);
+    if (message.role !== "") {
+      writer.uint32(18).string(message.role);
     }
     return writer;
   },
@@ -2966,15 +2885,7 @@ export const ApprovalNode: MessageFns<ApprovalNode> = {
           continue;
         }
         case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.groupValue = approvalNode_GroupValueFromJSON(reader.int32());
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
+          if (tag !== 18) {
             break;
           }
 
@@ -2993,8 +2904,7 @@ export const ApprovalNode: MessageFns<ApprovalNode> = {
   fromJSON(object: any): ApprovalNode {
     return {
       type: isSet(object.type) ? approvalNode_TypeFromJSON(object.type) : ApprovalNode_Type.TYPE_UNSPECIFIED,
-      groupValue: isSet(object.groupValue) ? approvalNode_GroupValueFromJSON(object.groupValue) : undefined,
-      role: isSet(object.role) ? globalThis.String(object.role) : undefined,
+      role: isSet(object.role) ? globalThis.String(object.role) : "",
     };
   },
 
@@ -3003,10 +2913,7 @@ export const ApprovalNode: MessageFns<ApprovalNode> = {
     if (message.type !== ApprovalNode_Type.TYPE_UNSPECIFIED) {
       obj.type = approvalNode_TypeToJSON(message.type);
     }
-    if (message.groupValue !== undefined) {
-      obj.groupValue = approvalNode_GroupValueToJSON(message.groupValue);
-    }
-    if (message.role !== undefined) {
+    if (message.role !== "") {
       obj.role = message.role;
     }
     return obj;
@@ -3018,8 +2925,7 @@ export const ApprovalNode: MessageFns<ApprovalNode> = {
   fromPartial(object: DeepPartial<ApprovalNode>): ApprovalNode {
     const message = createBaseApprovalNode();
     message.type = object.type ?? ApprovalNode_Type.TYPE_UNSPECIFIED;
-    message.groupValue = object.groupValue ?? undefined;
-    message.role = object.role ?? undefined;
+    message.role = object.role ?? "";
     return message;
   },
 };
@@ -3918,14 +3824,7 @@ export const IssueComment_StageEnd: MessageFns<IssueComment_StageEnd> = {
 };
 
 function createBaseIssueComment_TaskUpdate(): IssueComment_TaskUpdate {
-  return {
-    tasks: [],
-    fromSheet: undefined,
-    toSheet: undefined,
-    fromEarliestAllowedTime: undefined,
-    toEarliestAllowedTime: undefined,
-    toStatus: undefined,
-  };
+  return { tasks: [], fromSheet: undefined, toSheet: undefined, toStatus: undefined };
 }
 
 export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
@@ -3938,12 +3837,6 @@ export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
     }
     if (message.toSheet !== undefined) {
       writer.uint32(26).string(message.toSheet);
-    }
-    if (message.fromEarliestAllowedTime !== undefined) {
-      Timestamp.encode(message.fromEarliestAllowedTime, writer.uint32(34).fork()).join();
-    }
-    if (message.toEarliestAllowedTime !== undefined) {
-      Timestamp.encode(message.toEarliestAllowedTime, writer.uint32(42).fork()).join();
     }
     if (message.toStatus !== undefined) {
       writer.uint32(48).int32(issueComment_TaskUpdate_StatusToNumber(message.toStatus));
@@ -3982,22 +3875,6 @@ export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
           message.toSheet = reader.string();
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.fromEarliestAllowedTime = Timestamp.decode(reader, reader.uint32());
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.toEarliestAllowedTime = Timestamp.decode(reader, reader.uint32());
-          continue;
-        }
         case 6: {
           if (tag !== 48) {
             break;
@@ -4020,12 +3897,6 @@ export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
       tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => globalThis.String(e)) : [],
       fromSheet: isSet(object.fromSheet) ? globalThis.String(object.fromSheet) : undefined,
       toSheet: isSet(object.toSheet) ? globalThis.String(object.toSheet) : undefined,
-      fromEarliestAllowedTime: isSet(object.fromEarliestAllowedTime)
-        ? fromJsonTimestamp(object.fromEarliestAllowedTime)
-        : undefined,
-      toEarliestAllowedTime: isSet(object.toEarliestAllowedTime)
-        ? fromJsonTimestamp(object.toEarliestAllowedTime)
-        : undefined,
       toStatus: isSet(object.toStatus) ? issueComment_TaskUpdate_StatusFromJSON(object.toStatus) : undefined,
     };
   },
@@ -4041,12 +3912,6 @@ export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
     if (message.toSheet !== undefined) {
       obj.toSheet = message.toSheet;
     }
-    if (message.fromEarliestAllowedTime !== undefined) {
-      obj.fromEarliestAllowedTime = fromTimestamp(message.fromEarliestAllowedTime).toISOString();
-    }
-    if (message.toEarliestAllowedTime !== undefined) {
-      obj.toEarliestAllowedTime = fromTimestamp(message.toEarliestAllowedTime).toISOString();
-    }
     if (message.toStatus !== undefined) {
       obj.toStatus = issueComment_TaskUpdate_StatusToJSON(message.toStatus);
     }
@@ -4061,14 +3926,6 @@ export const IssueComment_TaskUpdate: MessageFns<IssueComment_TaskUpdate> = {
     message.tasks = object.tasks?.map((e) => e) || [];
     message.fromSheet = object.fromSheet ?? undefined;
     message.toSheet = object.toSheet ?? undefined;
-    message.fromEarliestAllowedTime =
-      (object.fromEarliestAllowedTime !== undefined && object.fromEarliestAllowedTime !== null)
-        ? Timestamp.fromPartial(object.fromEarliestAllowedTime)
-        : undefined;
-    message.toEarliestAllowedTime =
-      (object.toEarliestAllowedTime !== undefined && object.toEarliestAllowedTime !== null)
-        ? Timestamp.fromPartial(object.toEarliestAllowedTime)
-        : undefined;
     message.toStatus = object.toStatus ?? undefined;
     return message;
   },

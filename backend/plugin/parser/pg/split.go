@@ -8,6 +8,7 @@ import (
 
 	parser "github.com/bytebase/postgresql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
@@ -23,22 +24,26 @@ func init() {
 func SplitSQL(statement string) ([]base.SingleSQL, error) {
 	lexer := parser.NewPostgreSQLLexer(antlr.NewInputStream(statement))
 	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-	list, err := splitSQLImpl(stream)
+	list, err := splitSQLImpl(stream, statement)
 	if err != nil {
 		slog.Info("failed to split PostgreSQL statement", "statement", statement)
 		// Use parser to split statement.
-		return splitByParser(lexer, stream)
+		return splitByParser(statement, lexer, stream)
 	}
 	return list, nil
 }
 
-func splitByParser(lexer *parser.PostgreSQLLexer, stream *antlr.CommonTokenStream) ([]base.SingleSQL, error) {
+func splitByParser(statement string, lexer *parser.PostgreSQLLexer, stream *antlr.CommonTokenStream) ([]base.SingleSQL, error) {
 	p := parser.NewPostgreSQLParser(stream)
-	lexerErrorListener := &base.ParseErrorListener{}
+	lexerErrorListener := &base.ParseErrorListener{
+		Statement: statement,
+	}
 	lexer.RemoveErrorListeners()
 	lexer.AddErrorListener(lexerErrorListener)
 
-	parserErrorListener := &base.ParseErrorListener{}
+	parserErrorListener := &base.ParseErrorListener{
+		Statement: statement,
+	}
 	p.RemoveErrorListeners()
 	p.AddErrorListener(parserErrorListener)
 
@@ -63,34 +68,36 @@ func splitByParser(lexer *parser.PostgreSQLLexer, stream *antlr.CommonTokenStrea
 	start := 0
 	for _, semi := range tree.Stmtblock().Stmtmulti().AllSEMI() {
 		pos := semi.GetSymbol().GetStart()
-		line, col := base.FirstDefaultChannelTokenPosition(tokens[start : pos+1])
+		antlrPosition := base.FirstDefaultChannelTokenPosition(tokens[start : pos+1])
 		// From antlr4, the line is ONE based, and the column is ZERO based.
 		// So we should minus 1 for the line.
 		result = append(result, base.SingleSQL{
-			Text:                 stream.GetTextFromTokens(tokens[start], tokens[pos]),
-			BaseLine:             tokens[start].GetLine() - 1,
-			LastLine:             tokens[pos].GetLine() - 1,
-			LastColumn:           tokens[pos].GetColumn(),
-			FirstStatementLine:   line,
-			FirstStatementColumn: col,
-			Empty:                base.IsEmpty(tokens[start:pos+1], parser.PostgreSQLParserSEMI),
+			Text:     stream.GetTextFromTokens(tokens[start], tokens[pos]),
+			BaseLine: tokens[start].GetLine() - 1,
+			End: common.ConvertANTLRPositionToPosition(&common.ANTLRPosition{
+				Line:   int32(tokens[pos].GetLine()),
+				Column: int32(tokens[pos].GetColumn()),
+			}, statement),
+			Start: common.ConvertANTLRPositionToPosition(antlrPosition, statement),
+			Empty: base.IsEmpty(tokens[start:pos+1], parser.PostgreSQLParserSEMI),
 		})
 		start = pos + 1
 	}
 	// For the last statement, it may not end with semicolon symbol, EOF symbol instead.
 	eofPos := len(tokens) - 1
 	if start < eofPos {
-		line, col := base.FirstDefaultChannelTokenPosition(tokens[start:])
+		antlrPosition := base.FirstDefaultChannelTokenPosition(tokens[start:])
 		// From antlr4, the line is ONE based, and the column is ZERO based.
 		// So we should minus 1 for the line.
 		result = append(result, base.SingleSQL{
-			Text:                 stream.GetTextFromTokens(tokens[start], tokens[eofPos-1]),
-			BaseLine:             tokens[start].GetLine() - 1,
-			LastLine:             tokens[eofPos-1].GetLine() - 1,
-			LastColumn:           tokens[eofPos-1].GetColumn(),
-			FirstStatementLine:   line,
-			FirstStatementColumn: col,
-			Empty:                base.IsEmpty(tokens[start:eofPos], parser.PostgreSQLParserSEMI),
+			Text:     stream.GetTextFromTokens(tokens[start], tokens[eofPos-1]),
+			BaseLine: tokens[start].GetLine() - 1,
+			End: common.ConvertANTLRPositionToPosition(&common.ANTLRPosition{
+				Line:   int32(tokens[eofPos-1].GetLine()),
+				Column: int32(tokens[eofPos-1].GetColumn()),
+			}, statement),
+			Start: common.ConvertANTLRPositionToPosition(antlrPosition, statement),
+			Empty: base.IsEmpty(tokens[start:eofPos], parser.PostgreSQLParserSEMI),
 		})
 	}
 	return result, nil
@@ -101,7 +108,7 @@ type openParenthesis struct {
 	pos       int
 }
 
-func splitSQLImpl(stream *antlr.CommonTokenStream) ([]base.SingleSQL, error) {
+func splitSQLImpl(stream *antlr.CommonTokenStream, statement string) ([]base.SingleSQL, error) {
 	var result []base.SingleSQL
 	stream.Fill()
 	tokens := stream.GetAllTokens()
@@ -178,34 +185,36 @@ func splitSQLImpl(stream *antlr.CommonTokenStream) ([]base.SingleSQL, error) {
 
 	start := 0
 	for _, pos := range semicolonStack {
-		line, col := base.FirstDefaultChannelTokenPosition(tokens[start : pos+1])
+		antlrPosition := base.FirstDefaultChannelTokenPosition(tokens[start : pos+1])
 		// From antlr4, the line is ONE based, and the column is ZERO based.
 		// So we should minus 1 for the line.
 		result = append(result, base.SingleSQL{
-			Text:                 stream.GetTextFromTokens(tokens[start], tokens[pos]),
-			BaseLine:             tokens[start].GetLine() - 1,
-			LastLine:             tokens[pos].GetLine() - 1,
-			LastColumn:           tokens[pos].GetColumn(),
-			FirstStatementLine:   line,
-			FirstStatementColumn: col,
-			Empty:                base.IsEmpty(tokens[start:pos+1], parser.PostgreSQLParserSEMI),
+			Text:     stream.GetTextFromTokens(tokens[start], tokens[pos]),
+			BaseLine: tokens[start].GetLine() - 1,
+			End: common.ConvertANTLRPositionToPosition(&common.ANTLRPosition{
+				Line:   int32(tokens[pos].GetLine()),
+				Column: int32(tokens[pos].GetColumn()),
+			}, statement),
+			Start: common.ConvertANTLRPositionToPosition(antlrPosition, statement),
+			Empty: base.IsEmpty(tokens[start:pos+1], parser.PostgreSQLParserSEMI),
 		})
 		start = pos + 1
 	}
 	// For the last statement, it may not end with semicolon symbol, EOF symbol instead.
 	eofPos := len(tokens) - 1
 	if start < eofPos {
-		line, col := base.FirstDefaultChannelTokenPosition(tokens[start:])
+		antlrPosition := base.FirstDefaultChannelTokenPosition(tokens[start:])
 		// From antlr4, the line is ONE based, and the column is ZERO based.
 		// So we should minus 1 for the line.
 		result = append(result, base.SingleSQL{
-			Text:                 stream.GetTextFromTokens(tokens[start], tokens[eofPos-1]),
-			BaseLine:             tokens[start].GetLine() - 1,
-			LastLine:             tokens[eofPos-1].GetLine() - 1,
-			LastColumn:           tokens[eofPos-1].GetColumn(),
-			FirstStatementLine:   line,
-			FirstStatementColumn: col,
-			Empty:                base.IsEmpty(tokens[start:eofPos], parser.PostgreSQLParserSEMI),
+			Text:     stream.GetTextFromTokens(tokens[start], tokens[eofPos-1]),
+			BaseLine: tokens[start].GetLine() - 1,
+			End: common.ConvertANTLRPositionToPosition(&common.ANTLRPosition{
+				Line:   int32(tokens[eofPos-1].GetLine()),
+				Column: int32(tokens[eofPos-1].GetColumn()),
+			}, statement),
+			Start: common.ConvertANTLRPositionToPosition(antlrPosition, statement),
+			Empty: base.IsEmpty(tokens[start:eofPos], parser.PostgreSQLParserSEMI),
 		})
 	}
 

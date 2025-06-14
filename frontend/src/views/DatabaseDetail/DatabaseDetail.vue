@@ -9,15 +9,14 @@
       type="warning"
       :title="$t('database.drifted.schema-drift-detected.self')"
       :description="$t('database.drifted.schema-drift-detected.description')"
-      :link="'https://www.bytebase.com/docs/change-database/drift-detection/?source=console'"
+      :link="'https://docs.bytebase.com/change-database/drift-detection/?source=console'"
       :action-text="
         database.project !== DEFAULT_PROJECT_NAME
-          ? $t('changelog.establish-baseline')
-          : ''
+          ? $t('database.drifted.new-baseline.self')
+          : undefined
       "
-      @click="doCreateBaselineIssue"
-    >
-    </BBAttention>
+      @click="updateDatabaseDrift"
+    />
 
     <main class="flex-1 relative">
       <!-- Highlight Panel -->
@@ -110,7 +109,6 @@
             :type="'default'"
             :text="false"
             :database="database"
-            @finish="updateAnomalyList"
           />
           <NButton
             v-if="allowTransferDatabase"
@@ -137,11 +135,7 @@
 
     <NTabs v-if="ready" v-model:value="state.selectedTab">
       <NTabPane name="overview" :tab="$t('common.overview')">
-        <DatabaseOverviewPanel
-          class="mt-2"
-          :database="database"
-          :anomaly-list="anomalyList"
-        />
+        <DatabaseOverviewPanel class="mt-2" :database="database" />
       </NTabPane>
       <NTabPane
         v-if="
@@ -223,7 +217,7 @@ import { useClipboard } from "@vueuse/core";
 import dayjs from "dayjs";
 import { ArrowRightLeftIcon, ClipboardCopyIcon } from "lucide-vue-next";
 import { NButton, NTabPane, NTabs } from "naive-ui";
-import { computed, reactive, watch, ref, watchEffect } from "vue";
+import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter, useRoute } from "vue-router";
 import { BBAttention, BBModal } from "@/bbkit";
@@ -249,11 +243,11 @@ import {
 } from "@/components/v2";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import {
-  useAnomalyV1Store,
   useAppFeature,
   useEnvironmentV1Store,
   useDatabaseV1ByName,
   pushNotification,
+  useDatabaseV1Store,
 } from "@/store";
 import {
   databaseNamePrefix,
@@ -262,10 +256,8 @@ import {
 import {
   UNKNOWN_PROJECT_NAME,
   unknownEnvironment,
-  isValidDatabaseName,
   DEFAULT_PROJECT_NAME,
 } from "@/types";
-import type { Anomaly } from "@/types/proto/v1/anomaly_service";
 import { State } from "@/types/proto/v1/common";
 import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
 import {
@@ -303,6 +295,7 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
+const databaseStore = useDatabaseV1Store();
 
 const state = reactive<LocalState>({
   showTransferDatabaseModal: false,
@@ -313,7 +306,6 @@ const state = reactive<LocalState>({
   selectedTab: "overview",
 });
 const route = useRoute();
-const anomalyList = ref<Anomaly[]>([]);
 const {
   allowSyncDatabase,
   allowUpdateDatabase,
@@ -357,15 +349,6 @@ const { database, ready } = useDatabaseV1ByName(
 );
 
 const project = computed(() => database.value.projectEntity);
-
-watchEffect(async () => {
-  if (isValidDatabaseName(database.value.name)) {
-    anomalyList.value = await useAnomalyV1Store().fetchAnomalyList(
-      database.value.project,
-      { database: database.value.name }
-    );
-  }
-});
 
 const hasSchemaDiagramFeature = computed((): boolean => {
   return instanceV1HasAlterSchema(database.value.instanceResource);
@@ -425,13 +408,6 @@ const handleGotoSQLEditorFailed = () => {
   state.showIncorrectProjectModal = true;
 };
 
-const updateAnomalyList = async () => {
-  anomalyList.value = await useAnomalyV1Store().fetchAnomalyList(
-    database.value.project,
-    { database: database.value.name }
-  );
-};
-
 const environment = computed(() => {
   return (
     useEnvironmentV1Store().getEnvironmentByName(
@@ -458,20 +434,18 @@ const handleCopyDatabaseName = (name: string) => {
   });
 };
 
-const doCreateBaselineIssue = () => {
-  router.push({
-    name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
-    params: {
-      projectId: extractProjectResourceName(database.value.project),
-      issueSlug: "create",
+const updateDatabaseDrift = async () => {
+  await databaseStore.updateDatabase({
+    database: {
+      ...database.value,
+      drifted: false,
     },
-    query: {
-      template: "bb.issue.database.schema.baseline",
-      name: t("changelog.establish-database-baseline", {
-        name: database.value.databaseName,
-      }),
-      databaseList: database.value.name,
-    },
+    updateMask: ["drifted"],
+  });
+  pushNotification({
+    module: "bytebase",
+    style: "SUCCESS",
+    title: t("database.drifted.new-baseline.successfully-established"),
   });
 };
 </script>

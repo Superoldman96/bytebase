@@ -3,7 +3,7 @@ package elasticsearch
 import (
 	"encoding/json"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 type ParseResult struct {
@@ -196,8 +197,14 @@ func ParseElasticsearchREST(text string) (*ParseResult, error) {
 
 	// Convert Error
 	var syntaxErrors []*base.SyntaxError
-	sort.Slice(p.errors, func(i, j int) bool {
-		return p.errors[i].byteOffset < p.errors[j].byteOffset
+	slices.SortFunc(p.errors, func(a, b *syntaxError) int {
+		if a.byteOffset < b.byteOffset {
+			return -1
+		}
+		if a.byteOffset > b.byteOffset {
+			return 1
+		}
+		return 0
 	})
 
 	for i, err := range p.errors {
@@ -205,8 +212,8 @@ func ParseElasticsearchREST(text string) (*ParseResult, error) {
 		column := 0
 		pos := 0
 		if i > 0 {
-			line = syntaxErrors[i-1].Line
-			column = syntaxErrors[i-1].Column
+			line = int(syntaxErrors[i-1].Position.Line)
+			column = int(syntaxErrors[i-1].Position.Column)
 			pos = p.errors[i-1].byteOffset
 		}
 		boundary := p.errors[i].byteOffset
@@ -228,8 +235,10 @@ func ParseElasticsearchREST(text string) (*ParseResult, error) {
 			}
 		}
 		syntaxErrors = append(syntaxErrors, &base.SyntaxError{
-			Line:    line,
-			Column:  column,
+			Position: &storepb.Position{
+				Line:   int32(line),
+				Column: int32(column),
+			},
 			Message: err.message,
 		})
 	}

@@ -41,17 +41,10 @@
         <TabList />
 
         <EditorPanel />
-
-        <div
-          v-if="isFetchingSheet"
-          class="flex items-center justify-center absolute inset-0 bg-white/50 z-20"
-        >
-          <BBSpin />
-        </div>
       </Pane>
     </Splitpanes>
 
-    <Quickstart v-if="!hideQuickStart" />
+    <Quickstart />
 
     <Drawer v-model:show="showSheetPanel">
       <DrawerContent :title="$t('sql-editor.sheet.self')">
@@ -67,23 +60,25 @@
 
     <ConnectionPanel v-model:show="showConnectionPanel" />
   </div>
+
+  <IAMRemindModal v-if="projectContextReady" :project-name="projectName" />
 </template>
 
 <script lang="ts" setup>
 import { useWindowSize } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { Splitpanes, Pane } from "splitpanes";
-import { computed, reactive } from "vue";
+import { reactive } from "vue";
 import { useRouter } from "vue-router";
-import { BBSpin } from "@/bbkit";
+import IAMRemindModal from "@/components/IAMRemindModal.vue";
 import Quickstart from "@/components/Quickstart.vue";
 import { Drawer, DrawerContent } from "@/components/v2";
 import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import {
-  useAppFeature,
   useDatabaseV1Store,
   useSQLEditorTabStore,
+  useSQLEditorStore,
 } from "@/store";
 import { extractProjectResourceName } from "@/utils";
 import AsidePanel from "./AsidePanel";
@@ -106,16 +101,17 @@ const state = reactive<LocalState>({
 const router = useRouter();
 const databaseStore = useDatabaseV1Store();
 const tabStore = useSQLEditorTabStore();
+const editorStore = useSQLEditorStore();
+
 const {
   events: editorEvents,
   showConnectionPanel,
   pendingInsertAtCaret,
 } = useSQLEditorContext();
+const { project: projectName, projectContextReady } = storeToRefs(editorStore);
 const { showPanel: showSheetPanel } = useSheetContext();
 
 const { currentTab, isDisconnected } = storeToRefs(tabStore);
-const hideQuickStart = useAppFeature("bb.feature.hide-quick-start");
-const isFetchingSheet = computed(() => false /* editorStore.isFetchingSheet */);
 
 const { width: windowWidth } = useWindowSize();
 

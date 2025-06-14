@@ -21,16 +21,22 @@
           ref="resourceIdField"
           resource-type="environment"
           :readonly="!create"
-          :value="extractEnvironmentResourceName(state.environment.name)"
+          :value="state.environment.id"
           :resource-title="state.environment.title"
-          :validate="validateResourceId"
+          :fetch-resource="
+            (id) =>
+              environmentStore.getOrFetchEnvironmentByName(
+                `${environmentNamePrefix}${id}`,
+                true /* silent */
+              )
+          "
         />
       </div>
 
       <div v-if="features.includes('TIER')" class="flex flex-col gap-y-2">
         <label class="font-medium flex items-center">
           {{ $t("policy.environment-tier.name") }}
-          <FeatureBadge feature="bb.feature.environment-tier-policy" />
+          <FeatureBadge :feature="PlanFeature.FEATURE_ENVIRONMENT_TIERS" />
         </label>
         <p class="text-sm text-gray-600">
           <i18n-t tag="span" keypath="policy.environment-tier.description">
@@ -38,20 +44,20 @@
           </i18n-t>
           <a
             class="inline-flex items-center text-blue-600 ml-1 hover:underline"
-            href="https://www.bytebase.com/docs/administration/environment-policy/overview/?source=console#environment-tier"
+            href="https://docs.bytebase.com/administration/environment-policy/overview/?source=console#environment-tier"
             target="_blank"
             >{{ $t("common.learn-more")
             }}<heroicons-outline:external-link class="w-4 h-4"
           /></a>
         </p>
         <NCheckbox
-          :checked="state.environmentTier === EnvironmentTier.PROTECTED"
+          :checked="state.environment.tags.protected === 'protected'"
           :disabled="!allowEdit"
           @update:checked="
             (on: boolean) => {
-              state.environmentTier = on
-                ? EnvironmentTier.PROTECTED
-                : EnvironmentTier.UNPROTECTED;
+              state.environment.tags.protected = on
+                ? 'protected'
+                : 'unprotected';
             }
           "
         >
@@ -75,10 +81,10 @@
           </span>
         </div>
         <div class="textinfolabel">
-          {{ $t("policy.rollout.info") }}
+          {{ $t("policy.rollout.info", { permission: "bb.taskRuns.create" }) }}
           <a
             class="inline-flex items-center text-blue-600 ml-1 hover:underline"
-            href="https://www.bytebase.com/docs/administration/environment-policy/rollout-policy"
+            href="https://docs.bytebase.com/administration/environment-policy/rollout-policy"
             target="_blank"
           >
             {{ $t("common.learn-more") }}
@@ -94,50 +100,34 @@
       <SQLReviewForResource
         v-if="features.includes('SQL_REVIEW') && !create"
         ref="sqlReviewForResourceRef"
-        :resource="environment.name"
+        :resource="`${environmentNamePrefix}${environment.id}`"
         :allow-edit="allowEdit"
       />
 
       <AccessControlConfigure
         v-if="features.includes('ACCESS_CONTROL') && !create"
         ref="accessControlConfigureRef"
-        :resource="environment.name"
+        :resource="`${environmentNamePrefix}${environment.id}`"
         :allow-edit="allowEdit"
       />
     </div>
 
     <div
-      v-if="!create && !hideArchiveRestore"
+      v-if="!create"
       class="mt-6 border-t border-block-border flex justify-between items-center pt-4 pb-2"
     >
-      <template v-if="state.environment.state === State.ACTIVE">
-        <BBButtonConfirm
-          v-if="allowArchive"
-          :type="'ARCHIVE'"
-          :button-text="$t('environment.delete')"
-          :ok-text="$t('common.delete')"
-          :confirm-title="
-            $t('environment.delete') + ` '${state.environment.title}'?`
-          "
-          :confirm-description="$t('common.cannot-undo-this-action')"
-          :require-confirm="true"
-          @confirm="archiveEnvironment"
-        />
-      </template>
-      <template v-else-if="state.environment.state === State.DELETED">
-        <BBButtonConfirm
-          v-if="allowRestore"
-          :type="'RESTORE'"
-          :button-text="$t('environment.restore')"
-          :ok-text="$t('common.restore')"
-          :confirm-title="
-            $t('environment.restore') + ` '${state.environment.title}'?`
-          "
-          :confirm-description="''"
-          :require-confirm="true"
-          @confirm="restoreEnvironment"
-        />
-      </template>
+      <BBButtonConfirm
+        v-if="allowArchive"
+        :type="'DELETE'"
+        :button-text="$t('environment.delete')"
+        :ok-text="$t('common.delete')"
+        :confirm-title="
+          $t('environment.delete') + ` '${state.environment.title}'?`
+        "
+        :confirm-description="$t('common.cannot-undo-this-action')"
+        :require-confirm="true"
+        @confirm="deleteEnvironment"
+      />
       <div v-else></div>
     </div>
   </div>
@@ -145,7 +135,6 @@
 
 <script lang="tsx" setup>
 import { NCheckbox, NInput, NColorPicker } from "naive-ui";
-import { Status } from "nice-grpc-common";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { BBButtonConfirm } from "@/bbkit";
@@ -157,11 +146,7 @@ import {
   pushNotification,
 } from "@/store";
 import { environmentNamePrefix } from "@/store/modules/v1/common";
-import type { ResourceId, ValidatedMessage } from "@/types";
-import { State } from "@/types/proto/v1/common";
-import { EnvironmentTier } from "@/types/proto/v1/environment_service";
-import { extractEnvironmentResourceName } from "@/utils";
-import { getErrorCode } from "@/utils/grpcweb";
+import { PlanFeature } from "@/types/proto/v1/subscription_service";
 import { FeatureBadge } from "../FeatureGuard";
 import SQLReviewForResource from "../SQLReview/components/SQLReviewForResource.vue";
 import { ResourceIdField } from "../v2";
@@ -171,13 +156,11 @@ import { useEnvironmentFormContext } from "./context";
 
 withDefaults(
   defineProps<{
-    hideArchiveRestore?: boolean;
     features?: Array<
       "BASE" | "TIER" | "ROLLOUT_POLICY" | "SQL_REVIEW" | "ACCESS_CONTROL"
     >;
   }>(),
   {
-    hideArchiveRestore: false,
     features: () => [
       "BASE",
       "TIER",
@@ -201,6 +184,7 @@ const {
   resourceIdField,
 } = useEnvironmentFormContext();
 const environmentList = useEnvironmentV1List();
+const environmentStore = useEnvironmentV1Store();
 
 const accessControlConfigureRef =
   ref<InstanceType<typeof AccessControlConfigure>>();
@@ -222,18 +206,11 @@ watch(
 );
 
 const hasEnvironmentPolicyFeature = computed(() =>
-  hasFeature("bb.feature.environment-tier-policy")
+  hasFeature(PlanFeature.FEATURE_ENVIRONMENT_TIERS)
 );
 
 const allowArchive = computed(() => {
-  return (
-    hasPermission("bb.environments.delete") && environmentList.value.length > 1
-  );
-});
-
-// TODO(p0ny): hard-delete environment.
-const allowRestore = computed(() => {
-  return false;
+  return hasPermission("bb.settings.set") && environmentList.value.length > 1;
 });
 
 const renderColorPicker = () => {
@@ -265,7 +242,7 @@ const renderColorPicker = () => {
       }}
       onUpdateValue={(color: string) => {
         if (!hasEnvironmentPolicyFeature.value) {
-          missingFeature.value = "bb.feature.environment-tier-policy";
+          missingFeature.value = PlanFeature.FEATURE_ENVIRONMENT_TIERS;
           return;
         }
         state.value.environment.color = color;
@@ -274,42 +251,8 @@ const renderColorPicker = () => {
   );
 };
 
-const validateResourceId = async (
-  resourceId: ResourceId
-): Promise<ValidatedMessage[]> => {
-  if (!resourceId) {
-    return [];
-  }
-
-  try {
-    const env = await useEnvironmentV1Store().getOrFetchEnvironmentByName(
-      environmentNamePrefix + resourceId,
-      true /* silent */
-    );
-    if (env) {
-      return [
-        {
-          type: "error",
-          message: t("resource-id.validation.duplicated", {
-            resource: t("resource.environment"),
-          }),
-        },
-      ];
-    }
-  } catch (error) {
-    if (getErrorCode(error) !== Status.NOT_FOUND) {
-      throw error;
-    }
-  }
-  return [];
-};
-
-const archiveEnvironment = () => {
-  events.emit("archive", state.value.environment);
-};
-
-const restoreEnvironment = () => {
-  events.emit("restore", state.value.environment);
+const deleteEnvironment = () => {
+  events.emit("delete", state.value.environment);
 };
 
 useEmitteryEventListener(events, "update-access-control", async () => {

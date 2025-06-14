@@ -25,7 +25,7 @@
     <div>
       <label
         for="password"
-        class="flex justify-between text-sm font-medium leading-5 text-control"
+        class="flex justify-between text-sm font-medium leading-5 gap-4 text-control"
       >
         <div>
           {{ $t("common.password") }}
@@ -123,7 +123,7 @@ onMounted(async () => {
   const url = new URL(window.location.href);
   const params = new URLSearchParams(url.search);
   state.email = params.get("email") ?? (isDemo.value ? "demo@example.com" : "");
-  state.password = params.get("password") ?? (isDemo.value ? "1024" : "");
+  state.password = params.get("password") ?? (isDemo.value ? "12345678" : "");
   state.showPassword = !!isDemo.value;
 
   // Try to signin with example account in demo site.

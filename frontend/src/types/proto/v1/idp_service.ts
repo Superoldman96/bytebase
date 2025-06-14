@@ -9,7 +9,6 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import Long from "long";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
-import { State, stateFromJSON, stateToJSON, stateToNumber } from "./common";
 
 export const protobufPackage = "bytebase.v1";
 
@@ -157,8 +156,6 @@ export interface ListIdentityProvidersRequest {
    * the call that provided the page token.
    */
   pageToken: string;
-  /** Show deleted identity providers if specified. */
-  showDeleted: boolean;
 }
 
 export interface ListIdentityProvidersResponse {
@@ -210,14 +207,6 @@ export interface DeleteIdentityProviderRequest {
   name: string;
 }
 
-export interface UndeleteIdentityProviderRequest {
-  /**
-   * The name of the deleted identity provider.
-   * Format: idps/{identity_provider}
-   */
-  name: string;
-}
-
 export interface TestIdentityProviderRequest {
   /** The identity provider to test connection including uncreated. */
   identityProvider: IdentityProvider | undefined;
@@ -238,7 +227,6 @@ export interface IdentityProvider {
    * Format: idps/{idp}
    */
   name: string;
-  state: State;
   title: string;
   domain: string;
   type: IdentityProviderType;
@@ -312,14 +300,75 @@ export interface LDAPIdentityProviderConfig {
   userFilter: string;
   /**
    * SecurityProtocol is the security protocol to be used for establishing
-   * connections with the LDAP server. It must be StartTLS, LDAPS or None.
+   * connections with the LDAP server.
    */
-  securityProtocol: string;
+  securityProtocol: LDAPIdentityProviderConfig_SecurityProtocol;
   /**
    * FieldMapping is the mapping of the user attributes returned by the LDAP
    * server.
    */
   fieldMapping: FieldMapping | undefined;
+}
+
+export enum LDAPIdentityProviderConfig_SecurityProtocol {
+  SECURITY_PROTOCOL_UNSPECIFIED = "SECURITY_PROTOCOL_UNSPECIFIED",
+  /** START_TLS - StartTLS is the security protocol that starts with an unencrypted connection and then upgrades to TLS. */
+  START_TLS = "START_TLS",
+  /** LDAPS - LDAPS is the security protocol that uses TLS from the beginning. */
+  LDAPS = "LDAPS",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
+export function lDAPIdentityProviderConfig_SecurityProtocolFromJSON(
+  object: any,
+): LDAPIdentityProviderConfig_SecurityProtocol {
+  switch (object) {
+    case 0:
+    case "SECURITY_PROTOCOL_UNSPECIFIED":
+      return LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED;
+    case 1:
+    case "START_TLS":
+      return LDAPIdentityProviderConfig_SecurityProtocol.START_TLS;
+    case 2:
+    case "LDAPS":
+      return LDAPIdentityProviderConfig_SecurityProtocol.LDAPS;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return LDAPIdentityProviderConfig_SecurityProtocol.UNRECOGNIZED;
+  }
+}
+
+export function lDAPIdentityProviderConfig_SecurityProtocolToJSON(
+  object: LDAPIdentityProviderConfig_SecurityProtocol,
+): string {
+  switch (object) {
+    case LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED:
+      return "SECURITY_PROTOCOL_UNSPECIFIED";
+    case LDAPIdentityProviderConfig_SecurityProtocol.START_TLS:
+      return "START_TLS";
+    case LDAPIdentityProviderConfig_SecurityProtocol.LDAPS:
+      return "LDAPS";
+    case LDAPIdentityProviderConfig_SecurityProtocol.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export function lDAPIdentityProviderConfig_SecurityProtocolToNumber(
+  object: LDAPIdentityProviderConfig_SecurityProtocol,
+): number {
+  switch (object) {
+    case LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED:
+      return 0;
+    case LDAPIdentityProviderConfig_SecurityProtocol.START_TLS:
+      return 1;
+    case LDAPIdentityProviderConfig_SecurityProtocol.LDAPS:
+      return 2;
+    case LDAPIdentityProviderConfig_SecurityProtocol.UNRECOGNIZED:
+    default:
+      return -1;
+  }
 }
 
 /**
@@ -400,7 +449,7 @@ export const GetIdentityProviderRequest: MessageFns<GetIdentityProviderRequest> 
 };
 
 function createBaseListIdentityProvidersRequest(): ListIdentityProvidersRequest {
-  return { pageSize: 0, pageToken: "", showDeleted: false };
+  return { pageSize: 0, pageToken: "" };
 }
 
 export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersRequest> = {
@@ -410,9 +459,6 @@ export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersReque
     }
     if (message.pageToken !== "") {
       writer.uint32(18).string(message.pageToken);
-    }
-    if (message.showDeleted !== false) {
-      writer.uint32(24).bool(message.showDeleted);
     }
     return writer;
   },
@@ -440,14 +486,6 @@ export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersReque
           message.pageToken = reader.string();
           continue;
         }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.showDeleted = reader.bool();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -461,7 +499,6 @@ export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersReque
     return {
       pageSize: isSet(object.pageSize) ? globalThis.Number(object.pageSize) : 0,
       pageToken: isSet(object.pageToken) ? globalThis.String(object.pageToken) : "",
-      showDeleted: isSet(object.showDeleted) ? globalThis.Boolean(object.showDeleted) : false,
     };
   },
 
@@ -473,9 +510,6 @@ export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersReque
     if (message.pageToken !== "") {
       obj.pageToken = message.pageToken;
     }
-    if (message.showDeleted !== false) {
-      obj.showDeleted = message.showDeleted;
-    }
     return obj;
   },
 
@@ -486,7 +520,6 @@ export const ListIdentityProvidersRequest: MessageFns<ListIdentityProvidersReque
     const message = createBaseListIdentityProvidersRequest();
     message.pageSize = object.pageSize ?? 0;
     message.pageToken = object.pageToken ?? "";
-    message.showDeleted = object.showDeleted ?? false;
     return message;
   },
 };
@@ -799,64 +832,6 @@ export const DeleteIdentityProviderRequest: MessageFns<DeleteIdentityProviderReq
   },
 };
 
-function createBaseUndeleteIdentityProviderRequest(): UndeleteIdentityProviderRequest {
-  return { name: "" };
-}
-
-export const UndeleteIdentityProviderRequest: MessageFns<UndeleteIdentityProviderRequest> = {
-  encode(message: UndeleteIdentityProviderRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.name !== "") {
-      writer.uint32(10).string(message.name);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): UndeleteIdentityProviderRequest {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseUndeleteIdentityProviderRequest();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.name = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): UndeleteIdentityProviderRequest {
-    return { name: isSet(object.name) ? globalThis.String(object.name) : "" };
-  },
-
-  toJSON(message: UndeleteIdentityProviderRequest): unknown {
-    const obj: any = {};
-    if (message.name !== "") {
-      obj.name = message.name;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<UndeleteIdentityProviderRequest>): UndeleteIdentityProviderRequest {
-    return UndeleteIdentityProviderRequest.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<UndeleteIdentityProviderRequest>): UndeleteIdentityProviderRequest {
-    const message = createBaseUndeleteIdentityProviderRequest();
-    message.name = object.name ?? "";
-    return message;
-  },
-};
-
 function createBaseTestIdentityProviderRequest(): TestIdentityProviderRequest {
   return { identityProvider: undefined, oauth2Context: undefined };
 }
@@ -1043,7 +1018,6 @@ export const TestIdentityProviderResponse: MessageFns<TestIdentityProviderRespon
 function createBaseIdentityProvider(): IdentityProvider {
   return {
     name: "",
-    state: State.STATE_UNSPECIFIED,
     title: "",
     domain: "",
     type: IdentityProviderType.IDENTITY_PROVIDER_TYPE_UNSPECIFIED,
@@ -1055,9 +1029,6 @@ export const IdentityProvider: MessageFns<IdentityProvider> = {
   encode(message: IdentityProvider, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.name !== "") {
       writer.uint32(10).string(message.name);
-    }
-    if (message.state !== State.STATE_UNSPECIFIED) {
-      writer.uint32(24).int32(stateToNumber(message.state));
     }
     if (message.title !== "") {
       writer.uint32(34).string(message.title);
@@ -1087,14 +1058,6 @@ export const IdentityProvider: MessageFns<IdentityProvider> = {
           }
 
           message.name = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.state = stateFromJSON(reader.int32());
           continue;
         }
         case 4: {
@@ -1141,7 +1104,6 @@ export const IdentityProvider: MessageFns<IdentityProvider> = {
   fromJSON(object: any): IdentityProvider {
     return {
       name: isSet(object.name) ? globalThis.String(object.name) : "",
-      state: isSet(object.state) ? stateFromJSON(object.state) : State.STATE_UNSPECIFIED,
       title: isSet(object.title) ? globalThis.String(object.title) : "",
       domain: isSet(object.domain) ? globalThis.String(object.domain) : "",
       type: isSet(object.type)
@@ -1155,9 +1117,6 @@ export const IdentityProvider: MessageFns<IdentityProvider> = {
     const obj: any = {};
     if (message.name !== "") {
       obj.name = message.name;
-    }
-    if (message.state !== State.STATE_UNSPECIFIED) {
-      obj.state = stateToJSON(message.state);
     }
     if (message.title !== "") {
       obj.title = message.title;
@@ -1180,7 +1139,6 @@ export const IdentityProvider: MessageFns<IdentityProvider> = {
   fromPartial(object: DeepPartial<IdentityProvider>): IdentityProvider {
     const message = createBaseIdentityProvider();
     message.name = object.name ?? "";
-    message.state = object.state ?? State.STATE_UNSPECIFIED;
     message.title = object.title ?? "";
     message.domain = object.domain ?? "";
     message.type = object.type ?? IdentityProviderType.IDENTITY_PROVIDER_TYPE_UNSPECIFIED;
@@ -1685,7 +1643,7 @@ function createBaseLDAPIdentityProviderConfig(): LDAPIdentityProviderConfig {
     bindPassword: "",
     baseDn: "",
     userFilter: "",
-    securityProtocol: "",
+    securityProtocol: LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED,
     fieldMapping: undefined,
   };
 }
@@ -1713,8 +1671,8 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
     if (message.userFilter !== "") {
       writer.uint32(58).string(message.userFilter);
     }
-    if (message.securityProtocol !== "") {
-      writer.uint32(66).string(message.securityProtocol);
+    if (message.securityProtocol !== LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED) {
+      writer.uint32(64).int32(lDAPIdentityProviderConfig_SecurityProtocolToNumber(message.securityProtocol));
     }
     if (message.fieldMapping !== undefined) {
       FieldMapping.encode(message.fieldMapping, writer.uint32(74).fork()).join();
@@ -1786,11 +1744,11 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
           continue;
         }
         case 8: {
-          if (tag !== 66) {
+          if (tag !== 64) {
             break;
           }
 
-          message.securityProtocol = reader.string();
+          message.securityProtocol = lDAPIdentityProviderConfig_SecurityProtocolFromJSON(reader.int32());
           continue;
         }
         case 9: {
@@ -1819,7 +1777,9 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
       bindPassword: isSet(object.bindPassword) ? globalThis.String(object.bindPassword) : "",
       baseDn: isSet(object.baseDn) ? globalThis.String(object.baseDn) : "",
       userFilter: isSet(object.userFilter) ? globalThis.String(object.userFilter) : "",
-      securityProtocol: isSet(object.securityProtocol) ? globalThis.String(object.securityProtocol) : "",
+      securityProtocol: isSet(object.securityProtocol)
+        ? lDAPIdentityProviderConfig_SecurityProtocolFromJSON(object.securityProtocol)
+        : LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED,
       fieldMapping: isSet(object.fieldMapping) ? FieldMapping.fromJSON(object.fieldMapping) : undefined,
     };
   },
@@ -1847,8 +1807,8 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
     if (message.userFilter !== "") {
       obj.userFilter = message.userFilter;
     }
-    if (message.securityProtocol !== "") {
-      obj.securityProtocol = message.securityProtocol;
+    if (message.securityProtocol !== LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED) {
+      obj.securityProtocol = lDAPIdentityProviderConfig_SecurityProtocolToJSON(message.securityProtocol);
     }
     if (message.fieldMapping !== undefined) {
       obj.fieldMapping = FieldMapping.toJSON(message.fieldMapping);
@@ -1868,7 +1828,8 @@ export const LDAPIdentityProviderConfig: MessageFns<LDAPIdentityProviderConfig> 
     message.bindPassword = object.bindPassword ?? "";
     message.baseDn = object.baseDn ?? "";
     message.userFilter = object.userFilter ?? "";
-    message.securityProtocol = object.securityProtocol ?? "";
+    message.securityProtocol = object.securityProtocol ??
+      LDAPIdentityProviderConfig_SecurityProtocol.SECURITY_PROTOCOL_UNSPECIFIED;
     message.fieldMapping = (object.fieldMapping !== undefined && object.fieldMapping !== null)
       ? FieldMapping.fromPartial(object.fieldMapping)
       : undefined;
@@ -2313,89 +2274,6 @@ export const IdentityProviderServiceDefinition = {
           800024: [new Uint8Array([1])],
           578365826: [
             new Uint8Array([19, 42, 17, 47, 118, 49, 47, 123, 110, 97, 109, 101, 61, 105, 100, 112, 115, 47, 42, 125]),
-          ],
-        },
-      },
-    },
-    undeleteIdentityProvider: {
-      name: "UndeleteIdentityProvider",
-      requestType: UndeleteIdentityProviderRequest,
-      requestStream: false,
-      responseType: IdentityProvider,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          800010: [
-            new Uint8Array([
-              29,
-              98,
-              98,
-              46,
-              105,
-              100,
-              101,
-              110,
-              116,
-              105,
-              116,
-              121,
-              80,
-              114,
-              111,
-              118,
-              105,
-              100,
-              101,
-              114,
-              115,
-              46,
-              117,
-              110,
-              100,
-              101,
-              108,
-              101,
-              116,
-              101,
-            ]),
-          ],
-          800016: [new Uint8Array([1])],
-          800024: [new Uint8Array([1])],
-          578365826: [
-            new Uint8Array([
-              31,
-              58,
-              1,
-              42,
-              34,
-              26,
-              47,
-              118,
-              49,
-              47,
-              123,
-              110,
-              97,
-              109,
-              101,
-              61,
-              105,
-              100,
-              112,
-              115,
-              47,
-              42,
-              125,
-              58,
-              117,
-              110,
-              100,
-              101,
-              108,
-              101,
-              116,
-              101,
-            ]),
           ],
         },
       },

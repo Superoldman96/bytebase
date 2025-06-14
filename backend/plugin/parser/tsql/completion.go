@@ -3,7 +3,7 @@ package tsql
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -118,6 +118,12 @@ var (
 		tsqlparser.TSqlParserRULE_full_table_name:  true,
 		tsqlparser.TSqlParserRULE_asterisk:         true,
 		tsqlparser.TSqlParserRULE_full_column_name: true,
+
+		// The following rules are not used in the completion, we add them to the preferred rules to avoid deep recursion.
+		// Ignore xml_data_type_methods to avoid column completion in FROM clause.
+		tsqlparser.TSqlParserRULE_xml_data_type_methods: true,
+		// Ignore nodes_method to avoid column completion in FROM clause.
+		tsqlparser.TSqlParserRULE_nodes_method: true,
 	}
 )
 
@@ -132,11 +138,20 @@ func (m CompletionMap) toSlice() []base.Candidate {
 	for _, candidate := range m {
 		result = append(result, candidate)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Type != result[j].Type {
-			return result[i].Type < result[j].Type
+	slices.SortFunc(result, func(a, b base.Candidate) int {
+		if a.Type != b.Type {
+			if a.Type < b.Type {
+				return -1
+			}
+			return 1
 		}
-		return result[i].Text < result[j].Text
+		if a.Text < b.Text {
+			return -1
+		}
+		if a.Text > b.Text {
+			return 1
+		}
+		return 0
 	})
 	return result
 }
@@ -289,11 +304,29 @@ func (m CompletionMap) insertAllColumns(c *Completer) {
 						Text:       c.quotedIdentifierIfNeeded(column.Name),
 						Definition: definition,
 						Comment:    comment,
+						Priority:   c.getPriority(c.defaultDatabase, schema, table),
 					}
 				}
 			}
 		}
 	}
+}
+
+func (c *Completer) getPriority(database string, schema string, table string) int {
+	if database == "" {
+		database = c.defaultDatabase
+	}
+	if schema == "" {
+		schema = c.defaultSchema
+	}
+	if c.referenceMap == nil {
+		return 1
+	}
+	if c.referenceMap[fmt.Sprintf("%s.%s.%s", database, schema, table)] {
+		// The higher priority.
+		return 0
+	}
+	return 1
 }
 
 func (m CompletionMap) insertMetadataColumns(c *Completer, linkedServer string, database string, schema string, table string) {
@@ -364,6 +397,7 @@ func (m CompletionMap) insertMetadataColumns(c *Completer, linkedServer string, 
 					Text:       c.quotedIdentifierIfNeeded(column.Name),
 					Definition: definition,
 					Comment:    comment,
+					Priority:   c.getPriority(c.defaultDatabase, schema, table),
 				}
 			}
 		}
@@ -476,6 +510,7 @@ type Completer struct {
 	// references is the flattened table references.
 	// It's helpful to look up the table reference.
 	references         []base.TableReference
+	referenceMap       map[string]bool
 	cteCache           map[int][]*base.VirtualTableReference
 	cteTables          []*base.VirtualTableReference
 	caretTokenIsQuoted quotedType
@@ -501,6 +536,7 @@ func Completion(ctx context.Context, cCtx base.CompletionContext, statement stri
 func NewStandardCompleter(ctx context.Context, cCtx base.CompletionContext, statement string, caretLine int, caretOffset int) *Completer {
 	parser, lexer, scanner := prepareParserAndScanner(statement, caretLine, caretOffset)
 	core := base.NewCodeCompletionCore(
+		ctx,
 		parser,
 		ignoredTokens,  /* IgnoredTokens */
 		preferredRules, /* PreferredRules */
@@ -531,6 +567,7 @@ func NewStandardCompleter(ctx context.Context, cCtx base.CompletionContext, stat
 func NewTrickyCompleter(ctx context.Context, cCtx base.CompletionContext, statement string, caretLine int, caretOffset int) *Completer {
 	parser, lexer, scanner := prepareTrickyParserAndScanner(statement, caretLine, caretOffset)
 	core := base.NewCodeCompletionCore(
+		ctx,
 		parser,
 		ignoredTokens,  /* IgnoredTokens */
 		preferredRules, /* PreferredRules */
@@ -594,7 +631,9 @@ func skipHeadingSQLWithoutSemicolon(statement string, caretLine int, caretOffset
 	lexer := tsqlparser.NewTSqlLexer(input)
 	stream := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	lexer.RemoveErrorListeners()
-	lexerErrorListener := &base.ParseErrorListener{}
+	lexerErrorListener := &base.ParseErrorListener{
+		Statement: statement,
+	}
 	lexer.AddErrorListener(lexerErrorListener)
 
 	stream.Fill()
@@ -1215,17 +1254,21 @@ func skipHeadingSQLs(statement string, caretLine int, caretOffset int) (string, 
 
 	start := 0
 	for i, sql := range list {
-		if sql.LastLine > caretLine || (sql.LastLine == caretLine && sql.LastColumn >= caretOffset) {
+		sqlEndLine := int(sql.End.GetLine())
+		sqlEndColumn := int(sql.End.GetColumn())
+		if sqlEndLine > caretLine || (sqlEndLine == caretLine && sqlEndColumn >= caretOffset) {
 			start = i
 			if i == 0 {
 				// The caret is in the first SQL statement, so we don't need to skip any SQL statements.
 				break
 			}
-			newCaretLine = caretLine - list[i-1].LastLine + 1 // Convert to 1-based.
-			if caretLine == list[i-1].LastLine {
+			previousSQLEndLine := int(list[i-1].End.GetLine())
+			previousSQLEndColumn := int(list[i-1].End.GetColumn())
+			newCaretLine = caretLine - previousSQLEndLine + 1 // Convert to 1-based.
+			if caretLine == previousSQLEndLine {
 				// The caret is in the same line as the last line of the previous SQL statement.
 				// We need to adjust the caret offset.
-				newCaretOffset = caretOffset - list[i-1].LastColumn - 1 // Convert to 0-based.
+				newCaretOffset = caretOffset - previousSQLEndColumn - 1 // Convert to 0-based.
 			}
 			break
 		}
@@ -1252,8 +1295,25 @@ func notEmptySQLCount(list []base.SingleSQL) int {
 }
 
 func (c *Completer) takeReferencesSnapshot() {
+	if c.referenceMap == nil {
+		c.referenceMap = make(map[string]bool)
+	}
 	for _, references := range c.referencesStack {
 		c.references = append(c.references, references...)
+		for _, reference := range references {
+			if r, ok := reference.(*base.PhysicalTableReference); ok {
+				database := r.Database
+				if database == "" {
+					database = c.defaultDatabase
+				}
+				schema := r.Schema
+				if schema == "" {
+					schema = c.defaultSchema
+				}
+				tableID := fmt.Sprintf("%s.%s.%s", database, schema, r.Table)
+				c.referenceMap[tableID] = true
+			}
+		}
 	}
 }
 
@@ -1621,9 +1681,7 @@ func (c *Completer) fetchSelectItemAliases(ruleStack []*base.RuleContext) []stri
 			for alias := range aliasMap {
 				result = append(result, alias)
 			}
-			sort.Slice(result, func(i, j int) bool {
-				return result[i] < result[j]
-			})
+			slices.Sort(result)
 			return result
 		case tsqlparser.TSqlParserRULE_group_by_clause, tsqlparser.TSqlParserRULE_order_by_clause, tsqlparser.TSqlParserRULE_having_clause:
 			canUseAliases = true

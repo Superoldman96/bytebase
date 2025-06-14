@@ -76,8 +76,9 @@ import type { Defer } from "@/utils";
 
 const props = withDefaults(
   defineProps<{
-    database: ComposedDatabase;
+    project: string;
     advices: Advice[];
+    database?: ComposedDatabase;
     affectedRows?: number;
     riskLevel?: CheckReleaseResponse_RiskLevel;
     overrideTitle?: string;
@@ -134,7 +135,7 @@ watchEffect(async () => {
 
   const projectLevelPolicy =
     await policyV1Store.getOrFetchPolicyByParentAndType({
-      parentPath: props.database.project,
+      parentPath: props.project,
       policyType: PolicyType.RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW,
     });
   if (projectLevelPolicy?.restrictIssueCreationForSqlReviewPolicy?.disallow) {
@@ -168,8 +169,8 @@ const planCheckRun = computed((): PlanCheckRun => {
         code: advice.code,
         content: advice.content,
         sqlReviewReport: PlanCheckRun_Result_SqlReviewReport.fromPartial({
-          line: advice.line,
-          column: advice.column,
+          line: advice.startPosition?.line ?? 0,
+          column: advice.startPosition?.column ?? Number.MAX_SAFE_INTEGER,
         }),
       });
     }),

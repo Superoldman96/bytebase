@@ -17,9 +17,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/component/state"
 	"github.com/bytebase/bytebase/backend/plugin/db"
@@ -35,16 +35,14 @@ const (
 	// defaultSyncInterval means never sync.
 	defaultSyncInterval = 0 * time.Second
 	MaximumOutstanding  = 100
-
-	backupDatabaseName       = "bbdataarchive"
-	oracleBackupDatabaseName = "BBDATAARCHIVE"
 )
 
 // NewSyncer creates a schema syncer.
-func NewSyncer(stores *store.Store, dbFactory *dbfactory.DBFactory, stateCfg *state.State) *Syncer {
+func NewSyncer(stores *store.Store, dbFactory *dbfactory.DBFactory, profile *config.Profile, stateCfg *state.State) *Syncer {
 	return &Syncer{
 		store:     stores,
 		dbFactory: dbFactory,
+		profile:   profile,
 		stateCfg:  stateCfg,
 	}
 }
@@ -55,6 +53,7 @@ type Syncer struct {
 
 	store           *store.Store
 	dbFactory       *dbfactory.DBFactory
+	profile         *config.Profile
 	stateCfg        *state.State
 	databaseSyncMap sync.Map // map[string]*store.DatabaseMessage
 }
@@ -110,7 +109,11 @@ func (s *Syncer) Run(ctx context.Context, wg *sync.WaitGroup) {
 							log.BBError(err))
 						return true
 					}
-					if s.stateCfg.InstanceOutstandingConnections.Increment(instance.ResourceID, int(instance.Metadata.GetMaximumConnections())) {
+					maximumConnections := int(instance.Metadata.GetMaximumConnections())
+					if maximumConnections <= 0 {
+						maximumConnections = common.DefaultInstanceMaximumConnections
+					}
+					if s.stateCfg.InstanceOutstandingConnections.Increment(instance.ResourceID, maximumConnections) {
 						return true
 					}
 
@@ -238,13 +241,16 @@ func (s *Syncer) SyncAllDatabases(ctx context.Context, instance *store.InstanceM
 	}
 }
 
+func (s *Syncer) SyncDatabaseAsync(database *store.DatabaseMessage) {
+	if database == nil || database.Deleted {
+		return
+	}
+	s.databaseSyncMap.Store(database.String(), database)
+}
+
 func (s *Syncer) SyncDatabasesAsync(databases []*store.DatabaseMessage) {
 	for _, database := range databases {
-		// Skip deleted databases.
-		if database.Deleted {
-			continue
-		}
-		s.databaseSyncMap.Store(database.String(), database)
+		s.SyncDatabaseAsync(database)
 	}
 }
 
@@ -317,7 +323,7 @@ func (s *Syncer) SyncInstance(ctx context.Context, instance *store.InstanceMessa
 			newDatabase, err := s.store.CreateDatabaseDefault(ctx, &store.DatabaseMessage{
 				InstanceID:   instance.ResourceID,
 				DatabaseName: databaseMetadata.Name,
-				ProjectID:    base.DefaultProjectID,
+				ProjectID:    common.DefaultProjectID,
 			})
 			if err != nil {
 				return nil, nil, nil, errors.Wrapf(err, "failed to create instance %q database %q in sync runner", instance.ResourceID, databaseMetadata.Name)
@@ -356,11 +362,9 @@ func (s *Syncer) SyncDatabaseSchemaToHistory(ctx context.Context, database *stor
 	}
 	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database, db.ConnectionContext{})
 	if err != nil {
-		s.upsertDatabaseConnectionAnomaly(ctx, database, err)
 		return 0, err
 	}
 	defer driver.Close(ctx)
-	s.upsertDatabaseConnectionAnomaly(ctx, database, nil)
 	// Sync database schema
 	deadlineCtx, cancelFunc := context.WithDeadline(ctx, time.Now().Add(syncTimeout))
 	defer cancelFunc()
@@ -408,7 +412,7 @@ func (s *Syncer) SyncDatabaseSchemaToHistory(ctx context.Context, database *stor
 		return 0, errors.Errorf("failed to convert database metadata type")
 	}
 	metadata.LastSyncTime = timestamppb.New(time.Now())
-	metadata.BackupAvailable = s.hasBackupSchema(ctx, instance, databaseMetadata)
+	metadata.BackupAvailable = s.databaseBackupAvailable(ctx, instance, databaseMetadata)
 	metadata.Datashare = databaseMetadata.Datashare
 	if _, err := s.store.UpdateDatabase(ctx, &store.UpdateDatabaseMessage{
 		InstanceID:   database.InstanceID,
@@ -460,11 +464,9 @@ func (s *Syncer) SyncDatabaseSchema(ctx context.Context, database *store.Databas
 	}
 	driver, err := s.dbFactory.GetAdminDatabaseDriver(ctx, instance, database, db.ConnectionContext{})
 	if err != nil {
-		s.upsertDatabaseConnectionAnomaly(ctx, database, err)
 		return err
 	}
 	defer driver.Close(ctx)
-	s.upsertDatabaseConnectionAnomaly(ctx, database, nil)
 	// Sync database schema
 	deadlineCtx, cancelFunc := context.WithDeadline(ctx, time.Now().Add(syncTimeout))
 	defer cancelFunc()
@@ -517,13 +519,15 @@ func (s *Syncer) SyncDatabaseSchema(ctx context.Context, database *store.Databas
 		return errors.Errorf("failed to convert database metadata type")
 	}
 	metadata.LastSyncTime = timestamppb.New(time.Now())
-	metadata.BackupAvailable = s.hasBackupSchema(ctx, instance, databaseMetadata)
+	metadata.BackupAvailable = s.databaseBackupAvailable(ctx, instance, databaseMetadata)
 	metadata.Datashare = databaseMetadata.Datashare
-	drifted, err := s.getSchemaDrifted(ctx, instance, database, string(rawDump))
+	drifted, skipped, err := s.getSchemaDrifted(ctx, instance, database, string(rawDump))
 	if err != nil {
 		return errors.Wrapf(err, "failed to get schema drifted for database %q", database.DatabaseName)
 	}
-	metadata.Drifted = drifted
+	if !skipped {
+		metadata.Drifted = drifted
+	}
 	if _, err := s.store.UpdateDatabase(ctx, &store.UpdateDatabaseMessage{
 		InstanceID:   database.InstanceID,
 		DatabaseName: database.DatabaseName,
@@ -548,10 +552,10 @@ func (s *Syncer) SyncDatabaseSchema(ctx context.Context, database *store.Databas
 	return nil
 }
 
-func (s *Syncer) getSchemaDrifted(ctx context.Context, instance *store.InstanceMessage, database *store.DatabaseMessage, rawDump string) (bool, error) {
+func (s *Syncer) getSchemaDrifted(ctx context.Context, instance *store.InstanceMessage, database *store.DatabaseMessage, rawDump string) (drifted bool, skipped bool, err error) {
 	// Redis and MongoDB are schemaless.
-	if disableSchemaDriftAnomalyCheck(instance.Metadata.GetEngine()) {
-		return false, nil
+	if disableSchemaDriftCheck(instance.Metadata.GetEngine()) {
+		return false, false, nil
 	}
 	limit := 1
 	list, err := s.store.ListChangelogs(ctx, &store.FindChangelogMessage{
@@ -563,33 +567,39 @@ func (s *Syncer) getSchemaDrifted(ctx context.Context, instance *store.InstanceM
 		ShowFull:       true,
 	})
 	if err != nil {
-		return false, errors.Wrapf(err, "failed to list changelogs")
+		return false, false, errors.Wrapf(err, "failed to list changelogs")
 	}
 	if len(list) == 0 {
-		return false, nil
+		return false, false, nil
 	}
 
 	changelog := list[0]
+	if changelog.Payload.GetGitCommit() != s.profile.GitCommit {
+		return false, true, nil
+	}
 	if changelog.SyncHistoryUID == nil {
-		return false, errors.Errorf("expect sync history but get nil")
+		return false, false, errors.Errorf("expect sync history but get nil")
 	}
 	latestSchema := string(rawDump)
-	return changelog.Schema != latestSchema, nil
+	return changelog.Schema != latestSchema, false, nil
 }
 
-func (s *Syncer) hasBackupSchema(ctx context.Context, instance *store.InstanceMessage, dbSchema *storepb.DatabaseSchemaMetadata) bool {
+func (s *Syncer) databaseBackupAvailable(ctx context.Context, instance *store.InstanceMessage, dbSchema *storepb.DatabaseSchemaMetadata) bool {
+	if !common.EngineSupportPriorBackup(instance.Metadata.GetEngine()) {
+		return false
+	}
 	switch instance.Metadata.GetEngine() {
 	case storepb.Engine_POSTGRES:
 		if dbSchema == nil {
 			return false
 		}
 		for _, schema := range dbSchema.Schemas {
-			if schema.GetName() == backupDatabaseName {
+			if schema.GetName() == common.BackupDatabaseNameOfEngine(storepb.Engine_POSTGRES) {
 				return true
 			}
 		}
 	case storepb.Engine_MYSQL, storepb.Engine_MSSQL, storepb.Engine_TIDB:
-		dbName := backupDatabaseName
+		dbName := common.BackupDatabaseNameOfEngine(instance.Metadata.GetEngine())
 		backupDB, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
 			InstanceID:   &instance.ResourceID,
 			DatabaseName: &dbName,
@@ -600,7 +610,7 @@ func (s *Syncer) hasBackupSchema(ctx context.Context, instance *store.InstanceMe
 		}
 		return backupDB != nil
 	case storepb.Engine_ORACLE:
-		dbName := oracleBackupDatabaseName
+		dbName := common.BackupDatabaseNameOfEngine(storepb.Engine_ORACLE)
 		backupDB, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
 			InstanceID:   &instance.ResourceID,
 			DatabaseName: &dbName,
@@ -612,37 +622,6 @@ func (s *Syncer) hasBackupSchema(ctx context.Context, instance *store.InstanceMe
 		return backupDB != nil
 	}
 	return false
-}
-
-func (s *Syncer) upsertDatabaseConnectionAnomaly(ctx context.Context, database *store.DatabaseMessage, connErr error) {
-	if connErr != nil {
-		if _, err := s.store.UpsertActiveAnomalyV2(ctx, &store.AnomalyMessage{
-			ProjectID:    database.ProjectID,
-			InstanceID:   database.InstanceID,
-			DatabaseName: database.DatabaseName,
-			Type:         base.AnomalyDatabaseConnection,
-		}); err != nil {
-			slog.Error("Failed to create anomaly",
-				slog.String("instance", database.InstanceID),
-				slog.String("database", database.DatabaseName),
-				slog.String("type", string(base.AnomalyDatabaseConnection)),
-				log.BBError(err))
-		}
-		return
-	}
-
-	err := s.store.DeleteAnomalyV2(ctx, &store.DeleteAnomalyMessage{
-		InstanceID:   database.InstanceID,
-		DatabaseName: database.DatabaseName,
-		Type:         base.AnomalyDatabaseConnection,
-	})
-	if err != nil && common.ErrorCode(err) != common.NotFound {
-		slog.Error("Failed to close anomaly",
-			slog.String("instance", database.InstanceID),
-			slog.String("database", database.DatabaseName),
-			slog.String("type", string(base.AnomalyDatabaseConnection)),
-			log.BBError(err))
-	}
 }
 
 func setClassificationAndUserCommentFromComment(dbSchema *storepb.DatabaseSchemaMetadata, databaseConfig *model.DatabaseConfig, classificationConfig *storepb.DataClassificationSetting_DataClassificationConfig) {
@@ -715,7 +694,7 @@ func getOrDefaultLastSyncTime(t *timestamppb.Timestamp) time.Time {
 	return time.Unix(0, 0)
 }
 
-func disableSchemaDriftAnomalyCheck(dbTp storepb.Engine) bool {
+func disableSchemaDriftCheck(dbTp storepb.Engine) bool {
 	m := map[storepb.Engine]struct{}{
 		storepb.Engine_MONGODB:    {},
 		storepb.Engine_REDIS:      {},

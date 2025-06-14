@@ -14,10 +14,17 @@ export default [
   }),
   ...vueI18n.configs["flat/recommended"],
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/proto/**"],
+    ignores: [
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/proto/**",
+      "**/proto-es/**",
+    ],
   },
   {
     rules: {
+      "no-console": ["error", { allow: ["warn", "error", "debug", "assert"] }],
+      "no-debugger": "error",
       "no-empty-pattern": "error",
       "vue/no-ref-as-operand": "error",
       "no-useless-escape": "error",
@@ -35,7 +42,7 @@ export default [
           enableFix: true,
         },
       ],
-      "@intlify/vue-i18n/no-missing-keys": "off",
+      "@intlify/vue-i18n/no-missing-keys": "error",
       "@intlify/vue-i18n/no-raw-text": "off",
       "@typescript-eslint/no-explicit-any": "off",
       "vue/no-mutating-props": "error",

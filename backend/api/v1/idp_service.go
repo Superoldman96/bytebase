@@ -11,10 +11,9 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
-	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
+	"github.com/bytebase/bytebase/backend/enterprise"
 	"github.com/bytebase/bytebase/backend/plugin/idp/ldap"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oauth2"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oidc"
@@ -27,11 +26,11 @@ import (
 type IdentityProviderService struct {
 	v1pb.UnimplementedIdentityProviderServiceServer
 	store          *store.Store
-	licenseService enterprise.LicenseService
+	licenseService *enterprise.LicenseService
 }
 
 // NewIdentityProviderService creates a new IdentityProviderService.
-func NewIdentityProviderService(store *store.Store, licenseService enterprise.LicenseService) *IdentityProviderService {
+func NewIdentityProviderService(store *store.Store, licenseService *enterprise.LicenseService) *IdentityProviderService {
 	return &IdentityProviderService{
 		store:          store,
 		licenseService: licenseService,
@@ -52,8 +51,8 @@ func (s *IdentityProviderService) GetIdentityProvider(ctx context.Context, reque
 }
 
 // ListIdentityProviders lists all identity providers.
-func (s *IdentityProviderService) ListIdentityProviders(ctx context.Context, request *v1pb.ListIdentityProvidersRequest) (*v1pb.ListIdentityProvidersResponse, error) {
-	identityProviders, err := s.store.ListIdentityProviders(ctx, &store.FindIdentityProviderMessage{ShowDeleted: request.ShowDeleted})
+func (s *IdentityProviderService) ListIdentityProviders(ctx context.Context, _ *v1pb.ListIdentityProvidersRequest) (*v1pb.ListIdentityProvidersResponse, error) {
+	identityProviders, err := s.store.ListIdentityProviders(ctx, &store.FindIdentityProviderMessage{})
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -70,7 +69,7 @@ func (s *IdentityProviderService) ListIdentityProviders(ctx context.Context, req
 
 // CreateIdentityProvider creates an identity provider.
 func (s *IdentityProviderService) CreateIdentityProvider(ctx context.Context, request *v1pb.CreateIdentityProviderRequest) (*v1pb.IdentityProvider, error) {
-	if err := s.checkFeatureAvailable(request.IdentityProvider.Type); err != nil {
+	if err := s.checkFeatureAvailable(request.IdentityProvider); err != nil {
 		return nil, err
 	}
 
@@ -129,16 +128,13 @@ func (s *IdentityProviderService) UpdateIdentityProvider(ctx context.Context, re
 	if request.UpdateMask == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
 	}
-	if err := s.checkFeatureAvailable(request.IdentityProvider.Type); err != nil {
+	if err := s.checkFeatureAvailable(request.IdentityProvider); err != nil {
 		return nil, err
 	}
 
 	identityProviderMessage, err := s.getIdentityProviderMessage(ctx, request.IdentityProvider.Name)
 	if err != nil {
 		return nil, err
-	}
-	if identityProviderMessage.Deleted {
-		return nil, status.Errorf(codes.NotFound, "identity provider %q has been deleted", request.IdentityProvider.Name)
 	}
 
 	patch := &store.UpdateIdentityProviderMessage{
@@ -195,62 +191,25 @@ func (s *IdentityProviderService) DeleteIdentityProvider(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	if identityProvider.Deleted {
-		return nil, status.Errorf(codes.NotFound, "identity provider %q has been deleted", request.Name)
-	}
 
-	patch := &store.UpdateIdentityProviderMessage{
-		ResourceID: identityProvider.ResourceID,
-		Delete:     &deletePatch,
-	}
-	if _, err := s.store.UpdateIdentityProvider(ctx, patch); err != nil {
+	if err := s.store.DeleteIdentityProvider(ctx, identityProvider.ResourceID); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &emptypb.Empty{}, nil
 }
 
-// UndeleteIdentityProvider undeletes an identity provider.
-func (s *IdentityProviderService) UndeleteIdentityProvider(ctx context.Context, request *v1pb.UndeleteIdentityProviderRequest) (*v1pb.IdentityProvider, error) {
-	identityProviderMessage, err := s.getIdentityProviderMessage(ctx, request.Name)
-	if err != nil {
-		return nil, err
-	}
-	if !identityProviderMessage.Deleted {
-		return nil, status.Errorf(codes.InvalidArgument, "identity provider %q is active", request.Name)
-	}
-	if err := s.checkFeatureAvailable(v1pb.IdentityProviderType(identityProviderMessage.Type)); err != nil {
-		return nil, err
-	}
-
-	patch := &store.UpdateIdentityProviderMessage{
-		ResourceID: identityProviderMessage.ResourceID,
-		Delete:     &undeletePatch,
-	}
-	identityProviderMessage, err = s.store.UpdateIdentityProvider(ctx, patch)
-	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	identityProvider, err := convertToIdentityProvider(identityProviderMessage)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert identity provider: %v", err)
-	}
-	return identityProvider, nil
+var googleGitHubDomains = map[string]bool{
+	"google.com": true,
+	"github.com": true,
 }
 
-func (s *IdentityProviderService) checkFeatureAvailable(ssoType v1pb.IdentityProviderType) error {
-	if err := s.licenseService.IsFeatureEnabled(base.FeatureSSO); err != nil {
-		return status.Error(codes.PermissionDenied, err.Error())
+func (s *IdentityProviderService) checkFeatureAvailable(idp *v1pb.IdentityProvider) error {
+	featurePlan := v1pb.PlanFeature_FEATURE_ENTERPRISE_SSO
+	if idp.Type == v1pb.IdentityProviderType_OAUTH2 && googleGitHubDomains[idp.Domain] {
+		featurePlan = v1pb.PlanFeature_FEATURE_GOOGLE_AND_GITHUB_SSO
 	}
-	plan := s.licenseService.GetEffectivePlan()
-	switch plan {
-	case base.FREE:
-		return status.Error(codes.PermissionDenied, "feature is not available for free plan")
-	case base.ENTERPRISE:
-		return nil
-	case base.TEAM:
-		if ssoType != v1pb.IdentityProviderType_OAUTH2 {
-			return status.Error(codes.PermissionDenied, "only oauth type is available")
-		}
+	if err := s.licenseService.IsFeatureEnabled(featurePlan); err != nil {
+		return status.Error(codes.PermissionDenied, err.Error())
 	}
 	return nil
 }
@@ -353,7 +312,7 @@ func (s *IdentityProviderService) TestIdentityProvider(ctx context.Context, requ
 				BindPassword:     identityProviderConfig.BindPassword,
 				BaseDN:           identityProviderConfig.BaseDn,
 				UserFilter:       identityProviderConfig.UserFilter,
-				SecurityProtocol: ldap.SecurityProtocol(identityProviderConfig.SecurityProtocol),
+				SecurityProtocol: identityProviderConfig.SecurityProtocol,
 				FieldMapping:     identityProviderConfig.FieldMapping,
 			},
 		)
@@ -399,7 +358,6 @@ func convertToIdentityProvider(identityProvider *store.IdentityProviderMessage) 
 	}
 	return &v1pb.IdentityProvider{
 		Name:   fmt.Sprintf("%s%s", common.IdentityProviderNamePrefix, identityProvider.ResourceID),
-		State:  convertDeletedToState(identityProvider.Deleted),
 		Title:  identityProvider.Title,
 		Domain: identityProvider.Domain,
 		Type:   identityProviderType,
@@ -480,7 +438,7 @@ func convertIdentityProviderConfigFromStore(identityProviderConfig *storepb.Iden
 					BindPassword:     "", // SECURITY: We do not expose the bind password
 					BaseDn:           v.BaseDn,
 					UserFilter:       v.UserFilter,
-					SecurityProtocol: v.SecurityProtocol,
+					SecurityProtocol: v1pb.LDAPIdentityProviderConfig_SecurityProtocol(v.SecurityProtocol),
 					FieldMapping:     &fieldMapping,
 				},
 			},
@@ -549,7 +507,7 @@ func convertIdentityProviderConfigToStore(identityProviderConfig *v1pb.IdentityP
 					BindPassword:     v.BindPassword,
 					BaseDn:           v.BaseDn,
 					UserFilter:       v.UserFilter,
-					SecurityProtocol: v.SecurityProtocol,
+					SecurityProtocol: storepb.LDAPIdentityProviderConfig_SecurityProtocol(v.SecurityProtocol),
 					FieldMapping:     &fieldMapping,
 				},
 			},

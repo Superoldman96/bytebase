@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/jackc/pgconn"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
@@ -75,6 +76,8 @@ var (
 		disableMetric bool
 		// disableSample is the flag to disable the sample instance.
 		disableSample bool
+		// memoryProfileThreshold is the threshold of memory usage in bytes to trigger a memory profile.
+		memoryProfileThreshold uint64
 	}
 
 	rootCmd = &cobra.Command{
@@ -114,6 +117,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flags.debug, "debug", false, "whether to enable debug level logging")
 	rootCmd.PersistentFlags().BoolVar(&flags.disableMetric, "disable-metric", false, "disable the metric collector")
 	rootCmd.PersistentFlags().BoolVar(&flags.disableSample, "disable-sample", false, "disable the sample instance")
+	rootCmd.PersistentFlags().Uint64Var(&flags.memoryProfileThreshold, "memory-profile-threshold", 0, "the threshold of memory usage in bytes to trigger a memory profile")
 }
 
 // -----------------------------------Command Line Config END--------------------------------------
@@ -220,6 +224,11 @@ func start() {
 
 	s, err = server.NewServer(ctx, profile)
 	if err != nil {
+		var pge *pgconn.PgError
+		if errors.As(err, &pge) {
+			slog.Error("Cannot new server", log.BBError(err), "detail", pge.Detail, "hint", pge.Hint)
+			return
+		}
 		slog.Error("Cannot new server", log.BBError(err))
 		return
 	}
