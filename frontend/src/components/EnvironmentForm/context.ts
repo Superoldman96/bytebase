@@ -4,19 +4,14 @@ import { useDialog } from "naive-ui";
 import type { InjectionKey, Ref } from "vue";
 import { provide, inject, computed, ref, watch } from "vue";
 import type { ResourceIdField } from "@/components/v2";
-import type { FeatureType } from "@/types";
-import { State } from "@/types/proto/v1/common";
-import type {
-  Environment,
-  EnvironmentTier,
-} from "@/types/proto/v1/environment_service";
 import { PolicyType, type Policy } from "@/types/proto/v1/org_policy_service";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
+import type { Environment } from "@/types/v1/environment";
 import { hasWorkspacePermissionV2 } from "@/utils";
 
 export type LocalState = {
   environment: Environment;
   rolloutPolicy: Policy;
-  environmentTier: EnvironmentTier;
   policyChanged: boolean;
 };
 
@@ -28,14 +23,12 @@ export const provideEnvironmentFormContext = (baseContext: {
   create: Ref<boolean>;
   environment: Ref<Environment>;
   rolloutPolicy: Ref<Policy>;
-  environmentTier: Ref<EnvironmentTier>;
 }) => {
   const $d = useDialog();
   const events = new Emittery<{
     create: {
       environment: Partial<Environment>;
       rolloutPolicy: Policy;
-      environmentTier: EnvironmentTier;
     };
     update: Environment;
     "update-policy": {
@@ -47,40 +40,31 @@ export const provideEnvironmentFormContext = (baseContext: {
     "revert-access-control": undefined;
     "update-sql-review": undefined;
     "revert-sql-review": undefined;
-    archive: Environment;
-    restore: Environment;
+    delete: Environment;
     cancel: undefined;
   }>();
-  const { create, environment, rolloutPolicy, environmentTier } = baseContext;
+  const { create, environment, rolloutPolicy } = baseContext;
   const state = ref<LocalState>({
     environment: cloneDeep(environment.value),
     rolloutPolicy: cloneDeep(rolloutPolicy.value),
-    environmentTier: environmentTier.value,
     policyChanged: false,
   });
-  const missingFeature = ref<FeatureType | undefined>(undefined);
+  const missingFeature = ref<PlanFeature | undefined>(undefined);
   const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
 
   const valueChanged = (
-    field?:
-      | "environment"
-      | "approvalPolicy"
-      | "rolloutPolicy"
-      | "environmentTier"
+    field?: "environment" | "approvalPolicy" | "rolloutPolicy"
   ): boolean => {
     switch (field) {
       case "environment":
         return !isEqual(environment.value, state.value.environment);
       case "rolloutPolicy":
         return !isEqual(rolloutPolicy.value, state.value.rolloutPolicy);
-      case "environmentTier":
-        return !isEqual(environmentTier.value, state.value.environmentTier);
 
       default:
         return (
           !isEqual(environment.value, state.value.environment) ||
           !isEqual(rolloutPolicy.value, state.value.rolloutPolicy) ||
-          !isEqual(environmentTier.value, state.value.environmentTier) ||
           state.value.policyChanged
         );
     }
@@ -95,11 +79,7 @@ export const provideEnvironmentFormContext = (baseContext: {
   });
 
   const allowEdit = computed(() => {
-    return (
-      create.value ||
-      (state.value.environment.state === State.ACTIVE &&
-        hasWorkspacePermissionV2("bb.environments.update"))
-    );
+    return create.value || hasWorkspacePermissionV2("bb.settings.set");
   });
 
   watch(environment, (cur) => {
@@ -107,9 +87,6 @@ export const provideEnvironmentFormContext = (baseContext: {
   });
   watch(rolloutPolicy, (cur) => {
     state.value.rolloutPolicy = cloneDeep(cur);
-  });
-  watch(environmentTier, (cur) => {
-    state.value.environmentTier = cur;
   });
 
   const context = {

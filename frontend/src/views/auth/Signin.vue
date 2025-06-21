@@ -28,7 +28,7 @@
                       {{
                         $t("auth.sign-in.demo-note", {
                           username: "demo@example.com",
-                          password: "1024",
+                          password: "12345678",
                         })
                       }}
                     </span>
@@ -174,6 +174,7 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { EyeIcon, EyeOffIcon } from "lucide-vue-next";
 import { NButton, NCard, NTabPane, NTabs } from "naive-ui";
 import { storeToRefs } from "pinia";
@@ -190,6 +191,7 @@ import {
   useIdentityProviderStore,
 } from "@/store";
 import { idpNamePrefix } from "@/store/modules/v1/common";
+import { LoginRequestSchema } from "@/types/proto-es/v1/auth_service_pb";
 import type { IdentityProvider } from "@/types/proto/v1/idp_service";
 import { IdentityProviderType } from "@/types/proto/v1/idp_service";
 import { openWindowForSSO } from "@/utils";
@@ -258,8 +260,17 @@ watchEffect(() => {
 });
 
 onMounted(async () => {
-  await identityProviderStore.fetchIdentityProviderList();
-
+  try {
+    // Prepare all identity providers.
+    await identityProviderStore.fetchIdentityProviderList();
+  } catch (error) {
+    pushNotification({
+      module: "bytebase",
+      style: "CRITICAL",
+      title: `Request error occurred`,
+      description: (error as any).message,
+    });
+  }
   // Check if there is an identity provider in the query string and try to sign in with it.
   if (route.query["idp"]) {
     const idpName = `${idpNamePrefix}${route.query["idp"] as string}`;
@@ -284,12 +295,14 @@ const trySignin = async (idpName: string) => {
   if (state.isLoading) return;
   state.isLoading = true;
   try {
-    await authStore.login({
-      email: state.email,
-      password: state.password,
-      web: true,
-      idpName: idpName,
-    });
+    await authStore.login(
+      create(LoginRequestSchema, {
+        email: state.email,
+        password: state.password,
+        web: true,
+        idpName: idpName,
+      })
+    );
   } finally {
     state.isLoading = false;
   }

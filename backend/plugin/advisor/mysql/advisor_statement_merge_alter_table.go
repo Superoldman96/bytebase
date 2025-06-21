@@ -5,13 +5,14 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/pkg/errors"
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
@@ -120,8 +121,14 @@ func (checker *statementMergeAlterTableChecker) generateAdvice() []*storepb.Advi
 	for _, table := range checker.tableMap {
 		tableList = append(tableList, table)
 	}
-	sort.Slice(tableList, func(i, j int) bool {
-		return tableList[i].lastLine < tableList[j].lastLine
+	slices.SortFunc(tableList, func(i, j tableStatement) int {
+		if i.lastLine < j.lastLine {
+			return -1
+		}
+		if i.lastLine > j.lastLine {
+			return 1
+		}
+		return 0
 	})
 
 	for _, table := range tableList {
@@ -131,7 +138,7 @@ func (checker *statementMergeAlterTableChecker) generateAdvice() []*storepb.Advi
 				Code:          advisor.StatementRedundantAlterTable.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("There are %d statements to modify table `%s`", table.count, table.name),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.lastLine),
+				StartPosition: common.ConvertANTLRLineToPosition(table.lastLine),
 			})
 		}
 	}

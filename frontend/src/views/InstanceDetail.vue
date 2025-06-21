@@ -50,7 +50,7 @@
           <DatabaseOperations
             :databases="selectedDatabases"
             @refresh="() => pagedDatabaseTableRef?.refresh()"
-            @update-cache="
+            @update="
               (databases) => pagedDatabaseTableRef?.updateCache(databases)
             "
           />
@@ -61,7 +61,7 @@
             :show-selection="true"
             :filter="filter"
             :parent="instance.name"
-            @update:selected-databases="handleDatabasesSelectionChanged"
+            v-model:selected-database-names="state.selectedDatabaseNameList"
           />
         </div>
       </NTabPane>
@@ -76,7 +76,9 @@
     :title="$t('quick-action.create-db')"
   >
     <CreateDatabasePrepPanel
-      :environment-name="environment?.name"
+      :environment-name="
+        environment ? formatEnvironmentName(environment.id) : undefined
+      "
       :instance-name="instance.name"
       @dismiss="state.showCreateDatabaseModal = false"
     />
@@ -120,7 +122,11 @@ import {
   projectNamePrefix,
   environmentNamePrefix,
 } from "@/store/modules/v1/common";
-import { type ComposedDatabase, isValidDatabaseName } from "@/types";
+import {
+  type ComposedDatabase,
+  formatEnvironmentName,
+  isValidDatabaseName,
+} from "@/types";
 import { State } from "@/types/proto/v1/common";
 import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
 import {
@@ -138,7 +144,7 @@ const isInstanceHash = (x: any): x is InstanceHash =>
 interface LocalState {
   showCreateDatabaseModal: boolean;
   syncingSchema: boolean;
-  selectedDatabaseNameList: Set<string>;
+  selectedDatabaseNameList: string[];
   params: SearchParams;
   selectedTab: InstanceHash;
 }
@@ -172,7 +178,7 @@ const readonlyScopes = computed((): SearchScope[] => [
 const state = reactive<LocalState>({
   showCreateDatabaseModal: false,
   syncingSchema: false,
-  selectedDatabaseNameList: new Set(),
+  selectedDatabaseNameList: [],
   params: {
     query: "",
     scopes: [...readonlyScopes.value],
@@ -289,14 +295,8 @@ const createDatabase = () => {
 
 useTitle(computed(() => instance.value.title));
 
-const handleDatabasesSelectionChanged = (
-  selectedDatabaseNameList: Set<string>
-): void => {
-  state.selectedDatabaseNameList = selectedDatabaseNameList;
-};
-
 const selectedDatabases = computed((): ComposedDatabase[] => {
-  return [...state.selectedDatabaseNameList]
+  return state.selectedDatabaseNameList
     .map((databaseName) => databaseStore.getDatabaseByName(databaseName))
     .filter((database) => isValidDatabaseName(database.name));
 });

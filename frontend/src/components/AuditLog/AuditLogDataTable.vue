@@ -10,6 +10,7 @@
 </template>
 
 <script lang="tsx" setup>
+import { fromBinary } from "@bufbuild/protobuf";
 import dayjs from "dayjs";
 import { NDataTable, type DataTableColumn } from "naive-ui";
 import { computed } from "vue";
@@ -17,9 +18,10 @@ import { useI18n } from "vue-i18n";
 import BBAvatar from "@/bbkit/BBAvatar.vue";
 import { useProjectV1Store, useUserStore } from "@/store";
 import { projectNamePrefix } from "@/store/modules/v1/common";
-import { getDateForPbTimestamp } from "@/types";
-import { AuditData, type AuditLog } from "@/types/proto/v1/audit_log_service";
-import { Setting } from "@/types/proto/v1/setting_service";
+import { getDateForPbTimestampProtoEs } from "@/types";
+import type { AuditLog } from "@/types/proto-es/v1/audit_log_service_pb";
+import { AuditDataSchema } from "@/types/proto-es/v1/audit_log_service_pb";
+import { SettingSchema } from "@/types/proto-es/v1/setting_service_pb";
 import { extractProjectResourceName } from "@/utils";
 import JSONStringView from "./JSONStringView.vue";
 
@@ -51,7 +53,7 @@ const columnList = computed((): AuditDataTableColumn[] => {
         title: t("audit-log.table.created-ts"),
         width: 240,
         render: (auditLog) =>
-          dayjs(getDateForPbTimestamp(auditLog.createTime)).format(
+          dayjs(getDateForPbTimestampProtoEs(auditLog.createTime)).format(
             "YYYY-MM-DD HH:mm:ss Z"
           ),
       },
@@ -146,20 +148,29 @@ const columnList = computed((): AuditDataTableColumn[] => {
         minWidth: 256,
         width: 256,
         title: t("audit-log.table.service-data"),
-        render: (auditLog) =>
-          auditLog.serviceData && auditLog.serviceData.typeUrl ? (
+        render: (auditLog) => {
+          return auditLog.serviceData && auditLog.serviceData.typeUrl ? (
             <JSONStringView
-              jsonString={JSON.stringify({
-                "@type": auditLog.serviceData.typeUrl,
-                ...getServiceDataValue(
-                  auditLog.serviceData.typeUrl,
-                  auditLog.serviceData.value
-                ),
-              })}
+              jsonString={JSON.stringify(
+                {
+                  "@type": auditLog.serviceData.typeUrl,
+                  ...getServiceDataValue(
+                    auditLog.serviceData.typeUrl,
+                    auditLog.serviceData.value
+                  ),
+                },
+                (_, value) => {
+                  if (typeof value === "bigint") {
+                    return value.toString(); // Convert to string
+                  }
+                  return value;
+                }
+              )}
             />
           ) : (
             "-"
-          ),
+          );
+        },
       },
     ] as AuditDataTableColumn[]
   ).filter((column) => !column.hide);
@@ -168,9 +179,9 @@ const columnList = computed((): AuditDataTableColumn[] => {
 function getServiceDataValue(typeUrl: string, value: Uint8Array): any {
   switch (typeUrl) {
     case "type.googleapis.com/bytebase.v1.AuditData":
-      return AuditData.decode(value);
+      return fromBinary(AuditDataSchema, value);
     case "type.googleapis.com/bytebase.v1.Setting":
-      return Setting.decode(value);
+      return fromBinary(SettingSchema, value);
     default:
       return null;
   }

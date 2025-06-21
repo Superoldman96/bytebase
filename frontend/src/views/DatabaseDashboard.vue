@@ -27,9 +27,7 @@
       <DatabaseOperations
         :databases="selectedDatabases"
         @refresh="() => pagedDatabaseTableRef?.refresh()"
-        @update-cache="
-          (databases) => pagedDatabaseTableRef?.updateCache(databases)
-        "
+        @update="(databases) => pagedDatabaseTableRef?.updateCache(databases)"
       />
       <PagedDatabaseTable
         ref="pagedDatabaseTableRef"
@@ -39,8 +37,8 @@
         :parent="'workspaces/-'"
         :footer-class="'mx-4'"
         :custom-click="!!onClickDatabase"
+        v-model:selected-database-names="state.selectedDatabaseNameList"
         @row-click="onClickDatabase"
-        @update:selected-databases="handleDatabasesSelectionChanged"
       />
     </div>
   </div>
@@ -84,7 +82,7 @@ import {
 } from "@/utils";
 
 interface LocalState {
-  selectedDatabaseNameList: Set<string>;
+  selectedDatabaseNameList: string[];
   params: SearchParams;
   showCreateDrawer: boolean;
 }
@@ -95,9 +93,6 @@ defineProps<{
 
 const uiStateStore = useUIStateStore();
 const databaseStore = useDatabaseV1Store();
-const hideUnassignedDatabases = useAppFeature(
-  "bb.feature.databases.hide-unassigned"
-);
 const databaseChangeMode = useAppFeature("bb.feature.database-change-mode");
 const pagedDatabaseTableRef = ref<InstanceType<typeof PagedDatabaseTable>>();
 
@@ -116,7 +111,7 @@ const defaultSearchParams = () => {
 };
 
 const state = reactive<LocalState>({
-  selectedDatabaseNameList: new Set(),
+  selectedDatabaseNameList: [],
   showCreateDrawer: false,
   params: defaultSearchParams(),
 });
@@ -183,7 +178,7 @@ const filter = computed(() => ({
   project: selectedProject.value,
   query: state.params.query,
   labels: selectedLabels.value,
-  excludeUnassigned: hideUnassignedDatabases.value,
+  excludeUnassigned: false,
   engines: selectedEngines.value,
 }));
 
@@ -197,14 +192,8 @@ onMounted(() => {
 });
 
 const selectedDatabases = computed((): ComposedDatabase[] => {
-  return [...state.selectedDatabaseNameList]
+  return state.selectedDatabaseNameList
     .filter((databaseName) => isValidDatabaseName(databaseName))
     .map((databaseName) => databaseStore.getDatabaseByName(databaseName));
 });
-
-const handleDatabasesSelectionChanged = (
-  selectedDatabaseNameList: Set<string>
-): void => {
-  state.selectedDatabaseNameList = selectedDatabaseNameList;
-};
 </script>

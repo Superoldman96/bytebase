@@ -1,17 +1,34 @@
 import { uniq } from "lodash-es";
 import { extractUserId, useGroupStore, useWorkspaceV1Store } from "@/store";
-import { roleNamePrefix, userNamePrefix } from "@/store/modules/v1/common";
-import {
-  PresetRoleType,
-  groupBindingPrefix,
-  PRESET_WORKSPACE_ROLES,
-} from "@/types";
+import { userNamePrefix } from "@/store/modules/v1/common";
+import { groupBindingPrefix, ALL_USERS_USER_EMAIL } from "@/types";
 import type { IamPolicy, Binding } from "@/types/proto/v1/iam_policy";
+import type { IamPolicy as NewIamPolicy, Binding as NewBinding } from "@/types/proto-es/v1/iam_policy_pb";
 import { convertFromExpr } from "@/utils/issue/cel";
+import { convertNewBindingToOld, convertNewIamPolicyToOld } from "./iam-conversions";
 
-export const isBindingPolicyExpired = (binding: Binding): boolean => {
-  if (binding.parsedExpr) {
-    const conditionExpr = convertFromExpr(binding.parsedExpr);
+// Helper function to work with both old and new binding types
+const normalizeBinding = (binding: Binding | NewBinding): Binding => {
+  // Check if it's a new proto-es binding by checking for proto-es specific properties
+  if ('$typeName' in binding && binding.$typeName === 'bytebase.v1.Binding') {
+    return convertNewBindingToOld(binding as NewBinding);
+  }
+  return binding as Binding;
+};
+
+// Helper function to work with both old and new policy types
+const normalizeIamPolicy = (policy: IamPolicy | NewIamPolicy): IamPolicy => {
+  // Check if it's a new proto-es policy by checking for proto-es specific properties
+  if ('$typeName' in policy && policy.$typeName === 'bytebase.v1.IamPolicy') {
+    return convertNewIamPolicyToOld(policy as NewIamPolicy);
+  }
+  return policy as IamPolicy;
+};
+
+export const isBindingPolicyExpired = (binding: Binding | NewBinding): boolean => {
+  const normalizedBinding = normalizeBinding(binding);
+  if (normalizedBinding.parsedExpr) {
+    const conditionExpr = convertFromExpr(normalizedBinding.parsedExpr);
     if (conditionExpr.expiredTime) {
       const expiration = new Date(conditionExpr.expiredTime);
       if (expiration < new Date()) {
@@ -29,17 +46,18 @@ export const getUserEmailListInBinding = ({
   binding,
   ignoreGroup,
 }: {
-  binding: Binding;
+  binding: Binding | NewBinding;
   ignoreGroup: boolean;
 }): string[] => {
   if (isBindingPolicyExpired(binding)) {
     return [];
   }
 
+  const normalizedBinding = normalizeBinding(binding);
   const groupStore = useGroupStore();
   const emailList = [];
 
-  for (const member of binding.members) {
+  for (const member of normalizedBinding.members) {
     if (member.startsWith(groupBindingPrefix)) {
       if (ignoreGroup) {
         continue;
@@ -63,15 +81,16 @@ export const getUserEmailListInBinding = ({
 // memberMapToRolesInProjectIAM return the Map<users/{email}, Set<roles/{role}>>
 // the user could includes users/ALL_USERS_USER_EMAIL
 export const memberMapToRolesInProjectIAM = (
-  iamPolicy: IamPolicy,
+  iamPolicy: IamPolicy | NewIamPolicy,
   targetRole?: string
 ): Map<string, Set<string>> => {
+  const normalizedPolicy = normalizeIamPolicy(iamPolicy);
   const workspaceStore = useWorkspaceV1Store();
   // Map<users/{email}, Set<roles/{role}>>
   const rolesMapByName = new Map<string, Set<string>>();
 
   // Handle project level roles.
-  for (const binding of iamPolicy.bindings) {
+  for (const binding of normalizedPolicy.bindings) {
     if (targetRole && binding.role !== targetRole) {
       continue;
     }
@@ -92,9 +111,6 @@ export const memberMapToRolesInProjectIAM = (
 
   // Handle workspace level project roles.
   for (const [role, userSet] of workspaceStore.roleMapToUsers.entries()) {
-    if (PRESET_WORKSPACE_ROLES.includes(role)) {
-      continue;
-    }
     if (targetRole && role !== targetRole) {
       continue;
     }
@@ -109,31 +125,23 @@ export const memberMapToRolesInProjectIAM = (
   return rolesMapByName;
 };
 
-export const roleListInIAM = ({
+export const bindingListInIAM = ({
   policy,
   email,
   ignoreGroup,
 }: {
-  policy: IamPolicy;
+  policy: IamPolicy | NewIamPolicy;
   email: string;
   ignoreGroup: boolean;
-}) => {
-  const roles = policy.bindings
-    .filter((binding) => {
-      if (binding.role === PresetRoleType.WORKSPACE_MEMBER) {
-        return false;
-      }
-      if (isBindingPolicyExpired(binding)) {
-        return false;
-      }
-      const emailList = getUserEmailListInBinding({ binding, ignoreGroup });
-      return emailList.includes(email);
-    })
-    .map((binding) => binding.role);
-
-  if (!roles.some((role) => role.startsWith(`${roleNamePrefix}workspace`))) {
-    roles.push(PresetRoleType.WORKSPACE_MEMBER);
-  }
-
-  return roles;
+}): Binding[] => {
+  const normalizedPolicy = normalizeIamPolicy(policy);
+  return normalizedPolicy.bindings.filter((binding) => {
+    if (isBindingPolicyExpired(binding)) {
+      return false;
+    }
+    const emailList = getUserEmailListInBinding({ binding, ignoreGroup });
+    return (
+      emailList.includes(ALL_USERS_USER_EMAIL) || emailList.includes(email)
+    );
+  });
 };

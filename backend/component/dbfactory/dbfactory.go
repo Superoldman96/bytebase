@@ -6,23 +6,25 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	secretlib "github.com/bytebase/bytebase/backend/component/secret"
+	"github.com/bytebase/bytebase/backend/enterprise"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // DBFactory is the factory for building database driver.
 type DBFactory struct {
-	mongoBinDir string
-	store       *store.Store
+	store          *store.Store
+	licenseService *enterprise.LicenseService
 }
 
 // New creates a new database driver factory.
-func New(store *store.Store, mongoBinDir string) *DBFactory {
+func New(store *store.Store, licenseService *enterprise.LicenseService) *DBFactory {
 	return &DBFactory{
-		mongoBinDir: mongoBinDir,
-		store:       store,
+		store:          store,
+		licenseService: licenseService,
 	}
 }
 
@@ -41,14 +43,13 @@ func (d *DBFactory) GetAdminDatabaseDriver(ctx context.Context, instance *store.
 
 // GetDataSourceDriver returns the database driver for a data source.
 func (d *DBFactory) GetDataSourceDriver(ctx context.Context, instance *store.InstanceMessage, dataSource *storepb.DataSource, connectionContext db.ConnectionContext) (db.Driver, error) {
-	dbBinDir := ""
-	if instance.Metadata.GetEngine() == storepb.Engine_MONGODB {
-		dbBinDir = d.mongoBinDir
-	}
-
-	password, err := secretlib.ReplaceExternalSecret(ctx, dataSource.GetPassword(), dataSource.GetExternalSecret())
-	if err != nil {
-		return nil, err
+	password := dataSource.GetPassword()
+	if err := d.licenseService.IsFeatureEnabledForInstance(v1pb.PlanFeature_FEATURE_EXTERNAL_SECRET_MANAGER, instance); err == nil {
+		p, err := secretlib.ReplaceExternalSecret(ctx, dataSource.GetPassword(), dataSource.GetExternalSecret())
+		if err != nil {
+			return nil, err
+		}
+		password = p
 	}
 	connectionContext.InstanceID = instance.ResourceID
 	connectionContext.EngineVersion = instance.Metadata.GetVersion()
@@ -56,9 +57,6 @@ func (d *DBFactory) GetDataSourceDriver(ctx context.Context, instance *store.Ins
 	driver, err := db.Open(
 		ctx,
 		instance.Metadata.GetEngine(),
-		db.DriverConfig{
-			DBBinDir: dbBinDir,
-		},
 		db.ConnectionConfig{
 			DataSource:        dataSource,
 			ConnectionContext: connectionContext,

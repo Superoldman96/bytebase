@@ -29,6 +29,7 @@ const (
 	InstanceService_SyncInstance_FullMethodName         = "/bytebase.v1.InstanceService/SyncInstance"
 	InstanceService_ListInstanceDatabase_FullMethodName = "/bytebase.v1.InstanceService/ListInstanceDatabase"
 	InstanceService_BatchSyncInstances_FullMethodName   = "/bytebase.v1.InstanceService/BatchSyncInstances"
+	InstanceService_BatchUpdateInstances_FullMethodName = "/bytebase.v1.InstanceService/BatchUpdateInstances"
 	InstanceService_AddDataSource_FullMethodName        = "/bytebase.v1.InstanceService/AddDataSource"
 	InstanceService_RemoveDataSource_FullMethodName     = "/bytebase.v1.InstanceService/RemoveDataSource"
 	InstanceService_UpdateDataSource_FullMethodName     = "/bytebase.v1.InstanceService/UpdateDataSource"
@@ -38,17 +39,31 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type InstanceServiceClient interface {
+	// Permissions required: bb.instances.get
 	GetInstance(ctx context.Context, in *GetInstanceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.list
 	ListInstances(ctx context.Context, in *ListInstancesRequest, opts ...grpc.CallOption) (*ListInstancesResponse, error)
+	// Permissions required: bb.instances.create
 	CreateInstance(ctx context.Context, in *CreateInstanceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.update
 	UpdateInstance(ctx context.Context, in *UpdateInstanceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.delete
 	DeleteInstance(ctx context.Context, in *DeleteInstanceRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Permissions required: bb.instances.undelete
 	UndeleteInstance(ctx context.Context, in *UndeleteInstanceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.sync
 	SyncInstance(ctx context.Context, in *SyncInstanceRequest, opts ...grpc.CallOption) (*SyncInstanceResponse, error)
+	// Permissions required: bb.instances.get
 	ListInstanceDatabase(ctx context.Context, in *ListInstanceDatabaseRequest, opts ...grpc.CallOption) (*ListInstanceDatabaseResponse, error)
+	// Permissions required: bb.instances.sync
 	BatchSyncInstances(ctx context.Context, in *BatchSyncInstancesRequest, opts ...grpc.CallOption) (*BatchSyncInstancesResponse, error)
+	// Permissions required: bb.instances.update
+	BatchUpdateInstances(ctx context.Context, in *BatchUpdateInstancesRequest, opts ...grpc.CallOption) (*BatchUpdateInstancesResponse, error)
+	// Permissions required: bb.instances.update
 	AddDataSource(ctx context.Context, in *AddDataSourceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.update
 	RemoveDataSource(ctx context.Context, in *RemoveDataSourceRequest, opts ...grpc.CallOption) (*Instance, error)
+	// Permissions required: bb.instances.update
 	UpdateDataSource(ctx context.Context, in *UpdateDataSourceRequest, opts ...grpc.CallOption) (*Instance, error)
 }
 
@@ -150,6 +165,16 @@ func (c *instanceServiceClient) BatchSyncInstances(ctx context.Context, in *Batc
 	return out, nil
 }
 
+func (c *instanceServiceClient) BatchUpdateInstances(ctx context.Context, in *BatchUpdateInstancesRequest, opts ...grpc.CallOption) (*BatchUpdateInstancesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchUpdateInstancesResponse)
+	err := c.cc.Invoke(ctx, InstanceService_BatchUpdateInstances_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *instanceServiceClient) AddDataSource(ctx context.Context, in *AddDataSourceRequest, opts ...grpc.CallOption) (*Instance, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Instance)
@@ -184,17 +209,31 @@ func (c *instanceServiceClient) UpdateDataSource(ctx context.Context, in *Update
 // All implementations must embed UnimplementedInstanceServiceServer
 // for forward compatibility.
 type InstanceServiceServer interface {
+	// Permissions required: bb.instances.get
 	GetInstance(context.Context, *GetInstanceRequest) (*Instance, error)
+	// Permissions required: bb.instances.list
 	ListInstances(context.Context, *ListInstancesRequest) (*ListInstancesResponse, error)
+	// Permissions required: bb.instances.create
 	CreateInstance(context.Context, *CreateInstanceRequest) (*Instance, error)
+	// Permissions required: bb.instances.update
 	UpdateInstance(context.Context, *UpdateInstanceRequest) (*Instance, error)
+	// Permissions required: bb.instances.delete
 	DeleteInstance(context.Context, *DeleteInstanceRequest) (*emptypb.Empty, error)
+	// Permissions required: bb.instances.undelete
 	UndeleteInstance(context.Context, *UndeleteInstanceRequest) (*Instance, error)
+	// Permissions required: bb.instances.sync
 	SyncInstance(context.Context, *SyncInstanceRequest) (*SyncInstanceResponse, error)
+	// Permissions required: bb.instances.get
 	ListInstanceDatabase(context.Context, *ListInstanceDatabaseRequest) (*ListInstanceDatabaseResponse, error)
+	// Permissions required: bb.instances.sync
 	BatchSyncInstances(context.Context, *BatchSyncInstancesRequest) (*BatchSyncInstancesResponse, error)
+	// Permissions required: bb.instances.update
+	BatchUpdateInstances(context.Context, *BatchUpdateInstancesRequest) (*BatchUpdateInstancesResponse, error)
+	// Permissions required: bb.instances.update
 	AddDataSource(context.Context, *AddDataSourceRequest) (*Instance, error)
+	// Permissions required: bb.instances.update
 	RemoveDataSource(context.Context, *RemoveDataSourceRequest) (*Instance, error)
+	// Permissions required: bb.instances.update
 	UpdateDataSource(context.Context, *UpdateDataSourceRequest) (*Instance, error)
 	mustEmbedUnimplementedInstanceServiceServer()
 }
@@ -232,6 +271,9 @@ func (UnimplementedInstanceServiceServer) ListInstanceDatabase(context.Context, 
 }
 func (UnimplementedInstanceServiceServer) BatchSyncInstances(context.Context, *BatchSyncInstancesRequest) (*BatchSyncInstancesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchSyncInstances not implemented")
+}
+func (UnimplementedInstanceServiceServer) BatchUpdateInstances(context.Context, *BatchUpdateInstancesRequest) (*BatchUpdateInstancesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchUpdateInstances not implemented")
 }
 func (UnimplementedInstanceServiceServer) AddDataSource(context.Context, *AddDataSourceRequest) (*Instance, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddDataSource not implemented")
@@ -425,6 +467,24 @@ func _InstanceService_BatchSyncInstances_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InstanceService_BatchUpdateInstances_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchUpdateInstancesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InstanceServiceServer).BatchUpdateInstances(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InstanceService_BatchUpdateInstances_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InstanceServiceServer).BatchUpdateInstances(ctx, req.(*BatchUpdateInstancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _InstanceService_AddDataSource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AddDataSourceRequest)
 	if err := dec(in); err != nil {
@@ -521,6 +581,10 @@ var InstanceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchSyncInstances",
 			Handler:    _InstanceService_BatchSyncInstances_Handler,
+		},
+		{
+			MethodName: "BatchUpdateInstances",
+			Handler:    _InstanceService_BatchUpdateInstances_Handler,
 		},
 		{
 			MethodName: "AddDataSource",

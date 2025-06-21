@@ -18,10 +18,7 @@
           <DatabaseV1Table
             :database-list="databaseList"
             :show-selection="true"
-            :selected-database-names="selectedDatabaseNameList"
-            @update:selected-databases="
-              selectedDatabaseNameList = Array.from($event)
-            "
+            v-model:selected-database-names="selectedDatabaseNameList"
           />
         </div>
         <NDivider class="w-full py-2" />
@@ -80,7 +77,6 @@ import { BBSpin } from "@/bbkit";
 import { ProjectSelect, DrawerContent } from "@/components/v2";
 import {
   pushNotification,
-  useAppFeature,
   useDatabaseV1Store,
   useProjectV1Store,
 } from "@/store";
@@ -119,10 +115,6 @@ const transfer = ref<"project" | "unassign">("project");
 
 const selectedDatabaseNameList = ref<string[]>(
   props.selectedDatabaseNames ?? []
-);
-
-const disallowNavigateToConsole = useAppFeature(
-  "bb.feature.disallow-navigate-to-console"
 );
 
 watch(
@@ -214,11 +206,9 @@ const doTransfer = async () => {
         title: `Successfully transferred ${displayDatabaseName} to project '${target.title}'.`,
       });
 
-      if (!disallowNavigateToConsole.value) {
-        router.push({
-          ...autoProjectRoute(router, target),
-        });
-      }
+      router.push({
+        ...autoProjectRoute(router, target),
+      });
     }
 
     props.onSuccess(databaseList);

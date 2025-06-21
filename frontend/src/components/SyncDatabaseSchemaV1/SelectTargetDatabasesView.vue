@@ -125,7 +125,6 @@
           :should-show-diff="shouldShowDiff"
           :preview-schema-change-message="previewSchemaChangeMessage"
           @statement-change="onStatementChange"
-          @copy-statement="onCopyStatement"
         />
         <div
           v-show="!selectedDatabase"
@@ -164,18 +163,13 @@ import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import { BBSpin } from "@/bbkit";
 import { InstanceV1EngineIcon } from "@/components/v2";
-import {
-  pushNotification,
-  useDatabaseV1Store,
-  useEnvironmentV1Store,
-} from "@/store";
+import { useDatabaseV1Store, useEnvironmentV1Store } from "@/store";
 import {
   isValidDatabaseName,
   type ComposedDatabase,
   type ComposedProject,
 } from "@/types";
 import { Engine } from "@/types/proto/v1/common";
-import { toClipboard } from "@/utils";
 import DiffViewPanel from "./DiffViewPanel.vue";
 import SourceSchemaInfo from "./SourceSchemaInfo.vue";
 import TargetDatabasesSelectPanel from "./TargetDatabasesSelectPanel.vue";
@@ -297,20 +291,6 @@ const handleUnselectDatabase = (database: ComposedDatabase) => {
   }
 };
 
-const onCopyStatement = () => {
-  const editStatement = state.selectedDatabaseName
-    ? schemaDiffCache.value[state.selectedDatabaseName].edited
-    : "";
-
-  toClipboard(editStatement).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "INFO",
-      title: `Statement copied to clipboard.`,
-    });
-  });
-};
-
 const onStatementChange = (statement: string) => {
   if (state.selectedDatabaseName) {
     schemaDiffCache.value[state.selectedDatabaseName].edited = statement;
@@ -337,7 +317,7 @@ watch(
       }
       const db = databaseStore.getDatabaseByName(name);
       const schema = await databaseStore.fetchDatabaseSchema(
-        `${db.name}/schema`,
+        db.name,
         false /* sdlFormat */
       );
       databaseSchemaCache.value[name] = schema.schema;

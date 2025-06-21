@@ -11,8 +11,8 @@ import {
   useDatabaseV1Store,
   useInstanceV1Store,
   useSQLEditorTabStore,
-  useAppFeature,
 } from "@/store";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import authRoutes, {
   AUTH_2FA_SETUP_MODULE,
   AUTH_MFA_MODULE,
@@ -66,13 +66,9 @@ export const router = createRouter({
 router.beforeEach((to, from, next) => {
   console.debug("Router %s -> %s", from.name, to.name);
 
-  const disallowNavigateAwaySQLEditor = useAppFeature(
-    "bb.feature.disallow-navigate-to-console"
-  );
-
+  const actuatorStore = useActuatorV1Store();
   const authStore = useAuthStore();
   const routerStore = useRouterStore();
-  const isLoggedIn = authStore.isLoggedIn();
 
   const fromModule = from.name
     ? from.name.toString().split(".")[0]
@@ -110,6 +106,7 @@ router.beforeEach((to, from, next) => {
     to.name === AUTH_SIGNIN_ADMIN_MODULE ||
     to.name === AUTH_SIGNUP_MODULE ||
     to.name === AUTH_MFA_MODULE ||
+    to.name === AUTH_PASSWORD_RESET_MODULE ||
     to.name === AUTH_PASSWORD_FORGOT_MODULE
   ) {
     useSQLEditorTabStore().reset();
@@ -119,18 +116,10 @@ router.beforeEach((to, from, next) => {
     import("@/plugins/ai/store").then(({ useConversationStore }) => {
       useConversationStore().reset();
     });
-    if (isLoggedIn) {
-      if (typeof to.query.redirect === "string") {
-        location.replace(to.query.redirect);
-        return;
-      }
-      next({ name: WORKSPACE_ROOT_MODULE, replace: true });
-    } else {
-      next();
-    }
+    next();
     return;
   } else {
-    if (!isLoggedIn) {
+    if (!authStore.isLoggedIn) {
       const query: any = {
         ...(to.query || {}),
       };
@@ -168,10 +157,12 @@ router.beforeEach((to, from, next) => {
   }
 
   const currentUserV1 = useCurrentUserV1();
-  const serverInfo = useActuatorV1Store().serverInfo;
 
   // If 2FA is required, redirect to MFA setup page if the user has not enabled 2FA.
-  if (hasFeature("bb.feature.2fa") && serverInfo?.require2fa) {
+  if (
+    hasFeature(PlanFeature.FEATURE_TWO_FA) &&
+    actuatorStore.serverInfo?.require2fa
+  ) {
     const user = currentUserV1.value;
     if (user && !user.mfaEnabled) {
       next({
@@ -179,17 +170,6 @@ router.beforeEach((to, from, next) => {
         replace: true,
       });
       return;
-    }
-  }
-
-  // In standalone mode, we don't want to user get out of some standalone pages.
-  if (disallowNavigateAwaySQLEditor.value) {
-    // If user is trying to navigate away from SQL Editor, we'll explicitly return false to cancel the navigation.
-    if (
-      from.name?.toString().startsWith("sql-editor") &&
-      !to.name?.toString().startsWith("sql-editor")
-    ) {
-      return false;
     }
   }
 
@@ -255,9 +235,6 @@ useTitle(title);
 router.afterEach((to /*, from */) => {
   // Needs to use nextTick otherwise title will still be the one from the previous route.
   nextTick(() => {
-    if (to.meta.overrideTitle) {
-      return;
-    }
     if (to.meta.title) {
       document.title = to.meta.title(to);
     } else {

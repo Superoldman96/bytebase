@@ -3,19 +3,17 @@ package v1
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"reflect"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/pkg/errors"
+	"google.golang.org/grpc/status"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
@@ -41,7 +39,87 @@ func NewAuditInterceptor(store *store.Store) *AuditInterceptor {
 	}
 }
 
-func createAuditLog(ctx context.Context, request, response any, method string, storage *store.Store, serviceData *anypb.Any, rerr error) error {
+// WrapUnary implements the ConnectRPC interceptor interface for unary RPCs.
+func (in *AuditInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		var serviceData *anypb.Any
+		ctx = common.WithSetServiceData(ctx, func(a *anypb.Any) {
+			serviceData = a
+		})
+
+		response, rerr := next(ctx, req)
+
+		if needAudit(ctx) {
+			var respMsg any
+			if !common.IsNil(response) {
+				respMsg = response.Any()
+			}
+			if err := createAuditLogConnect(ctx, req.Any(), respMsg, req.Spec().Procedure, in.store, serviceData, rerr, req.Header()); err != nil {
+				slog.Warn("audit interceptor: failed to create audit log", log.BBError(err), slog.String("method", req.Spec().Procedure))
+			}
+		}
+
+		return response, rerr
+	}
+}
+
+// WrapStreamingClient implements the ConnectRPC interceptor interface for streaming clients.
+func (*AuditInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
+		return next(ctx, spec)
+	}
+}
+
+// WrapStreamingHandler implements the ConnectRPC interceptor interface for streaming handlers.
+func (in *AuditInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		if !needAudit(ctx) {
+			return next(ctx, conn)
+		}
+
+		wrappedConn := &auditConnectStreamingConn{
+			StreamingHandlerConn: conn,
+			interceptor:          in,
+			ctx:                  ctx,
+			method:               conn.Spec().Procedure,
+		}
+		return next(ctx, wrappedConn)
+	}
+}
+
+type auditConnectStreamingConn struct {
+	connect.StreamingHandlerConn
+	interceptor *AuditInterceptor
+	ctx         context.Context
+	method      string
+	curRequest  any
+}
+
+func (c *auditConnectStreamingConn) Receive(msg any) error {
+	err := c.StreamingHandlerConn.Receive(msg)
+	if err != nil {
+		return err
+	}
+	// Store current request for audit log
+	c.curRequest = msg
+	return nil
+}
+
+func (c *auditConnectStreamingConn) Send(resp any) error {
+	err := c.StreamingHandlerConn.Send(resp)
+	if err != nil {
+		return err
+	}
+	// Create audit log for each message pair
+	if c.curRequest != nil {
+		if auditErr := createAuditLogConnect(c.ctx, c.curRequest, resp, c.method, c.interceptor.store, nil, nil, c.RequestHeader()); auditErr != nil {
+			return auditErr
+		}
+	}
+	return nil
+}
+
+func createAuditLogConnect(ctx context.Context, request, response any, method string, storage *store.Store, serviceData *anypb.Any, rerr error, headers http.Header) error {
 	requestString, err := getRequestString(request)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get request string")
@@ -65,13 +143,10 @@ func createAuditLog(ctx context.Context, request, response any, method string, s
 	authContextAny := ctx.Value(common.AuthContextKey)
 	authContext, ok := authContextAny.(*common.AuthContext)
 	if !ok {
-		return status.Errorf(codes.Internal, "auth context not found")
+		return connect.NewError(connect.CodeInternal, errors.New("auth context not found"))
 	}
 
-	requestMetadata, err := getRequestMetadataFromCtx(ctx)
-	if err != nil {
-		return err
-	}
+	requestMetadata := getRequestMetadataFromHeaders(headers)
 
 	var parents []string
 	if authContext.HasWorkspaceResource() {
@@ -105,80 +180,6 @@ func createAuditLog(ctx context.Context, request, response any, method string, s
 		}
 	}
 
-	return nil
-}
-
-func (in *AuditInterceptor) AuditInterceptor(ctx context.Context, request any, serverInfo *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	var serviceData *anypb.Any
-	ctx = common.WithSetServiceData(ctx, func(a *anypb.Any) {
-		serviceData = a
-	})
-
-	response, rerr := handler(ctx, request)
-
-	if needAudit(ctx) {
-		if err := createAuditLog(ctx, request, response, serverInfo.FullMethod, in.store, serviceData, rerr); err != nil {
-			slog.Warn("audit interceptor: failed to create audit log", log.BBError(err), slog.String("method", serverInfo.FullMethod))
-		}
-	}
-
-	return response, rerr
-}
-
-type auditStream struct {
-	grpc.ServerStream
-	needAudit  bool
-	curRequest any
-	ctx        context.Context
-	method     string
-	storage    *store.Store
-}
-
-func (s *auditStream) RecvMsg(request any) error {
-	err := s.ServerStream.RecvMsg(request)
-	if err != nil {
-		return err
-	}
-	// audit log.
-	if s.needAudit {
-		s.curRequest = request
-	}
-	return nil
-}
-
-func (s *auditStream) SendMsg(resp any) error {
-	err := s.ServerStream.SendMsg(resp)
-	if err != nil {
-		return err
-	}
-	// audit log.
-	if s.needAudit && s.curRequest != nil {
-		if auditErr := createAuditLog(s.ctx, s.curRequest, resp, s.method, s.storage, nil, nil); auditErr != nil {
-			return auditErr
-		}
-	}
-
-	return nil
-}
-
-func (in *AuditInterceptor) AuditStreamInterceptor(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	overrideStream, ok := ss.(*overrideStream)
-	if !ok {
-		// Service reflection.
-		return handler(srv, ss)
-	}
-
-	auditStream := &auditStream{
-		ServerStream: overrideStream,
-		needAudit:    needAudit(overrideStream.childCtx),
-		ctx:          overrideStream.childCtx,
-		method:       info.FullMethod,
-		storage:      in.store,
-	}
-
-	if err := handler(srv, auditStream); err != nil {
-		return createAuditLog(auditStream.ctx, auditStream.curRequest, nil, auditStream.method, auditStream.storage, nil, err)
-	}
 	return nil
 }
 
@@ -217,14 +218,6 @@ func getRequestResource(request any) string {
 		return r.Name
 	case *v1pb.UpdateRiskRequest:
 		return r.GetRisk().GetName()
-	case *v1pb.CreateEnvironmentRequest:
-		return r.GetEnvironment().GetName()
-	case *v1pb.UpdateEnvironmentRequest:
-		return r.GetEnvironment().GetName()
-	case *v1pb.DeleteEnvironmentRequest:
-		return r.Name
-	case *v1pb.UndeleteEnvironmentRequest:
-		return r.Name
 	case *v1pb.CreateInstanceRequest:
 		return r.GetInstance().GetName()
 	case *v1pb.UpdateInstanceRequest:
@@ -527,21 +520,18 @@ func needAudit(ctx context.Context) bool {
 	return authCtx.Audit
 }
 
-func getRequestMetadataFromCtx(ctx context.Context) (*storepb.RequestMetadata, error) {
-	var userAgent, callerIP string
-	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		callerIP = p.Addr.String()
+// getRequestMetadataFromHeaders extracts request metadata from HTTP headers for ConnectRPC.
+func getRequestMetadataFromHeaders(headers http.Header) *storepb.RequestMetadata {
+	userAgent := headers.Get("User-Agent")
+	// For ConnectRPC, we don't have direct access to peer info like gRPC
+	// The caller IP will need to be extracted from X-Forwarded-For or similar headers
+	callerIP := headers.Get("X-Forwarded-For")
+	if callerIP == "" {
+		callerIP = headers.Get("X-Real-IP")
 	}
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, errors.New("failed to get grpc metadata")
-	}
-	// It only takes effect when using a browser.
-	if userAgents := md["user-agent"]; len(userAgents) != 0 {
-		userAgent = userAgents[0]
-	}
+
 	return &storepb.RequestMetadata{
 		CallerIp:                callerIP,
 		CallerSuppliedUserAgent: userAgent,
-	}, nil
+	}
 }

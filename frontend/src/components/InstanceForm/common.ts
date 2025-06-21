@@ -9,10 +9,13 @@ import {
 import { Engine, State } from "@/types/proto/v1/common";
 import type { DataSource, Instance } from "@/types/proto/v1/instance_service";
 import { DataSourceType } from "@/types/proto/v1/instance_service";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import { calcUpdateMask } from "@/utils";
 
-export type BasicInfo = Omit<Instance, "dataSources" | "engineVersion">;
+export type BasicInfo = Omit<
+  Instance,
+  "dataSources" | "engineVersion" | "lastSyncTime"
+>;
 
 export type EditDataSource = DataSource & {
   pendingCreate: boolean;
@@ -21,7 +24,6 @@ export type EditDataSource = DataSource & {
   useEmptyPassword?: boolean;
   useEmptyMasterPassword?: boolean;
   updateSsl?: boolean;
-  updateSsh?: boolean;
   updateAuthenticationPrivateKey?: boolean;
   extraConnectionParameters?: Record<string, string>;
 };
@@ -126,12 +128,8 @@ export const calcDataSourceUpdateMask = (
   const updateMask = new Set(
     calcUpdateMask(editing, original, true /* toSnakeCase */)
   );
-  const {
-    useEmptyPassword,
-    updateSsh,
-    updateSsl,
-    updateAuthenticationPrivateKey,
-  } = editState;
+  const { useEmptyPassword, updateSsl, updateAuthenticationPrivateKey } =
+    editState;
   if (useEmptyPassword) {
     // We need to implicitly set "password" need to be updated
     // if the "use empty password" option if checked
@@ -143,13 +141,6 @@ export const calcDataSourceUpdateMask = (
     updateMask.add("ssl_ca");
     updateMask.add("ssl_key");
     updateMask.add("ssl_cert");
-  }
-  if (updateSsh) {
-    updateMask.add("ssh_host");
-    updateMask.add("ssh_port");
-    updateMask.add("ssh_user");
-    updateMask.add("ssh_password");
-    updateMask.add("ssh_private_key");
   }
   if (updateAuthenticationPrivateKey) {
     updateMask.add("authentication_private_key");

@@ -66,13 +66,7 @@ var (
 	drivers   = make(map[storepb.Engine]driverFunc)
 )
 
-// DriverConfig is the driver configuration.
-type DriverConfig struct {
-	// The directiory contains db specific utilites, mongosh for MongoDB.
-	DBBinDir string
-}
-
-type driverFunc func(DriverConfig) Driver
+type driverFunc func() Driver
 
 // MigrationType is the type of a migration.
 type MigrationType string
@@ -113,6 +107,8 @@ func (t MigrationType) NeedDump() bool {
 	switch t {
 	case Baseline, Migrate, MigrateSDL:
 		return true
+	case Data:
+		return false
 	default:
 		return false
 	}
@@ -150,6 +146,13 @@ type ConnectionContext struct {
 	DataShare bool
 	// ReadOnly is only supported for Postgres at the moment.
 	ReadOnly bool
+	// MessageBuffer is used for logging messages from the database server.
+	MessageBuffer []*v1pb.QueryResult_Message
+}
+
+// AppendMessage appends a message to the message buffer.
+func (c *ConnectionContext) AppendMessage(message *v1pb.QueryResult_Message) {
+	c.MessageBuffer = append(c.MessageBuffer, message)
 }
 
 // QueryContext is the context to query.
@@ -210,7 +213,7 @@ func Register(dbType storepb.Engine, f driverFunc) {
 }
 
 // Open opens a database specified by its database driver type and connection config without verifying the connection.
-func Open(ctx context.Context, dbType storepb.Engine, driverConfig DriverConfig, connectionConfig ConnectionConfig) (Driver, error) {
+func Open(ctx context.Context, dbType storepb.Engine, connectionConfig ConnectionConfig) (Driver, error) {
 	driversMu.RLock()
 	f, ok := drivers[dbType]
 	driversMu.RUnlock()
@@ -218,7 +221,7 @@ func Open(ctx context.Context, dbType storepb.Engine, driverConfig DriverConfig,
 		return nil, errors.Errorf("db: unknown driver %v", dbType)
 	}
 
-	driver, err := f(driverConfig).Open(ctx, dbType, connectionConfig)
+	driver, err := f().Open(ctx, dbType, connectionConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -234,6 +237,9 @@ type ExecuteOptions struct {
 	// Record the connection id first before executing.
 	SetConnectionID    func(id string)
 	DeleteConnectionID func()
+
+	// The maximum number of retries for lock timeout statements.
+	MaximumRetries int
 }
 
 func (o *ExecuteOptions) LogDatabaseSyncStart() {
@@ -325,6 +331,23 @@ func (o *ExecuteOptions) LogCommandResponse(commandIndexes []int32, affectedRows
 	}
 }
 
+func (o *ExecuteOptions) LogRetryInfo(err error, retryCount int) {
+	if o == nil || o.CreateTaskRunLog == nil {
+		return
+	}
+	err = o.CreateTaskRunLog(time.Now(), &storepb.TaskRunLog{
+		Type: storepb.TaskRunLog_RETRY_INFO,
+		RetryInfo: &storepb.TaskRunLog_RetryInfo{
+			Error:          err.Error(),
+			RetryCount:     int32(retryCount),
+			MaximumRetries: int32(o.MaximumRetries),
+		},
+	})
+	if err != nil {
+		slog.Warn("failed to log retry info", log.BBError(err))
+	}
+}
+
 func (o *ExecuteOptions) LogTransactionControl(t storepb.TaskRunLog_TransactionControl_Type, rerr string) {
 	if o == nil || o.CreateTaskRunLog == nil {
 		return
@@ -344,8 +367,8 @@ func (o *ExecuteOptions) LogTransactionControl(t storepb.TaskRunLog_TransactionC
 // ErrorWithPosition is the error with the position information.
 type ErrorWithPosition struct {
 	Err   error
-	Start *storepb.TaskRunResult_Position
-	End   *storepb.TaskRunResult_Position
+	Start *storepb.Position
+	End   *storepb.Position
 }
 
 func (e *ErrorWithPosition) Error() string {

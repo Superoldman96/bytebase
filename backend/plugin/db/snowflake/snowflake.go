@@ -43,7 +43,7 @@ type Driver struct {
 	databaseName  string
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -73,9 +73,11 @@ func (d *Driver) Open(_ context.Context, dbType storepb.Engine, config db.Connec
 // buildSnowflakeDSN returns the Snowflake Golang DSN and a redacted version of the DSN.
 func buildSnowflakeDSN(config db.ConnectionConfig) (string, string, error) {
 	snowConfig := &snow.Config{
-		Database: fmt.Sprintf(`"%s"`, config.ConnectionContext.DatabaseName),
 		User:     config.DataSource.Username,
 		Password: config.Password,
+	}
+	if config.ConnectionContext.DatabaseName != "" {
+		snowConfig.Database = fmt.Sprintf(`"%s"`, config.ConnectionContext.DatabaseName)
 	}
 	if config.DataSource.GetAuthenticationPrivateKey() != "" {
 		rsaPrivKey, err := decodeRSAPrivateKey(config.DataSource.GetAuthenticationPrivateKey())
@@ -318,7 +320,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

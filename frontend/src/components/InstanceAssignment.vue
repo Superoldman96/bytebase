@@ -13,7 +13,7 @@
               }}
             </div>
             <LearnMoreLink
-              url="https://www.bytebase.com/docs/administration/license?source=console"
+              url="https://docs.bytebase.com/administration/license?source=console"
               class="ml-1 text-sm"
             />
           </div>
@@ -92,7 +92,7 @@ import {
 import { environmentNamePrefix } from "@/store/modules/v1/common";
 import { engineFromJSON } from "@/types/proto/v1/common";
 import { Instance } from "@/types/proto/v1/instance_service";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import { type SearchParams, hasWorkspacePermissionV2 } from "@/utils";
 import LearnMoreLink from "./LearnMoreLink.vue";
 
@@ -244,10 +244,9 @@ const updateAssignment = async () => {
     }
     // activate instance
     instance.activation = true;
-    const composedInstance = await instanceV1Store.updateInstance(
-      Instance.fromPartial(instance),
-      ["activation"]
-    );
+    const composedInstance = await instanceV1Store.updateInstance(instance, [
+      "activation",
+    ]);
     databaseV1Store.updateDatabaseInstance(composedInstance);
   }
 

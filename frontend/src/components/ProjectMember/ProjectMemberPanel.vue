@@ -3,7 +3,7 @@
     <div class="textinfolabel">
       {{ $t("project.members.description") }}
       <a
-        href="https://www.bytebase.com/docs/concepts/roles-and-permissions/?source=console#project-roles"
+        href="https://docs.bytebase.com/concepts/roles-and-permissions/?source=console#project-roles"
         target="_blank"
         class="normal-link inline-flex flex-row items-center"
       >
@@ -11,8 +11,6 @@
         <heroicons-outline:external-link class="w-4 h-4" />
       </a>
     </div>
-
-    <FeatureAttention feature="bb.feature.rbac" />
 
     <NTabs v-model:value="state.selectedTab" type="bar" animated>
       <template #suffix>
@@ -47,6 +45,7 @@
           </p>
         </template>
         <MemberDataTable
+          scope="project"
           :allow-edit="allowEdit"
           :bindings="memberBindings"
           :selected-bindings="state.selectedMembers"
@@ -65,6 +64,7 @@
           </p>
         </template>
         <MemberDataTableByRole
+          scope="project"
           :allow-edit="allowEdit"
           :bindings-by-role="memberBindingsByRole"
           @update-binding="selectMember"
@@ -81,9 +81,9 @@
   />
 
   <ProjectMemberRolePanel
-    v-if="state.editingMember"
+    v-if="pendingEditMember"
     :project="project"
-    :binding="state.editingMember"
+    :binding="pendingEditMember"
     @revoke-binding="revokeMember"
     @close="state.editingMember = undefined"
   />
@@ -92,15 +92,15 @@
 <script lang="ts" setup>
 import { computedAsync } from "@vueuse/core";
 import { cloneDeep } from "lodash-es";
-import { NButton, NTabs, NTabPane, useDialog } from "naive-ui";
+import { NButton, NTabPane, NTabs, useDialog } from "naive-ui";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import MemberDataTable from "@/components/Member/MemberDataTable/index.vue";
 import MemberDataTableByRole from "@/components/Member/MemberDataTableByRole.vue";
 import type { MemberBinding } from "@/components/Member/types";
 import {
-  getMemberBindingsByRole,
   getMemberBindings,
+  getMemberBindingsByRole,
 } from "@/components/Member/utils";
 import {
   extractUserId,
@@ -113,7 +113,6 @@ import {
 import type { ComposedProject } from "@/types";
 import { PRESET_WORKSPACE_ROLES, groupBindingPrefix } from "@/types";
 import { hasProjectPermissionV2 } from "@/utils";
-import { FeatureAttention } from "../FeatureGuard";
 import { SearchBox } from "../v2";
 import AddProjectMembersPanel from "./AddProjectMember/AddProjectMembersPanel.vue";
 import ProjectMemberRolePanel from "./ProjectMemberRolePanel/index.vue";
@@ -125,7 +124,7 @@ interface LocalState {
   selectedMembers: string[];
   showInactiveMemberList: boolean;
   showAddMemberPanel: boolean;
-  editingMember?: MemberBinding;
+  editingMember?: string;
 }
 
 const props = defineProps<{
@@ -179,8 +178,12 @@ const memberBindings = computed(() => {
 });
 
 const selectMember = (binding: MemberBinding) => {
-  state.editingMember = binding;
+  state.editingMember = binding.binding;
 };
+
+const pendingEditMember = computed(() => {
+  return memberBindings.value.find((m) => m.binding === state.editingMember);
+});
 
 const revokeMember = async (binding: MemberBinding) => {
   const policy = cloneDeep(iamPolicy.value);
@@ -189,9 +192,6 @@ const revokeMember = async (binding: MemberBinding) => {
       return member !== binding.binding;
     });
   }
-  policy.bindings = policy.bindings.filter(
-    (binding) => binding.members.length > 0
-  );
   await projectIamPolicyStore.updateProjectIamPolicy(
     projectResourceName.value,
     policy
@@ -235,9 +235,6 @@ const handleRevokeSelectedMembers = () => {
           (member) => !state.selectedMembers.includes(member)
         );
       }
-      policy.bindings = policy.bindings.filter(
-        (binding) => binding.members.length > 0
-      );
       projectIamPolicyStore.updateProjectIamPolicy(
         projectResourceName.value,
         policy

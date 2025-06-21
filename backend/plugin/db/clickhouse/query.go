@@ -14,10 +14,10 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
+	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/wkt"
 	"github.com/shopspring/decimal"
-	"github.com/xtgo/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/plugin/db"
@@ -77,7 +77,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if err != nil {
 				slog.Error("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

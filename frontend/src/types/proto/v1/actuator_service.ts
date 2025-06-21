@@ -26,6 +26,9 @@ export interface ResourcePackage {
   logo: Uint8Array;
 }
 
+export interface SetupSampleRequest {
+}
+
 export interface GetActuatorInfoRequest {
 }
 
@@ -87,6 +90,7 @@ export interface ActuatorInfo {
   userStats: ActuatorInfo_StatUser[];
   activatedInstanceCount: number;
   totalInstanceCount: number;
+  enableSample: boolean;
 }
 
 export interface ActuatorInfo_StatUser {
@@ -192,6 +196,49 @@ export const ResourcePackage: MessageFns<ResourcePackage> = {
   fromPartial(object: DeepPartial<ResourcePackage>): ResourcePackage {
     const message = createBaseResourcePackage();
     message.logo = object.logo ?? new Uint8Array(0);
+    return message;
+  },
+};
+
+function createBaseSetupSampleRequest(): SetupSampleRequest {
+  return {};
+}
+
+export const SetupSampleRequest: MessageFns<SetupSampleRequest> = {
+  encode(_: SetupSampleRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SetupSampleRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSetupSampleRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(_: any): SetupSampleRequest {
+    return {};
+  },
+
+  toJSON(_: SetupSampleRequest): unknown {
+    const obj: any = {};
+    return obj;
+  },
+
+  create(base?: DeepPartial<SetupSampleRequest>): SetupSampleRequest {
+    return SetupSampleRequest.fromPartial(base ?? {});
+  },
+  fromPartial(_: DeepPartial<SetupSampleRequest>): SetupSampleRequest {
+    const message = createBaseSetupSampleRequest();
     return message;
   },
 };
@@ -383,6 +430,7 @@ function createBaseActuatorInfo(): ActuatorInfo {
     userStats: [],
     activatedInstanceCount: 0,
     totalInstanceCount: 0,
+    enableSample: false,
   };
 }
 
@@ -450,6 +498,9 @@ export const ActuatorInfo: MessageFns<ActuatorInfo> = {
     }
     if (message.totalInstanceCount !== 0) {
       writer.uint32(200).int32(message.totalInstanceCount);
+    }
+    if (message.enableSample !== false) {
+      writer.uint32(208).bool(message.enableSample);
     }
     return writer;
   },
@@ -629,6 +680,14 @@ export const ActuatorInfo: MessageFns<ActuatorInfo> = {
           message.totalInstanceCount = reader.int32();
           continue;
         }
+        case 26: {
+          if (tag !== 208) {
+            break;
+          }
+
+          message.enableSample = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -671,6 +730,7 @@ export const ActuatorInfo: MessageFns<ActuatorInfo> = {
         ? globalThis.Number(object.activatedInstanceCount)
         : 0,
       totalInstanceCount: isSet(object.totalInstanceCount) ? globalThis.Number(object.totalInstanceCount) : 0,
+      enableSample: isSet(object.enableSample) ? globalThis.Boolean(object.enableSample) : false,
     };
   },
 
@@ -739,6 +799,9 @@ export const ActuatorInfo: MessageFns<ActuatorInfo> = {
     if (message.totalInstanceCount !== 0) {
       obj.totalInstanceCount = Math.round(message.totalInstanceCount);
     }
+    if (message.enableSample !== false) {
+      obj.enableSample = message.enableSample;
+    }
     return obj;
   },
 
@@ -772,6 +835,7 @@ export const ActuatorInfo: MessageFns<ActuatorInfo> = {
     message.userStats = object.userStats?.map((e) => ActuatorInfo_StatUser.fromPartial(e)) || [];
     message.activatedInstanceCount = object.activatedInstanceCount ?? 0;
     message.totalInstanceCount = object.totalInstanceCount ?? 0;
+    message.enableSample = object.enableSample ?? false;
     return message;
   },
 };
@@ -873,6 +937,7 @@ export const ActuatorServiceDefinition = {
   name: "ActuatorService",
   fullName: "bytebase.v1.ActuatorService",
   methods: {
+    /** Permissions required: None */
     getActuatorInfo: {
       name: "GetActuatorInfo",
       requestType: GetActuatorInfoRequest,
@@ -889,6 +954,7 @@ export const ActuatorServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.settings.set */
     updateActuatorInfo: {
       name: "UpdateActuatorInfo",
       requestType: UpdateActuatorInfoRequest,
@@ -961,6 +1027,54 @@ export const ActuatorServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.create */
+    setupSample: {
+      name: "SetupSample",
+      requestType: SetupSampleRequest,
+      requestStream: false,
+      responseType: Empty,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          800010: [
+            new Uint8Array([18, 98, 98, 46, 112, 114, 111, 106, 101, 99, 116, 115, 46, 99, 114, 101, 97, 116, 101]),
+          ],
+          800016: [new Uint8Array([1])],
+          578365826: [
+            new Uint8Array([
+              26,
+              34,
+              24,
+              47,
+              118,
+              49,
+              47,
+              97,
+              99,
+              116,
+              117,
+              97,
+              116,
+              111,
+              114,
+              58,
+              115,
+              101,
+              116,
+              117,
+              112,
+              83,
+              97,
+              109,
+              112,
+              108,
+              101,
+            ]),
+          ],
+        },
+      },
+    },
+    /** Permissions required: None */
     deleteCache: {
       name: "DeleteCache",
       requestType: DeleteCacheRequest,
@@ -998,6 +1112,7 @@ export const ActuatorServiceDefinition = {
         },
       },
     },
+    /** Permissions required: None */
     getResourcePackage: {
       name: "GetResourcePackage",
       requestType: GetResourcePackageRequest,

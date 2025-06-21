@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -280,7 +278,7 @@ func validateDataSources(metadata *storepb.Instance) error {
 	adminCount := 0
 	for _, dataSource := range metadata.GetDataSources() {
 		if dataSourceMap[dataSource.GetId()] {
-			return status.Errorf(codes.InvalidArgument, "duplicate data source ID %s", dataSource.GetId())
+			return errors.Errorf("duplicate data source ID %s", dataSource.GetId())
 		}
 		dataSourceMap[dataSource.GetId()] = true
 		if dataSource.GetType() == storepb.DataSourceType_ADMIN {
@@ -288,7 +286,7 @@ func validateDataSources(metadata *storepb.Instance) error {
 		}
 	}
 	if adminCount != 1 {
-		return status.Errorf(codes.InvalidArgument, "require exactly one admin data source")
+		return errors.Errorf("require exactly one admin data source")
 	}
 	return nil
 }
@@ -337,11 +335,24 @@ func (s *Store) obfuscateInstance(ctx context.Context, instance *storepb.Instanc
 		ds.AuthenticationPrivateKey = ""
 		ds.ObfuscatedMasterPassword = common.Obfuscate(ds.GetMasterPassword(), secret)
 		ds.MasterPassword = ""
-		if ds.IamExtension != nil {
-			if _, ok := ds.IamExtension.(*storepb.DataSource_ClientSecretCredential_); ok {
-				ds.GetClientSecretCredential().ObfuscatedClientSecret = common.Obfuscate(ds.GetClientSecretCredential().GetClientSecret(), secret)
-				ds.GetClientSecretCredential().ClientSecret = ""
-			}
+
+		if azureCredential := ds.GetAzureCredential(); azureCredential != nil {
+			azureCredential.ObfuscatedClientSecret = common.Obfuscate(azureCredential.ClientSecret, secret)
+			azureCredential.ClientSecret = ""
+		}
+		if awsCredential := ds.GetAwsCredential(); awsCredential != nil {
+			awsCredential.ObfuscatedAccessKeyId = common.Obfuscate(awsCredential.AccessKeyId, secret)
+			awsCredential.AccessKeyId = ""
+
+			awsCredential.ObfuscatedSecretAccessKey = common.Obfuscate(awsCredential.SecretAccessKey, secret)
+			awsCredential.SecretAccessKey = ""
+
+			awsCredential.ObfuscatedSessionToken = common.Obfuscate(awsCredential.SessionToken, secret)
+			awsCredential.SessionToken = ""
+		}
+		if gcpCredential := ds.GetGcpCredential(); gcpCredential != nil {
+			gcpCredential.ObfuscatedContent = common.Obfuscate(gcpCredential.Content, secret)
+			gcpCredential.Content = ""
 		}
 	}
 	return redacted, nil
@@ -402,14 +413,40 @@ func (s *Store) unObfuscateInstance(ctx context.Context, instance *storepb.Insta
 		}
 		ds.MasterPassword = masterPassword
 
-		if ds.IamExtension != nil {
-			if _, ok := ds.IamExtension.(*storepb.DataSource_ClientSecretCredential_); ok {
-				clientSecret, err := common.Unobfuscate(ds.GetClientSecretCredential().GetObfuscatedClientSecret(), secret)
-				if err != nil {
-					return err
-				}
-				ds.GetClientSecretCredential().ClientSecret = clientSecret
+		if azureCredential := ds.GetAzureCredential(); azureCredential != nil {
+			clientSecret, err := common.Unobfuscate(azureCredential.ObfuscatedClientSecret, secret)
+			if err != nil {
+				return err
 			}
+			ds.GetAzureCredential().ClientSecret = clientSecret
+		}
+
+		if awsCredential := ds.GetAwsCredential(); awsCredential != nil {
+			accessKeyID, err := common.Unobfuscate(awsCredential.ObfuscatedAccessKeyId, secret)
+			if err != nil {
+				return err
+			}
+			awsCredential.AccessKeyId = accessKeyID
+
+			secretAccessKey, err := common.Unobfuscate(awsCredential.ObfuscatedSecretAccessKey, secret)
+			if err != nil {
+				return err
+			}
+			awsCredential.SecretAccessKey = secretAccessKey
+
+			sessionToken, err := common.Unobfuscate(awsCredential.ObfuscatedSessionToken, secret)
+			if err != nil {
+				return err
+			}
+			awsCredential.SessionToken = sessionToken
+		}
+
+		if gcpCredential := ds.GetGcpCredential(); gcpCredential != nil {
+			content, err := common.Unobfuscate(gcpCredential.ObfuscatedContent, secret)
+			if err != nil {
+				return err
+			}
+			gcpCredential.Content = content
 		}
 	}
 	return nil

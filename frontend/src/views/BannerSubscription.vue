@@ -30,7 +30,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { SETTING_ROUTE_WORKSPACE_SUBSCRIPTION } from "@/router/dashboard/workspaceSetting";
 import { LICENSE_EXPIRATION_THRESHOLD, useSubscriptionV1Store } from "@/store";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 
 const { t } = useI18n();
 const subscriptionStore = useSubscriptionV1Store();
@@ -68,22 +68,10 @@ const content = computed(() => {
         expireAt: expireAt.value,
       });
     }
-  } else {
-    if (existTrialLicense.value) {
-      return t("banner.trial-expired", {
-        plan: t("subscription.plan.enterprise.title"),
-      });
-    }
   }
   return "";
 });
 
-const {
-  expireAt,
-  isExpired,
-  isTrialing,
-  daysBeforeExpire,
-  existTrialLicense,
-  currentPlan,
-} = storeToRefs(subscriptionStore);
+const { expireAt, isExpired, isTrialing, daysBeforeExpire, currentPlan } =
+  storeToRefs(subscriptionStore);
 </script>

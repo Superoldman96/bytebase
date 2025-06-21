@@ -3,13 +3,14 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	mysql "github.com/bytebase/mysql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
@@ -177,13 +178,13 @@ func (checker *columnRequirementChecker) generateAdviceList() []*storepb.Advice 
 
 		if len(missingColumns) > 0 {
 			// Order it cause the random iteration order in Go, see https://go.dev/blog/maps
-			sort.Strings(missingColumns)
+			slices.Sort(missingColumns)
 			checker.adviceList = append(checker.adviceList, &storepb.Advice{
 				Status:        checker.level,
 				Code:          advisor.NoRequiredColumn.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Table `%s` requires columns: %s", tableName, strings.Join(missingColumns, ", ")),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.line[tableName]),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.line[tableName]),
 			})
 		}
 	}

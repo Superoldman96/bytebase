@@ -4,12 +4,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	"gopkg.in/yaml.v3"
@@ -40,7 +39,7 @@ func TestTiDBWalkThrough(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, storepb.Engine_TIDB, originDatabase, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_TIDB, originDatabase)
 	}
 }
 
@@ -54,7 +53,7 @@ func TestMySQLWalkThrough(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, storepb.Engine_MYSQL, originDatabase, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_MYSQL, originDatabase)
 	}
 }
 
@@ -64,7 +63,7 @@ func TestMySQLWalkThroughForIncomplete(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, storepb.Engine_MYSQL, nil, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_MYSQL, nil)
 	}
 }
 
@@ -118,7 +117,7 @@ func TestPostgreSQLWalkThrough(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		runWalkThroughTest(t, test, storepb.Engine_POSTGRES, originDatabase, false /* record */)
+		runWalkThroughTest(t, test, storepb.Engine_POSTGRES, originDatabase)
 	}
 }
 
@@ -130,7 +129,7 @@ func convertInterfaceSliceToStringSlice(slice []any) []string {
 	return res
 }
 
-func runWalkThroughTest(t *testing.T, file string, engineType storepb.Engine, originDatabase *storepb.DatabaseSchemaMetadata, record bool) {
+func runWalkThroughTest(t *testing.T, file string, engineType storepb.Engine, originDatabase *storepb.DatabaseSchemaMetadata) {
 	tests := []testData{}
 	filepath := filepath.Join("test", file+".yaml")
 	yamlFile, err := os.Open(filepath)
@@ -143,7 +142,7 @@ func runWalkThroughTest(t *testing.T, file string, engineType storepb.Engine, or
 	require.NoError(t, err)
 	sm := sheet.NewManager(nil)
 
-	for i, test := range tests {
+	for _, test := range tests {
 		var state *DatabaseState
 		if originDatabase != nil {
 			state = newDatabaseState(originDatabase, &FinderContext{CheckIntegrity: true, EngineType: engineType, IgnoreCaseSensitive: test.IgnoreCaseSensitive})
@@ -155,48 +154,29 @@ func runWalkThroughTest(t *testing.T, file string, engineType storepb.Engine, or
 		asts, _ := sm.GetASTsForChecks(engineType, test.Statement)
 		err := state.WalkThrough(asts)
 		if err != nil {
-			if record {
-				walkThroughError, ok := err.(*WalkThroughError)
-				require.True(t, ok)
-				tests[i].Err = walkThroughError
-				tests[i].Want = ""
-			} else {
-				err, yes := err.(*WalkThroughError)
+			err, yes := err.(*WalkThroughError)
+			require.True(t, yes)
+			if err.Payload != nil {
+				actualPayloadText, yes := err.Payload.([]string)
 				require.True(t, yes)
-				if err.Payload != nil {
-					actualPayloadText, yes := err.Payload.([]string)
-					require.True(t, yes)
-					expectedPayloadText := convertInterfaceSliceToStringSlice(test.Err.Payload.([]any))
-					err.Payload = nil
-					test.Err.Payload = nil
-					require.Equal(t, test.Err, err)
-					require.Equal(t, expectedPayloadText, actualPayloadText)
-				} else {
-					require.Equal(t, test.Err, err)
-				}
+				expectedPayloadText := convertInterfaceSliceToStringSlice(test.Err.Payload.([]any))
+				err.Payload = nil
+				test.Err.Payload = nil
+				require.Equal(t, test.Err, err)
+				require.Equal(t, expectedPayloadText, actualPayloadText)
+			} else {
+				require.Equal(t, test.Err, err)
 			}
 			continue
 		}
 		require.NoError(t, err, test.Statement)
 
-		if record {
-			tests[i].Want = protojson.Format(state.convertToDatabaseMetadata())
-			tests[i].Err = nil
-		} else {
-			want := &storepb.DatabaseSchemaMetadata{}
-			err = common.ProtojsonUnmarshaler.Unmarshal([]byte(test.Want), want)
-			require.NoError(t, err)
-			result := state.convertToDatabaseMetadata()
-			diff := cmp.Diff(want, result, protocmp.Transform())
-			require.Empty(t, diff)
-		}
-	}
-
-	if record {
-		byteValue, err := yaml.Marshal(tests)
+		want := &storepb.DatabaseSchemaMetadata{}
+		err = common.ProtojsonUnmarshaler.Unmarshal([]byte(test.Want), want)
 		require.NoError(t, err)
-		err = os.WriteFile(filepath, byteValue, 0644)
-		require.NoError(t, err)
+		result := state.convertToDatabaseMetadata()
+		diff := cmp.Diff(want, result, protocmp.Transform())
+		require.Empty(t, diff)
 	}
 }
 
@@ -232,8 +212,13 @@ func (d *DatabaseState) convertToSchemaMetadataList() []*storepb.SchemaMetadata 
 		result = append(result, schemaMeta)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	slices.SortFunc(result, func(x, y *storepb.SchemaMetadata) int {
+		if x.Name < y.Name {
+			return -1
+		} else if x.Name > y.Name {
+			return 1
+		}
+		return 0
 	})
 
 	return result
@@ -266,8 +251,13 @@ func (s *SchemaState) convertToTableMetadataList() []*storepb.TableMetadata {
 		result = append(result, tableMeta)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	slices.SortFunc(result, func(x, y *storepb.TableMetadata) int {
+		if x.Name < y.Name {
+			return -1
+		} else if x.Name > y.Name {
+			return 1
+		}
+		return 0
 	})
 
 	return result
@@ -300,8 +290,13 @@ func (t *TableState) convertToIndexMetadataList() []*storepb.IndexMetadata {
 		result = append(result, indexMeta)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	slices.SortFunc(result, func(x, y *storepb.IndexMetadata) int {
+		if x.Name < y.Name {
+			return -1
+		} else if x.Name > y.Name {
+			return 1
+		}
+		return 0
 	})
 
 	return result
@@ -341,11 +336,19 @@ func (t *TableState) convertToColumnMetadataList() []*storepb.ColumnMetadata {
 		result = append(result, columnMeta)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Position != result[j].Position {
-			return result[i].Position < result[j].Position
+	slices.SortFunc(result, func(x, y *storepb.ColumnMetadata) int {
+		if x.Position != y.Position {
+			if x.Position < y.Position {
+				return -1
+			}
+			return 1
 		}
-		return result[i].Name < result[j].Name
+		if x.Name < y.Name {
+			return -1
+		} else if x.Name > y.Name {
+			return 1
+		}
+		return 0
 	})
 
 	return result

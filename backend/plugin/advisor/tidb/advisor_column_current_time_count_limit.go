@@ -5,13 +5,14 @@ package tidb
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
@@ -81,8 +82,14 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 	for _, table := range checker.tableSet {
 		tableList = append(tableList, table)
 	}
-	sort.Slice(tableList, func(i, j int) bool {
-		return tableList[i].line < tableList[j].line
+	slices.SortFunc(tableList, func(i, j tableData) int {
+		if i.line < j.line {
+			return -1
+		}
+		if i.line > j.line {
+			return 1
+		}
+		return 0
 	})
 	for _, table := range tableList {
 		if table.defaultCurrentTimeCount > maxDefaultCurrentTimeColumCount {
@@ -91,7 +98,7 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 				Code:          advisor.DefaultCurrentTimeColumnCountExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Table `%s` has %d DEFAULT CURRENT_TIMESTAMP() columns. The count greater than %d.", table.tableName, table.defaultCurrentTimeCount, maxDefaultCurrentTimeColumCount),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.line),
+				StartPosition: common.ConvertANTLRLineToPosition(table.line),
 			})
 		}
 		if table.onUpdateCurrentTimeCount > maxOnUpdateCurrentTimeColumnCount {
@@ -100,7 +107,7 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 				Code:          advisor.OnUpdateCurrentTimeColumnCountExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Table `%s` has %d ON UPDATE CURRENT_TIMESTAMP() columns. The count greater than %d.", table.tableName, table.onUpdateCurrentTimeCount, maxOnUpdateCurrentTimeColumnCount),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.line),
+				StartPosition: common.ConvertANTLRLineToPosition(table.line),
 			})
 		}
 	}

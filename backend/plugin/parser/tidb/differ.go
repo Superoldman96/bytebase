@@ -6,7 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -453,51 +453,49 @@ func (diff *diffNode) diffTableOption(oldTable, newTable *tableInfo) {
 
 func (diff *diffNode) deparse() (string, error) {
 	var buf bytes.Buffer
-	flag := format.DefaultRestoreFlags | format.RestoreStringWithoutCharset | format.RestorePrettyFormat
-
-	if err := sortAndWriteNodeList(&buf, diff.dropForeignKeyList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropForeignKeyList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.dropConstraintExceptFkList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropConstraintExceptFkList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.dropIndexList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropIndexList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.dropViewList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropViewList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.dropTableList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropTableList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.createTableList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.createTableList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.alterTableOptionList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.alterTableOptionList); err != nil {
 		return "", err
 	}
-	if err := writeNodeList(&buf, diff.addAndModifyColumnList, flag); err != nil {
+	if err := writeNodeList(&buf, diff.addAndModifyColumnList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.dropColumnList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.dropColumnList); err != nil {
 		return "", err
 	}
 	if err := sortAndWriteAlterTablePartitionedByList(&buf, diff.alterTablePartitionedByList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.createTempViewList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.createTempViewList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.createIndexList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.createIndexList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.addConstraintExceptFkList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.addConstraintExceptFkList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.addForeignKeyList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.addForeignKeyList); err != nil {
 		return "", err
 	}
-	if err := sortAndWriteNodeList(&buf, diff.createViewList, flag); err != nil {
+	if err := sortAndWriteNodeList(&buf, diff.createViewList); err != nil {
 		return "", err
 	}
 
@@ -510,7 +508,7 @@ func sortAndWriteAlterTablePartitionedByList(buf io.Writer, partitions map[strin
 	for tableName := range partitions {
 		tableNames = append(tableNames, tableName)
 	}
-	sort.Strings(tableNames)
+	slices.Sort(tableNames)
 	for _, tableName := range tableNames {
 		var body strings.Builder
 		if _, err := body.WriteString(fmt.Sprintf("ALTER TABLE `%s` PARTITION BY ", tableName)); err != nil {
@@ -734,8 +732,14 @@ func (p *partitionState) toString(buf io.StringWriter) error {
 		for _, partition := range p.partitions {
 			sortedPartitions = append(sortedPartitions, partition)
 		}
-		sort.Slice(sortedPartitions, func(i, j int) bool {
-			return sortedPartitions[i].id < sortedPartitions[j].id
+		slices.SortFunc(sortedPartitions, func(a, b *partitionDefinition) int {
+			if a.id < b.id {
+				return -1
+			}
+			if a.id > b.id {
+				return 1
+			}
+			return 0
 		})
 		if _, err := buf.WriteString("\n("); err != nil {
 			return err
@@ -776,8 +780,14 @@ func (p *partitionState) toString(buf io.StringWriter) error {
 				for _, subPartition := range partition.subpartitions {
 					sortedSubpartitions = append(sortedSubpartitions, subPartition)
 				}
-				sort.Slice(sortedSubpartitions, func(i, j int) bool {
-					return sortedSubpartitions[i].id < sortedSubpartitions[j].id
+				slices.SortFunc(sortedSubpartitions, func(a, b *partitionDefinition) int {
+					if a.id < b.id {
+						return -1
+					}
+					if a.id > b.id {
+						return 1
+					}
+					return 0
 				})
 				for j, subPartition := range sortedSubpartitions {
 					if _, err := buf.WriteString(fmt.Sprintf("SUBPARTITION %s", subPartition.name)); err != nil {
@@ -940,7 +950,8 @@ func getID(node ast.Node) string {
 	return ""
 }
 
-func writeNodeList(w format.RestoreWriter, ns []ast.Node, flags format.RestoreFlags) error {
+func writeNodeList(w format.RestoreWriter, ns []ast.Node) error {
+	flags := format.DefaultRestoreFlags | format.RestoreStringWithoutCharset | format.RestorePrettyFormat
 	for _, n := range ns {
 		if err := writeNodeStatement(w, n, flags, "\n"); err != nil {
 			return err
@@ -949,9 +960,18 @@ func writeNodeList(w format.RestoreWriter, ns []ast.Node, flags format.RestoreFl
 	return nil
 }
 
-func sortAndWriteNodeList(w format.RestoreWriter, ns []ast.Node, flags format.RestoreFlags) error {
-	sort.Slice(ns, func(i, j int) bool {
-		return getID(ns[i]) < getID(ns[j])
+func sortAndWriteNodeList(w format.RestoreWriter, ns []ast.Node) error {
+	flags := format.DefaultRestoreFlags | format.RestoreStringWithoutCharset | format.RestorePrettyFormat
+	slices.SortFunc(ns, func(a, b ast.Node) int {
+		idA := getID(a)
+		idB := getID(b)
+		if idA < idB {
+			return -1
+		}
+		if idA > idB {
+			return 1
+		}
+		return 0
 	})
 
 	for _, n := range ns {
@@ -1561,8 +1581,14 @@ func normalizeColumnOptions(options []*ast.ColumnOption) (*ast.ColumnOption, []*
 		}
 		retOptions = append(retOptions, option)
 	}
-	sort.Slice(retOptions, func(i, j int) bool {
-		return retOptions[i].Tp < retOptions[j].Tp
+	slices.SortFunc(retOptions, func(a, b *ast.ColumnOption) int {
+		if a.Tp < b.Tp {
+			return -1
+		}
+		if a.Tp > b.Tp {
+			return 1
+		}
+		return 0
 	})
 	return collateOption, retOptions
 }

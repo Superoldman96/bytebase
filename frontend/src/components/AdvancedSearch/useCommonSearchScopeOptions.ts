@@ -8,6 +8,7 @@ import {
 } from "@/components/v2";
 import { t } from "@/plugins/i18n";
 import {
+  environmentNamePrefix,
   useEnvironmentV1List,
   useEnvironmentV1Store,
   useInstanceV1Store,
@@ -23,6 +24,7 @@ import {
   extractProjectResourceName,
   supportedEngineV1List,
   getDefaultPagination,
+  hasWorkspacePermissionV2,
 } from "@/utils";
 import type { ScopeOption, ValueOption } from "./types";
 
@@ -139,8 +141,8 @@ export const useCommonSearchScopeOptions = (
         description: t("issue.advanced-search.scope.environment.description"),
         options: environmentList.value.map((env) => {
           return {
-            value: extractEnvironmentResourceName(env.name),
-            keywords: [env.name, env.title],
+            value: env.id,
+            keywords: [`${environmentNamePrefix}${env.id}`, env.title],
             render: () =>
               h(EnvironmentV1Name, {
                 environment: env,
@@ -170,15 +172,40 @@ export const useCommonSearchScopeOptions = (
         }),
         allowMultiple: true,
       }),
+      drifted: () => ({
+        id: "drifted",
+        title: t("database.drifted.self"),
+        description: t("database.drifted.schema-drift-detected.self"),
+        options: [
+          {
+            value: "true",
+            keywords: ["true"],
+            render: () => "TRUE",
+          },
+          {
+            value: "false",
+            keywords: ["false"],
+            render: () => "FALSE",
+          },
+        ],
+        allowMultiple: false,
+      }),
     } as Record<SearchScopeId, () => ScopeOption>;
 
     const scopes: ScopeOption[] = [];
-    unref(supportOptionIdList).forEach((id) => {
+    for (const id of unref(supportOptionIdList)) {
+      // TODO(ed): optimize it.
+      if (id === "instance") {
+        if (!hasWorkspacePermissionV2("bb.instances.list")) {
+          continue;
+        }
+      }
       const create = scopeCreators[id];
       if (create) {
         scopes.push(create());
       }
-    });
+    }
+
     return scopes;
   });
 

@@ -399,11 +399,20 @@ func (x *DeleteWorksheetRequest) GetName() string {
 type SearchWorksheetsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// To filter the search result.
-	// Format: only support the following spec for now:
-	// - `creator = users/{email}`, `creator != users/{email}`
-	// - `starred = true`, `starred = false`.
-	// - `visibility = "VISIBILITY_PRIVATE"`, `visibility = "VISIBILITY_PROJECT_READ | VISIBILITY_PROJECT_WRITE"`, etc.
-	// Not support empty filter for now.
+	// The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+	//
+	// Supported filter:
+	// - creator: the worksheet creator in "users/{email}" format, support "==" and "!=" operator.
+	// - starred: should be "true" or "false", filter starred/unstarred sheets, support "==" operator.
+	// - visibility: check Visibility enum in the Worksheet message for values, support "==" and "in [xx]" operator.
+	//
+	// For example:
+	// creator == "users/{email}"
+	// creator != "users/{email}"
+	// starred == true
+	// starred == false
+	// visibility in ["VISIBILITY_PRIVATE", "VISIBILITY_PROJECT_READ", "VISIBILITY_PROJECT_WRITE"]
+	// visibility == "VISIBILITY_PRIVATE"
 	Filter string `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
 	// Not used.
 	// The maximum number of worksheets to return. The service may return fewer than
@@ -731,7 +740,7 @@ const file_v1_worksheet_service_proto_rawDesc = "" +
 	"\x10SearchWorksheets\x12$.bytebase.v1.SearchWorksheetsRequest\x1a%.bytebase.v1.SearchWorksheetsResponse\"$\x90\xea0\x02\x82\xd3\xe4\x93\x02\x1a:\x01*\"\x15/v1/worksheets:search\x12\xa0\x01\n" +
 	"\x0fUpdateWorksheet\x12#.bytebase.v1.UpdateWorksheetRequest\x1a\x16.bytebase.v1.Worksheet\"P\xdaA\x15worksheet,update_mask\x90\xea0\x02\x82\xd3\xe4\x93\x02.:\tworksheet2!/v1/{worksheet.name=worksheets/*}\x12\xca\x01\n" +
 	"\x18UpdateWorksheetOrganizer\x12,.bytebase.v1.UpdateWorksheetOrganizerRequest\x1a\x1f.bytebase.v1.WorksheetOrganizer\"_\xdaA\x15organizer,update_mask\x90\xea0\x02\x82\xd3\xe4\x93\x02=:\torganizer20/v1/{organizer.worksheet=worksheets/*}/organizer\x12z\n" +
-	"\x0fDeleteWorksheet\x12#.bytebase.v1.DeleteWorksheetRequest\x1a\x16.google.protobuf.Empty\"*\xdaA\x04name\x90\xea0\x02\x82\xd3\xe4\x93\x02\x19*\x17/v1/{name=worksheets/*}B\x11Z\x0fgenerated-go/v1b\x06proto3"
+	"\x0fDeleteWorksheet\x12#.bytebase.v1.DeleteWorksheetRequest\x1a\x16.google.protobuf.Empty\"*\xdaA\x04name\x90\xea0\x02\x82\xd3\xe4\x93\x02\x19*\x17/v1/{name=worksheets/*}B4Z2github.com/bytebase/bytebase/proto/generated-go/v1b\x06proto3"
 
 var (
 	file_v1_worksheet_service_proto_rawDescOnce sync.Once

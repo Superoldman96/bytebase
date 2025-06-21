@@ -50,13 +50,6 @@
       </div>
     </div>
   </div>
-
-  <FeatureModal
-    feature="bb.feature.sync-schema-all-versions"
-    :open="state.showFeatureModal"
-    :instance="database?.instanceResource"
-    @cancel="state.showFeatureModal = false"
-  />
 </template>
 
 <script lang="tsx" setup>
@@ -65,12 +58,11 @@ import type { SelectOption } from "naive-ui";
 import { NSelect, NTag } from "naive-ui";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { EnvironmentSelect, DatabaseSelect } from "@/components/v2";
+import { DatabaseSelect, EnvironmentSelect } from "@/components/v2";
 import {
-  useDatabaseV1Store,
-  useSubscriptionV1Store,
-  useDBSchemaV1Store,
   useChangelogStore,
+  useDBSchemaV1Store,
+  useDatabaseV1Store,
 } from "@/store";
 import {
   UNKNOWN_ID,
@@ -80,6 +72,7 @@ import {
 } from "@/types";
 import type { Changelog } from "@/types/proto/v1/database_service";
 import {
+  Changelog_Status,
   Changelog_Type,
   changelog_TypeToJSON,
 } from "@/types/proto/v1/database_service";
@@ -88,8 +81,6 @@ import {
   isValidChangelogName,
   mockLatestChangelog,
 } from "@/utils/v1/changelog";
-import { FeatureModal } from "../FeatureGuard";
-import FeatureBadge from "../FeatureGuard/FeatureBadge.vue";
 import HumanizeDate from "../misc/HumanizeDate.vue";
 import { ALLOWED_ENGINES, type ChangelogSourceSchema } from "./types";
 
@@ -125,20 +116,7 @@ const databaseStore = useDatabaseV1Store();
 const dbSchemaStore = useDBSchemaV1Store();
 const changelogStore = useChangelogStore();
 
-const database = computed(() => {
-  return isValidDatabaseName(state.databaseName)
-    ? databaseStore.getDatabaseByName(state.databaseName)
-    : undefined;
-});
-
 const isPreparingSchemaVersionOptions = ref(false);
-
-const hasSyncSchemaFeature = computed(() => {
-  return useSubscriptionV1Store().hasInstanceFeature(
-    "bb.feature.sync-schema-all-versions",
-    database.value?.instanceResource
-  );
-});
 
 const handleEnvironmentSelect = async (name: string | undefined) => {
   if (name !== state.environmentName) {
@@ -166,7 +144,11 @@ const handleDatabaseSelect = async (name: string | undefined) => {
 const databaseChangelogList = (databaseName: string) => {
   return changelogStore
     .changelogListByDatabase(databaseName)
-    .filter((changelog) => ALLOWED_CHANGELOG_TYPES.includes(changelog.type));
+    .filter(
+      (changelog) =>
+        ALLOWED_CHANGELOG_TYPES.includes(changelog.type) &&
+        changelog.status === Changelog_Status.DONE
+    );
 };
 
 const schemaVersionOptions = computed(() => {
@@ -206,15 +188,8 @@ const renderSchemaVersionLabel = (option: SelectOption) => {
     return "Latest version";
   }
 
-  const index = option.index as number;
   return (
     <div class="flex flex-row justify-start items-center truncate gap-1">
-      {index > 0 && (
-        <FeatureBadge
-          feature="bb.feature.sync-schema-all-versions"
-          instance={database.value?.instanceResource}
-        />
-      )}
       <HumanizeDate
         class="text-control-light"
         date={getDateForPbTimestamp(changelog.createTime)}
@@ -265,13 +240,6 @@ const fallbackSchemaVersionOption = (value: string): SelectOption => {
 
 const handleSchemaVersionSelect = async (_: string, option: SelectOption) => {
   const changelog = option.changelog as Changelog;
-  const index = databaseChangelogList(state.databaseName as string).findIndex(
-    (c) => c.name === changelog.name
-  );
-  if (index > 0 && !hasSyncSchemaFeature.value) {
-    state.showFeatureModal = true;
-    return;
-  }
   state.changelogName = changelog.name;
 };
 

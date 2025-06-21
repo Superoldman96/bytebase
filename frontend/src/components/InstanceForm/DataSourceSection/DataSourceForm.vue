@@ -180,58 +180,159 @@
           "
         />
       </div>
-      <div v-else class="mt-4 sm:col-span-3 sm:col-start-1">
+      <div
+        v-if="
+          dataSource.authenticationType ===
+            DataSource_AuthenticationType.AZURE_IAM ||
+          dataSource.authenticationType ===
+            DataSource_AuthenticationType.AWS_RDS_IAM ||
+          dataSource.authenticationType ===
+            DataSource_AuthenticationType.GOOGLE_CLOUD_SQL_IAM
+        "
+        class="mt-4 sm:col-span-3 sm:col-start-1"
+      >
         <label for="credential-source" class="textlabel block">
           {{ $t("instance.iam-extension.credential-source") }}
         </label>
         <NRadioGroup
-          :value="state.credentialSource"
+          v-model:value="state.credentialSource"
           class="textlabel"
           :disabled="!allowEdit"
-          @update:value="onSelectIAMExtension"
         >
-          <template
+          <NRadio
             v-for="option in getIAMExtensionOptions(
               DataSource_AuthenticationType.AZURE_IAM
             )"
+            :value="option.value"
             :key="option.value"
-          >
-            <NRadio :value="option.value" :label="option.label" />
-          </template>
+            :label="option.label"
+          />
         </NRadioGroup>
+        <template v-if="state.credentialSource === 'specific-credential'">
+          <div
+            v-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.AZURE_IAM
+            "
+            class="mt-4 sm:col-span-3 sm:col-start-1"
+          >
+            <label for="tenant-id" class="textlabel block mt-2">
+              {{ $t("instance.iam-extension.tenant-id") }}
+            </label>
+            <NInput
+              v-model:value="dataSource.azureCredential!.tenantId"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="''"
+            />
+            <label for="client-id" class="textlabel block mt-2">
+              {{ $t("instance.iam-extension.client-id") }}
+            </label>
+            <NInput
+              v-model:value="dataSource.azureCredential!.clientId"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="''"
+            />
+            <label for="client-secret" class="textlabel block mt-2">
+              {{ $t("instance.iam-extension.client-secret") }}
+            </label>
+            <NInput
+              type="password"
+              show-password-on="click"
+              v-model:value="dataSource.azureCredential!.clientSecret"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="$t('instance.type-or-paste-credentials-write-only')"
+            />
+          </div>
+          <div
+            v-else-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.GOOGLE_CLOUD_SQL_IAM
+            "
+            class="mt-4 sm:col-span-3 sm:col-start-1"
+          >
+            <label class="textlabel block mt-2"> Credential File Content</label>
+            <NInput
+              v-model:value="dataSource.gcpCredential!.content"
+              type="textarea"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="$t('instance.type-or-paste-credentials-write-only')"
+            />
+          </div>
+          <div
+            v-else-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.AWS_RDS_IAM
+            "
+            class="mt-4 sm:col-span-3 sm:col-start-1"
+          >
+            <label class="textlabel block mt-2"> Access Key ID </label>
+            <NInput
+              v-model:value="dataSource.awsCredential!.accessKeyId"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="$t('common.write-only')"
+            />
+            <label class="textlabel block mt-2"> Secret Access Key </label>
+            <NInput
+              v-model:value="dataSource.awsCredential!.secretAccessKey"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="$t('common.write-only')"
+            />
+            <label class="textlabel block mt-2"> Session Token </label>
+            <NInput
+              v-model:value="dataSource.awsCredential!.sessionToken"
+              class="mt-2 w-full"
+              :disabled="!allowEdit"
+              :placeholder="$t('common.write-only')"
+            />
+          </div>
+        </template>
         <div
-          v-if="state.credentialSource === 'client-secret-credential'"
-          class="mt-4 sm:col-span-3 sm:col-start-1"
+          v-else-if="state.credentialSource === 'default'"
+          class="mt-1 sm:col-span-3 sm:col-start-1 textinfolabel !leading-6 credential"
         >
-          <label for="tenant-id" class="textlabel block mt-2">
-            {{ $t("instance.iam-extension.tenant-id") }}
-          </label>
-          <NInput
-            v-model:value="dataSource.clientSecretCredential!.tenantId"
-            class="mt-2 w-full"
-            :disabled="!allowEdit"
-            :placeholder="''"
-          />
-          <label for="client-id" class="textlabel block mt-2">
-            {{ $t("instance.iam-extension.client-id") }}
-          </label>
-          <NInput
-            v-model:value="dataSource.clientSecretCredential!.clientId"
-            class="mt-2 w-full"
-            :disabled="!allowEdit"
-            :placeholder="''"
-          />
-          <label for="client-secret" class="textlabel block mt-2">
-            {{ $t("instance.iam-extension.client-secret") }}
-          </label>
-          <NInput
-            type="password"
-            show-password-on="click"
-            v-model:value="dataSource.clientSecretCredential!.clientSecret"
-            class="mt-2 w-full"
-            :disabled="!allowEdit"
-            :placeholder="$t('instance.type-or-paste-credentials-write-only')"
-          />
+          <span
+            v-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.AZURE_IAM
+            "
+          >
+            Bytebase will read the credential from environment variables
+            <code class="code">AZURE_CLIENT_ID</code>/
+            <code class="code">AZURE_TENANT_ID</code>/
+            <code class="code">AZURE_CLIENT_SECRET</code>
+            or
+            <code class="code">AZURE_CLIENT_CERTIFICATE_PATH</code>, and
+            fallback to attached users in Azure VM
+          </span>
+          <span
+            v-else-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.AWS_RDS_IAM
+            "
+          >
+            Bytebase will read the credential from environment variables
+            <code class="code">AWS_ACCESS_KEY_ID</code>/
+            <code class="code">AWS_SECRET_ACCESS_KEY</code>/
+            <code class="code">AWS_SESSION_TOKEN</code>, fallback to shared
+            credentials file <code class="code">~/.aws/credentials</code> or IAM
+            role in AWS ECS
+          </span>
+          <span
+            v-else-if="
+              dataSource.authenticationType ===
+              DataSource_AuthenticationType.GOOGLE_CLOUD_SQL_IAM
+            "
+          >
+            Bytebase will read the credential from environment variable
+            <code class="code">GOOGLE_APPLICATION_CREDENTIALS</code>, fallback
+            to the attached service account in GCP GCE
+          </span>
         </div>
       </div>
       <div
@@ -276,7 +377,9 @@
             <NRadio :value="DataSourceExternalSecret_SecretType.VAULT_KV_V2">
               <div class="flex items-center gap-x-1">
                 {{ $t("instance.password-type.external-secret-vault") }}
-                <FeatureBadge feature="bb.feature.external-secret-manager" />
+                <FeatureBadge
+                  :feature="PlanFeature.FEATURE_EXTERNAL_SECRET_MANAGER"
+                />
               </div>
             </NRadio>
             <NRadio
@@ -284,7 +387,9 @@
             >
               <div class="flex items-center gap-x-1">
                 {{ $t("instance.password-type.external-secret-aws") }}
-                <FeatureBadge feature="bb.feature.external-secret-manager" />
+                <FeatureBadge
+                  :feature="PlanFeature.FEATURE_EXTERNAL_SECRET_MANAGER"
+                />
               </div>
             </NRadio>
             <NRadio
@@ -292,12 +397,14 @@
             >
               <div class="flex items-center gap-x-1">
                 {{ $t("instance.password-type.external-secret-gcp") }}
-                <FeatureBadge feature="bb.feature.external-secret-manager" />
+                <FeatureBadge
+                  :feature="PlanFeature.FEATURE_EXTERNAL_SECRET_MANAGER"
+                />
               </div>
             </NRadio>
           </NRadioGroup>
           <LearnMoreLink
-            url="http://www.bytebase.com/docs/get-started/instance/#use-external-secret-manager"
+            url="http://docs.bytebase.com/get-started/instance/#use-external-secret-manager"
             class="text-sm"
           />
         </div>
@@ -315,10 +422,12 @@
               {{ $t("instance.password-type.password-tip") }}
             </div>
             <LearnMoreLink
-              url="https://www.bytebase.com/docs/get-started/instance/#use-secret-manager?source=console"
+              url="https://docs.bytebase.com/get-started/instance/#use-secret-manager?source=console"
               class="ml-1 text-sm"
             />
-            <FeatureBadge feature="bb.feature.external-secret-manager" />
+            <FeatureBadge
+              :feature="PlanFeature.FEATURE_EXTERNAL_SECRET_MANAGER"
+            />
           </div>
           <div class="mt-2">
             <NCheckbox
@@ -826,10 +935,7 @@ MIIEvQ...
     />
   </div>
 
-  <div 
-    v-if="hasExtraParameters"
-    class="mt-4 sm:col-span-3 sm:col-start-1"
-  >
+  <div v-if="hasExtraParameters" class="mt-4 sm:col-span-3 sm:col-start-1">
     <div class="flex flex-row items-center justify-between">
       <label class="textlabel block">
         {{ $t("data-source.extra-params.self") }}
@@ -838,9 +944,12 @@ MIIEvQ...
     <div class="text-gray-400 text-sm mt-1 mb-2">
       {{ $t("data-source.extra-params.description") }}
     </div>
-    
+
     <!-- Add parameter form -->
-    <div v-if="allowEdit" class="flex mt-2 mb-4 space-x-2 bg-gray-50 p-3 rounded-md">
+    <div
+      v-if="allowEdit"
+      class="flex mt-2 mb-4 space-x-2 bg-gray-50 p-3 rounded-md"
+    >
       <NInput
         v-model:value="newParam.key"
         class="w-full"
@@ -851,8 +960,8 @@ MIIEvQ...
         class="w-full"
         :placeholder="$t('instance.parameter-value-placeholder')"
       />
-      <NButton 
-        type="primary" 
+      <NButton
+        type="primary"
         ghost
         size="small"
         :disabled="!newParam.key.trim()"
@@ -861,11 +970,11 @@ MIIEvQ...
         Add
       </NButton>
     </div>
-    
+
     <!-- Existing parameters -->
-    <div 
-      v-for="(param, index) in extraConnectionParamsList" 
-      :key="param.key" 
+    <div
+      v-for="(param, index) in extraConnectionParamsList"
+      :key="param.key"
       class="flex mt-2 space-x-2"
     >
       <NInput
@@ -882,24 +991,28 @@ MIIEvQ...
         placeholder="Parameter value"
         @update:value="(v) => updateExtraConnectionParamValue(index, v)"
       />
-      <NButton 
+      <NButton
         v-if="allowEdit"
-        type="error" 
+        type="error"
         secondary
-        size="small" 
+        size="small"
         @click="removeExtraConnectionParam(index)"
         title="Remove parameter"
       >
         Remove
       </NButton>
     </div>
-    
+
     <!-- Show a message when there are no parameters -->
-    <div 
-      v-if="extraConnectionParamsList.length === 0" 
+    <div
+      v-if="extraConnectionParamsList.length === 0"
       class="text-gray-500 text-sm mt-2 italic"
     >
-      {{ allowEdit ? $t('instance.no-params-yet-add-above') : $t('instance.no-extra-params-configured') }}
+      {{
+        allowEdit
+          ? $t("instance.no-params-yet-add-above")
+          : $t("instance.no-extra-params-configured")
+      }}
     </div>
   </div>
 
@@ -963,75 +1076,54 @@ MIIEvQ...
       <label for="ssh" class="textlabel block">
         {{ $t("data-source.ssh-connection") }}
       </label>
-      <FeatureBadge
-        feature="bb.feature.instance-ssh-connection"
-        :instance="instance"
-      />
     </div>
-    <template v-if="dataSource.pendingCreate">
-      <SshConnectionForm
-        :value="dataSource"
-        :instance="instance"
-        :disabled="!allowEdit"
-        @change="handleSSHChange"
-      />
-    </template>
-    <template v-else>
-      <template v-if="dataSource.updateSsh">
-        <SshConnectionForm
-          :value="dataSource"
-          :instance="instance"
-          :disabled="!allowEdit"
-          @change="handleSSHChange"
-        />
-      </template>
-      <template v-else>
-        <NButton
-          class="!mt-2"
-          :disabled="!allowEdit"
-          @click.prevent="handleEditSSH"
-        >
-          {{ $t("common.edit") }} - {{ $t("common.write-only") }}
-        </NButton>
-      </template>
-    </template>
+    <SshConnectionForm
+      :value="dataSource"
+      :instance="instance"
+      :disabled="!allowEdit"
+      @change="handleSSHChange"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
+/* eslint-disable vue/no-mutating-props */
 import {
   NButton,
-  NRadioGroup,
-  NRadio,
   NCheckbox,
   NInput,
+  NRadio,
+  NRadioGroup,
+  NSwitch,
   NUpload,
   NUploadDragger,
   type UploadFileInfo,
-  NSwitch,
 } from "naive-ui";
-import { watch, reactive, computed } from "vue";
+import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { BBTextField } from "@/bbkit";
 import { FeatureBadge } from "@/components/FeatureGuard";
 import LearnMoreLink from "@/components/LearnMoreLink.vue";
 import DroppableTextarea from "@/components/misc/DroppableTextarea.vue";
 import type { DataSourceOptions } from "@/types/dataSource";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { Engine } from "@/types/proto/v1/common";
 import type { DataSource } from "@/types/proto/v1/instance_service";
 import {
-  SASLConfig,
-  KerberosConfig,
-  DataSourceType,
   DataSourceExternalSecret,
-  DataSourceExternalSecret_AuthType,
-  DataSourceExternalSecret_SecretType,
   DataSourceExternalSecret_AppRoleAuthOption,
   DataSourceExternalSecret_AppRoleAuthOption_SecretType,
+  DataSourceExternalSecret_AuthType,
+  DataSourceExternalSecret_SecretType,
+  DataSourceType,
   DataSource_AuthenticationType,
-  DataSource_ClientSecretCredential,
+  DataSource_AzureCredential,
+  DataSource_AWSCredential,
+  DataSource_GCPCredential,
+  DataSource_RedisType,
+  KerberosConfig,
+  SASLConfig,
 } from "@/types/proto/v1/instance_service";
-import { DataSource_RedisType } from "@/types/proto/v1/instance_service";
 import { onlyAllowNumber } from "@/utils";
 import type { EditDataSource } from "../common";
 import { useInstanceFormContext } from "../context";
@@ -1041,14 +1133,16 @@ import OracleSIDAndServiceNameInput from "./OracleSIDAndServiceNameInput.vue";
 import SshConnectionForm from "./SshConnectionForm.vue";
 import SslCertificateFormV1 from "./SslCertificateFormV1.vue";
 
+type credentialSource = "default" | "specific-credential";
+
 interface LocalState {
   passwordType: DataSourceExternalSecret_SecretType;
-  credentialSource: string;
+  credentialSource: credentialSource;
 }
 
 interface IAMExtensionOptions {
   label: string;
-  value: string;
+  value: credentialSource;
 }
 
 interface ExtraConnectionParam {
@@ -1085,7 +1179,7 @@ const {
 
 const state = reactive<LocalState>({
   passwordType: DataSourceExternalSecret_SecretType.SAECRET_TYPE_UNSPECIFIED,
-  credentialSource: "default-credential",
+  credentialSource: "default",
 });
 
 // Use a simpler approach to track new parameters
@@ -1095,10 +1189,9 @@ const newParam = reactive({ key: "", value: "" });
 const extraConnectionParamsList = computed<ExtraConnectionParam[]>(() => {
   // Ensure we're using a non-null object for the params
   const params = props.dataSource.extraConnectionParameters || {};
-  
+
   // Convert to plain entries for display
-  return Object.entries(params)
-    .map(([key, value]) => ({ key, value }));
+  return Object.entries(params).map(([key, value]) => ({ key, value }));
 });
 const { t } = useI18n();
 
@@ -1116,15 +1209,61 @@ watch(
 );
 
 watch(
-  () => props.dataSource.clientSecretCredential,
-  (clientSecretCredential) => {
-    if (clientSecretCredential) {
-      state.credentialSource = "client-secret-credential";
+  [
+    () => props.dataSource.azureCredential,
+    () => props.dataSource.awsCredential,
+    () => props.dataSource.gcpCredential,
+  ],
+  (credentials) => {
+    if (credentials.some((c) => c !== undefined)) {
+      state.credentialSource = "specific-credential";
     } else {
-      state.credentialSource = "default-credential";
+      state.credentialSource = "default";
     }
   },
   { immediate: true, deep: true }
+);
+
+watch(
+  () => props.dataSource.authenticationType,
+  () => {
+    state.credentialSource = "default";
+  }
+);
+
+watch(
+  () => state.credentialSource,
+  (source) => {
+    switch (props.dataSource.authenticationType) {
+      case DataSource_AuthenticationType.AWS_RDS_IAM:
+        if (source === "default") {
+          props.dataSource.awsCredential = undefined;
+        } else {
+          props.dataSource.awsCredential = DataSource_AWSCredential.create(
+            props.dataSource.awsCredential
+          );
+        }
+        break;
+      case DataSource_AuthenticationType.GOOGLE_CLOUD_SQL_IAM:
+        if (source === "default") {
+          props.dataSource.gcpCredential = undefined;
+        } else {
+          props.dataSource.gcpCredential = DataSource_GCPCredential.create(
+            props.dataSource.gcpCredential
+          );
+        }
+        break;
+      case DataSource_AuthenticationType.AZURE_IAM:
+        if (source === "default") {
+          props.dataSource.azureCredential = undefined;
+        } else {
+          props.dataSource.azureCredential = DataSource_AzureCredential.create(
+            props.dataSource.azureCredential
+          );
+        }
+        break;
+    }
+  }
 );
 
 const hiveAuthentication = computed(() => {
@@ -1269,7 +1408,8 @@ const handleHostInput = (value: string) => {
       if (ds.host || ds.port) {
         ds.host = adminDataSource.value.host;
         ds.port = adminDataSource.value.port;
-        missingFeature.value = "bb.feature.read-replica-connection";
+        missingFeature.value =
+          PlanFeature.FEATURE_INSTANCE_READ_ONLY_CONNECTION;
         return;
       }
     }
@@ -1284,7 +1424,8 @@ const handlePortInput = (value: string) => {
       if (ds.host || ds.port) {
         ds.host = adminDataSource.value.host;
         ds.port = adminDataSource.value.port;
-        missingFeature.value = "bb.feature.read-replica-connection";
+        missingFeature.value =
+          PlanFeature.FEATURE_INSTANCE_READ_ONLY_CONNECTION;
         return;
       }
     }
@@ -1306,17 +1447,6 @@ const handleEditSSL = () => {
   ds.updateSsl = true;
 };
 
-const handleEditSSH = () => {
-  const ds = props.dataSource;
-  if (!ds) return;
-  ds.sshHost = "";
-  ds.sshPort = "";
-  ds.sshUser = "";
-  ds.sshPassword = "";
-  ds.sshPrivateKey = "";
-  ds.updateSsh = true;
-};
-
 const handleSSLChange = (
   value: Partial<Pick<DataSource, "sslCa" | "sslCert" | "sslKey">>
 ) => {
@@ -1335,7 +1465,6 @@ const handleSSHChange = (
 ) => {
   const ds = props.dataSource;
   Object.assign(ds, value);
-  ds.updateSsh = true;
 };
 
 watch(
@@ -1363,74 +1492,65 @@ const handleKeytabUpload = (options: { file: UploadFileInfo }) => {
 const getIAMExtensionOptions = (
   authenticationType: DataSource_AuthenticationType
 ): IAMExtensionOptions[] => {
-  if (authenticationType == DataSource_AuthenticationType.AZURE_IAM) {
-    return [
-      {
-        label: "Default",
-        value: "default-credential",
-      },
-      {
-        label: "Client Secret Credential",
-        value: "client-secret-credential",
-      },
-    ];
+  switch (authenticationType) {
+    case DataSource_AuthenticationType.AWS_RDS_IAM:
+    case DataSource_AuthenticationType.AZURE_IAM:
+    case DataSource_AuthenticationType.GOOGLE_CLOUD_SQL_IAM:
+      return [
+        {
+          label: t("common.default"),
+          value: "default",
+        },
+        {
+          label: t("instance.iam-extension.specific-credential"),
+          value: "specific-credential",
+        },
+      ];
   }
   return [];
-};
-
-const onSelectIAMExtension = (value: string) => {
-  state.credentialSource = value;
-  resetIAMExtension();
-  if (value === "client-secret-credential") {
-    const ds = props.dataSource;
-    ds.clientSecretCredential = DataSource_ClientSecretCredential.create();
-  }
-};
-
-const resetIAMExtension = () => {
-  const ds = props.dataSource;
-  ds.clientSecretCredential = undefined;
 };
 
 // Extra connection parameters management
 const addNewParameter = () => {
   // Skip if key is empty
   if (!newParam.key.trim()) return;
-  
+
   const ds = props.dataSource;
-  
+
   // Get plain params object using our helper
   const plainParams = createPlainParamsObject(ds.extraConnectionParameters);
-  
+
   // Add the new parameter
   const trimmedKey = newParam.key.trim();
   plainParams[trimmedKey] = newParam.value;
-  
+
   // Create a fresh object to ensure we're using a plain JS object
   const freshParams: Record<string, string> = {};
-  Object.keys(plainParams).forEach(key => {
+  Object.keys(plainParams).forEach((key) => {
     freshParams[key] = plainParams[key];
   });
-  
+
   // Set the object directly using a brand new object
   ds.extraConnectionParameters = freshParams;
-  
+
   // Clear the form
   newParam.key = "";
   newParam.value = "";
 };
 
 // Helper function to create plain parameters object from existing parameters
-const createPlainParamsObject = (existingParams: Record<string, string> | undefined): Record<string, string> => {
+const createPlainParamsObject = (
+  existingParams: Record<string, string> | undefined
+): Record<string, string> => {
   const plainParams: Record<string, string> = {};
-  
+
   if (existingParams) {
     // Copy all properties from the potentially proxied object
     Object.entries(existingParams).forEach(([key, value]) => {
       plainParams[key] = value;
     });
   }
-  
+
   return plainParams;
 };
 
@@ -1438,24 +1558,24 @@ const updateExtraConnectionParamKey = (index: number, newKey: string) => {
   const ds = props.dataSource;
   const params = extraConnectionParamsList.value;
   if (index >= params.length) return;
-  
+
   // Get plain params object
   const plainParams = createPlainParamsObject(ds.extraConnectionParameters);
-  
+
   const oldKey = params[index].key;
   const value = params[index].value;
-  
+
   // Skip if the key hasn't changed
   if (oldKey === newKey) return;
-  
+
   // Delete the old key
   delete plainParams[oldKey];
-  
+
   // Only add if the key is not empty
   if (newKey.trim()) {
     plainParams[newKey] = value;
   }
-  
+
   // Set the object directly
   ds.extraConnectionParameters = plainParams;
 };
@@ -1464,15 +1584,15 @@ const updateExtraConnectionParamValue = (index: number, newValue: string) => {
   const ds = props.dataSource;
   const params = extraConnectionParamsList.value;
   if (index >= params.length) return;
-  
+
   const key = params[index].key;
-  
+
   // Get plain params object
   const plainParams = createPlainParamsObject(ds.extraConnectionParameters);
-  
+
   // Update the value
   plainParams[key] = newValue;
-  
+
   // Set the object directly
   ds.extraConnectionParameters = plainParams;
 };
@@ -1481,14 +1601,20 @@ const removeExtraConnectionParam = (index: number) => {
   const ds = props.dataSource;
   const params = extraConnectionParamsList.value;
   if (index >= params.length) return;
-  
+
   // Get plain params object
   const plainParams = createPlainParamsObject(ds.extraConnectionParameters);
-  
+
   // Remove the parameter
   delete plainParams[params[index].key];
-  
+
   // Set the object directly
   ds.extraConnectionParameters = plainParams;
 };
 </script>
+
+<style lang="postcss" scoped>
+.credential :deep(.code) {
+  @apply bg-gray-100 p-1 rounded-sm mr-1;
+}
+</style>

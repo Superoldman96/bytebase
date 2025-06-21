@@ -10,7 +10,6 @@ import (
 	"google.golang.org/genproto/googleapis/type/expr"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
@@ -154,7 +153,7 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 	policy := &storepb.IamPolicy{
 		Bindings: []*storepb.Binding{
 			{
-				Role: common.FormatRole(base.ProjectOwner.String()),
+				Role: common.FormatRole(common.ProjectOwner),
 				Members: []string{
 					common.FormatUserUID(user.ID),
 				},
@@ -167,10 +166,10 @@ func (s *Store) CreateProjectV2(ctx context.Context, create *ProjectMessage, cre
 		return nil, err
 	}
 	if _, err := s.CreatePolicyV2(ctx, &PolicyMessage{
-		ResourceType:      base.PolicyResourceTypeProject,
+		ResourceType:      storepb.Policy_PROJECT,
 		Resource:          common.FormatProject(project.ResourceID),
 		Payload:           string(policyPayload),
-		Type:              base.PolicyTypeIAM,
+		Type:              storepb.Policy_IAM,
 		InheritFromParent: false,
 		// Enforce cannot be false while creating a policy.
 		Enforce: true,
@@ -205,6 +204,47 @@ func (s *Store) UpdateProjectV2(ctx context.Context, patch *UpdateProjectMessage
 	}
 
 	return s.GetProjectV2(ctx, &FindProjectMessage{ResourceID: &patch.ResourceID})
+}
+
+// BatchUpdateProjectsV2 updates multiple projects in a single transaction.
+func (s *Store) BatchUpdateProjectsV2(ctx context.Context, patches []*UpdateProjectMessage) ([]*ProjectMessage, error) {
+	if len(patches) == 0 {
+		return nil, nil
+	}
+
+	// Remove all projects from cache first
+	for _, patch := range patches {
+		s.removeProjectCache(patch.ResourceID)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Update all projects in the transaction
+	for _, patch := range patches {
+		if err := updateProjectImplV2(ctx, tx, patch); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	// Fetch and return all updated projects
+	var updatedProjects []*ProjectMessage
+	for _, patch := range patches {
+		project, err := s.GetProjectV2(ctx, &FindProjectMessage{ResourceID: &patch.ResourceID})
+		if err != nil {
+			return nil, err
+		}
+		updatedProjects = append(updatedProjects, project)
+	}
+
+	return updatedProjects, nil
 }
 
 func updateProjectImplV2(ctx context.Context, txn *sql.Tx, patch *UpdateProjectMessage) error {

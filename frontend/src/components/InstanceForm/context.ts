@@ -1,16 +1,19 @@
+import Emittery from "emittery";
+import { cloneDeep, isEqual, omit } from "lodash-es";
+import { useDialog } from "naive-ui";
+import type { InjectionKey, Ref } from "vue";
+import { computed, inject, provide, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { instanceServiceClient } from "@/grpcweb";
 import {
+  environmentNamePrefix,
   pushNotification,
   useEnvironmentV1Store,
   useSubscriptionV1Store,
 } from "@/store";
-import {
-  isValidEnvironmentName,
-  unknownEnvironment,
-  type FeatureType,
-} from "@/types";
+import { isValidEnvironmentName, unknownEnvironment } from "@/types";
 import { Engine, State } from "@/types/proto/v1/common";
-import type { DataSource, Instance } from "@/types/proto/v1/instance_service";
+import { Instance, type DataSource } from "@/types/proto/v1/instance_service";
 import {
   DataSourceExternalSecret_AuthType,
   DataSourceExternalSecret_SecretType,
@@ -18,18 +21,13 @@ import {
   DataSource_AuthenticationType,
   DataSource_RedisType,
 } from "@/types/proto/v1/instance_service";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import {
   extractInstanceResourceName,
   hasWorkspacePermissionV2,
   isValidSpannerHost,
 } from "@/utils";
 import { extractGrpcErrorMessage } from "@/utils/grpcweb";
-import Emittery from "emittery";
-import { cloneDeep, isEqual, omit } from "lodash-es";
-import { useDialog } from "naive-ui";
-import type { InjectionKey, Ref } from "vue";
-import { computed, inject, provide, ref } from "vue";
-import { useI18n } from "vue-i18n";
 import type { ResourceIdField } from "../v2";
 import type { EditDataSource } from "./common";
 import {
@@ -100,7 +98,7 @@ export const provideInstanceFormContext = (baseContext: {
 
   const hasReadonlyReplicaFeature = computed(() => {
     return useSubscriptionV1Store().hasInstanceFeature(
-      "bb.feature.read-replica-connection",
+      PlanFeature.FEATURE_INSTANCE_READ_ONLY_CONNECTION,
       instance.value
     );
   });
@@ -108,7 +106,7 @@ export const provideInstanceFormContext = (baseContext: {
   const resetDataSource = () => {
     dataSourceEditState.value = extractDataSourceEditState(instance.value);
   };
-  const missingFeature = ref<FeatureType | undefined>(undefined);
+  const missingFeature = ref<PlanFeature | undefined>(undefined);
 
   const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
 
@@ -203,7 +201,9 @@ export const provideInstanceFormContext = (baseContext: {
     if (!hasWorkspacePermissionV2("bb.instances.create")) {
       return false;
     }
-    if (!isValidEnvironmentName(environment.value.name)) {
+    if (
+      !isValidEnvironmentName(`${environmentNamePrefix}${environment.value.id}`)
+    ) {
       return false;
     }
     if (basicInfo.value.engine === Engine.SPANNER) {
@@ -255,7 +255,6 @@ export const provideInstanceFormContext = (baseContext: {
         "updatedMasterPassword",
         "useEmptyMasterPassword",
         "updateSsl",
-        "updateSsh",
         "updateAuthenticationPrivateKey"
       )
     );
@@ -303,11 +302,11 @@ export const provideInstanceFormContext = (baseContext: {
 
   const pendingCreateInstance = computed(() => {
     // When creating new instance, use the adminDataSource.
-    const instance: Instance = {
+    const instance: Instance = Instance.fromPartial({
       ...basicInfo.value,
       engineVersion: "",
       dataSources: [],
-    };
+    });
     if (editingDataSource.value) {
       const dataSourceCreate = extractDataSourceFromEdit(
         instance,
@@ -360,11 +359,11 @@ export const provideInstanceFormContext = (baseContext: {
     if (isCreating.value) {
       // When creating new instance, use
       // adminDataSource + CreateInstanceRequest.validateOnly = true
-      const instance: Instance = {
+      const instance: Instance = Instance.fromPartial({
         ...basicInfo.value,
         engineVersion: "",
         dataSources: [],
-      };
+      });
       const dataSourceCreate = extractDataSourceFromEdit(instance, editingDS);
       instance.dataSources = [dataSourceCreate];
       try {

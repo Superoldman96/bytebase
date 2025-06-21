@@ -25,6 +25,8 @@ export interface BatchRunTasksRequest {
    */
   tasks: string[];
   reason: string;
+  /** The task run should run after run_time. */
+  runTime?: Timestamp | undefined;
 }
 
 export interface BatchRunTasksResponse {
@@ -222,11 +224,14 @@ export interface Stage {
   /** Format: projects/{project}/rollouts/{rollout}/stages/{stage} */
   name: string;
   /**
-   * The id comes from the deployment config.
-   * Format: UUID
-   * Empty for legacy stages.
+   * id is the environment id of the stage.
+   * e.g. "prod".
    */
   id: string;
+  /**
+   * environment is the environment of the stage.
+   * Format: environments/{environment}.
+   */
   environment: string;
   tasks: Task[];
 }
@@ -249,7 +254,6 @@ export interface Task {
    */
   target: string;
   databaseCreate?: Task_DatabaseCreate | undefined;
-  databaseSchemaBaseline?: Task_DatabaseSchemaBaseline | undefined;
   databaseSchemaUpdate?: Task_DatabaseSchemaUpdate | undefined;
   databaseDataUpdate?: Task_DatabaseDataUpdate | undefined;
   databaseDataExport?: Task_DatabaseDataExport | undefined;
@@ -353,8 +357,6 @@ export enum Task_Type {
   GENERAL = "GENERAL",
   /** DATABASE_CREATE - use payload DatabaseCreate */
   DATABASE_CREATE = "DATABASE_CREATE",
-  /** DATABASE_SCHEMA_BASELINE - use payload DatabaseSchemaBaseline */
-  DATABASE_SCHEMA_BASELINE = "DATABASE_SCHEMA_BASELINE",
   /** DATABASE_SCHEMA_UPDATE - use payload DatabaseSchemaUpdate */
   DATABASE_SCHEMA_UPDATE = "DATABASE_SCHEMA_UPDATE",
   /** DATABASE_SCHEMA_UPDATE_SDL - use payload DatabaseSchemaUpdate */
@@ -363,8 +365,8 @@ export enum Task_Type {
   DATABASE_SCHEMA_UPDATE_GHOST = "DATABASE_SCHEMA_UPDATE_GHOST",
   /** DATABASE_DATA_UPDATE - use payload DatabaseDataUpdate */
   DATABASE_DATA_UPDATE = "DATABASE_DATA_UPDATE",
-  /** DATABASE_DATA_EXPORT - use payload DatabaseDataExport */
-  DATABASE_DATA_EXPORT = "DATABASE_DATA_EXPORT",
+  /** DATABASE_EXPORT - use payload DatabaseDataExport */
+  DATABASE_EXPORT = "DATABASE_EXPORT",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -379,9 +381,6 @@ export function task_TypeFromJSON(object: any): Task_Type {
     case 2:
     case "DATABASE_CREATE":
       return Task_Type.DATABASE_CREATE;
-    case 3:
-    case "DATABASE_SCHEMA_BASELINE":
-      return Task_Type.DATABASE_SCHEMA_BASELINE;
     case 4:
     case "DATABASE_SCHEMA_UPDATE":
       return Task_Type.DATABASE_SCHEMA_UPDATE;
@@ -395,8 +394,8 @@ export function task_TypeFromJSON(object: any): Task_Type {
     case "DATABASE_DATA_UPDATE":
       return Task_Type.DATABASE_DATA_UPDATE;
     case 12:
-    case "DATABASE_DATA_EXPORT":
-      return Task_Type.DATABASE_DATA_EXPORT;
+    case "DATABASE_EXPORT":
+      return Task_Type.DATABASE_EXPORT;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -412,8 +411,6 @@ export function task_TypeToJSON(object: Task_Type): string {
       return "GENERAL";
     case Task_Type.DATABASE_CREATE:
       return "DATABASE_CREATE";
-    case Task_Type.DATABASE_SCHEMA_BASELINE:
-      return "DATABASE_SCHEMA_BASELINE";
     case Task_Type.DATABASE_SCHEMA_UPDATE:
       return "DATABASE_SCHEMA_UPDATE";
     case Task_Type.DATABASE_SCHEMA_UPDATE_SDL:
@@ -422,8 +419,8 @@ export function task_TypeToJSON(object: Task_Type): string {
       return "DATABASE_SCHEMA_UPDATE_GHOST";
     case Task_Type.DATABASE_DATA_UPDATE:
       return "DATABASE_DATA_UPDATE";
-    case Task_Type.DATABASE_DATA_EXPORT:
-      return "DATABASE_DATA_EXPORT";
+    case Task_Type.DATABASE_EXPORT:
+      return "DATABASE_EXPORT";
     case Task_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -438,8 +435,6 @@ export function task_TypeToNumber(object: Task_Type): number {
       return 1;
     case Task_Type.DATABASE_CREATE:
       return 2;
-    case Task_Type.DATABASE_SCHEMA_BASELINE:
-      return 3;
     case Task_Type.DATABASE_SCHEMA_UPDATE:
       return 4;
     case Task_Type.DATABASE_SCHEMA_UPDATE_SDL:
@@ -448,7 +443,7 @@ export function task_TypeToNumber(object: Task_Type): number {
       return 9;
     case Task_Type.DATABASE_DATA_UPDATE:
       return 8;
-    case Task_Type.DATABASE_DATA_EXPORT:
+    case Task_Type.DATABASE_EXPORT:
       return 12;
     case Task_Type.UNRECOGNIZED:
     default:
@@ -471,10 +466,6 @@ export interface Task_DatabaseCreate {
   characterSet: string;
   collation: string;
   environment: string;
-}
-
-export interface Task_DatabaseSchemaBaseline {
-  schemaVersion: string;
 }
 
 export interface Task_DatabaseSchemaUpdate {
@@ -534,6 +525,11 @@ export interface TaskRun {
     | undefined;
   /** Format: projects/{project}/sheets/{sheet} */
   sheet: string;
+  /**
+   * The task run should run after run_time.
+   * This can only be set when creating the task run calling BatchRunTasks.
+   */
+  runTime?: Timestamp | undefined;
 }
 
 export enum TaskRun_Status {
@@ -699,6 +695,7 @@ export interface TaskRun_SchedulerInfo {
 export interface TaskRun_SchedulerInfo_WaitingCause {
   connectionLimit?: boolean | undefined;
   task?: TaskRun_SchedulerInfo_WaitingCause_Task | undefined;
+  parallelTasksLimit?: boolean | undefined;
 }
 
 export interface TaskRun_SchedulerInfo_WaitingCause_Task {
@@ -724,6 +721,7 @@ export interface TaskRunLogEntry {
   taskRunStatusUpdate: TaskRunLogEntry_TaskRunStatusUpdate | undefined;
   transactionControl: TaskRunLogEntry_TransactionControl | undefined;
   priorBackup: TaskRunLogEntry_PriorBackup | undefined;
+  retryInfo: TaskRunLogEntry_RetryInfo | undefined;
 }
 
 export enum TaskRunLogEntry_Type {
@@ -734,6 +732,7 @@ export enum TaskRunLogEntry_Type {
   TASK_RUN_STATUS_UPDATE = "TASK_RUN_STATUS_UPDATE",
   TRANSACTION_CONTROL = "TRANSACTION_CONTROL",
   PRIOR_BACKUP = "PRIOR_BACKUP",
+  RETRY_INFO = "RETRY_INFO",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -760,6 +759,9 @@ export function taskRunLogEntry_TypeFromJSON(object: any): TaskRunLogEntry_Type 
     case 6:
     case "PRIOR_BACKUP":
       return TaskRunLogEntry_Type.PRIOR_BACKUP;
+    case 7:
+    case "RETRY_INFO":
+      return TaskRunLogEntry_Type.RETRY_INFO;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -783,6 +785,8 @@ export function taskRunLogEntry_TypeToJSON(object: TaskRunLogEntry_Type): string
       return "TRANSACTION_CONTROL";
     case TaskRunLogEntry_Type.PRIOR_BACKUP:
       return "PRIOR_BACKUP";
+    case TaskRunLogEntry_Type.RETRY_INFO:
+      return "RETRY_INFO";
     case TaskRunLogEntry_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -805,6 +809,8 @@ export function taskRunLogEntry_TypeToNumber(object: TaskRunLogEntry_Type): numb
       return 5;
     case TaskRunLogEntry_Type.PRIOR_BACKUP:
       return 6;
+    case TaskRunLogEntry_Type.RETRY_INFO:
+      return 7;
     case TaskRunLogEntry_Type.UNRECOGNIZED:
     default:
       return -1;
@@ -983,6 +989,12 @@ export interface TaskRunLogEntry_PriorBackup {
   error: string;
 }
 
+export interface TaskRunLogEntry_RetryInfo {
+  error: string;
+  retryCount: number;
+  maximumRetries: number;
+}
+
 export interface GetTaskRunSessionRequest {
   /** Format: projects/{project}/rollouts/{rollout}/stages/{stage}/tasks/{task}/taskRuns/{taskRun} */
   parent: string;
@@ -1033,7 +1045,7 @@ export interface PreviewTaskRunRollbackResponse {
 }
 
 function createBaseBatchRunTasksRequest(): BatchRunTasksRequest {
-  return { parent: "", tasks: [], reason: "" };
+  return { parent: "", tasks: [], reason: "", runTime: undefined };
 }
 
 export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
@@ -1046,6 +1058,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     }
     if (message.reason !== "") {
       writer.uint32(26).string(message.reason);
+    }
+    if (message.runTime !== undefined) {
+      Timestamp.encode(message.runTime, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -1081,6 +1096,14 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
           message.reason = reader.string();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.runTime = Timestamp.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1095,6 +1118,7 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
       parent: isSet(object.parent) ? globalThis.String(object.parent) : "",
       tasks: globalThis.Array.isArray(object?.tasks) ? object.tasks.map((e: any) => globalThis.String(e)) : [],
       reason: isSet(object.reason) ? globalThis.String(object.reason) : "",
+      runTime: isSet(object.runTime) ? fromJsonTimestamp(object.runTime) : undefined,
     };
   },
 
@@ -1109,6 +1133,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     if (message.reason !== "") {
       obj.reason = message.reason;
     }
+    if (message.runTime !== undefined) {
+      obj.runTime = fromTimestamp(message.runTime).toISOString();
+    }
     return obj;
   },
 
@@ -1120,6 +1147,9 @@ export const BatchRunTasksRequest: MessageFns<BatchRunTasksRequest> = {
     message.parent = object.parent ?? "";
     message.tasks = object.tasks?.map((e) => e) || [];
     message.reason = object.reason ?? "";
+    message.runTime = (object.runTime !== undefined && object.runTime !== null)
+      ? Timestamp.fromPartial(object.runTime)
+      : undefined;
     return message;
   },
 };
@@ -2408,7 +2438,6 @@ function createBaseTask(): Task {
     type: Task_Type.TYPE_UNSPECIFIED,
     target: "",
     databaseCreate: undefined,
-    databaseSchemaBaseline: undefined,
     databaseSchemaUpdate: undefined,
     databaseDataUpdate: undefined,
     databaseDataExport: undefined,
@@ -2437,9 +2466,6 @@ export const Task: MessageFns<Task> = {
     }
     if (message.databaseCreate !== undefined) {
       Task_DatabaseCreate.encode(message.databaseCreate, writer.uint32(74).fork()).join();
-    }
-    if (message.databaseSchemaBaseline !== undefined) {
-      Task_DatabaseSchemaBaseline.encode(message.databaseSchemaBaseline, writer.uint32(82).fork()).join();
     }
     if (message.databaseSchemaUpdate !== undefined) {
       Task_DatabaseSchemaUpdate.encode(message.databaseSchemaUpdate, writer.uint32(90).fork()).join();
@@ -2516,14 +2542,6 @@ export const Task: MessageFns<Task> = {
           message.databaseCreate = Task_DatabaseCreate.decode(reader, reader.uint32());
           continue;
         }
-        case 10: {
-          if (tag !== 82) {
-            break;
-          }
-
-          message.databaseSchemaBaseline = Task_DatabaseSchemaBaseline.decode(reader, reader.uint32());
-          continue;
-        }
         case 11: {
           if (tag !== 90) {
             break;
@@ -2566,9 +2584,6 @@ export const Task: MessageFns<Task> = {
       type: isSet(object.type) ? task_TypeFromJSON(object.type) : Task_Type.TYPE_UNSPECIFIED,
       target: isSet(object.target) ? globalThis.String(object.target) : "",
       databaseCreate: isSet(object.databaseCreate) ? Task_DatabaseCreate.fromJSON(object.databaseCreate) : undefined,
-      databaseSchemaBaseline: isSet(object.databaseSchemaBaseline)
-        ? Task_DatabaseSchemaBaseline.fromJSON(object.databaseSchemaBaseline)
-        : undefined,
       databaseSchemaUpdate: isSet(object.databaseSchemaUpdate)
         ? Task_DatabaseSchemaUpdate.fromJSON(object.databaseSchemaUpdate)
         : undefined,
@@ -2604,9 +2619,6 @@ export const Task: MessageFns<Task> = {
     if (message.databaseCreate !== undefined) {
       obj.databaseCreate = Task_DatabaseCreate.toJSON(message.databaseCreate);
     }
-    if (message.databaseSchemaBaseline !== undefined) {
-      obj.databaseSchemaBaseline = Task_DatabaseSchemaBaseline.toJSON(message.databaseSchemaBaseline);
-    }
     if (message.databaseSchemaUpdate !== undefined) {
       obj.databaseSchemaUpdate = Task_DatabaseSchemaUpdate.toJSON(message.databaseSchemaUpdate);
     }
@@ -2633,10 +2645,6 @@ export const Task: MessageFns<Task> = {
     message.databaseCreate = (object.databaseCreate !== undefined && object.databaseCreate !== null)
       ? Task_DatabaseCreate.fromPartial(object.databaseCreate)
       : undefined;
-    message.databaseSchemaBaseline =
-      (object.databaseSchemaBaseline !== undefined && object.databaseSchemaBaseline !== null)
-        ? Task_DatabaseSchemaBaseline.fromPartial(object.databaseSchemaBaseline)
-        : undefined;
     message.databaseSchemaUpdate = (object.databaseSchemaUpdate !== undefined && object.databaseSchemaUpdate !== null)
       ? Task_DatabaseSchemaUpdate.fromPartial(object.databaseSchemaUpdate)
       : undefined;
@@ -2802,64 +2810,6 @@ export const Task_DatabaseCreate: MessageFns<Task_DatabaseCreate> = {
     message.characterSet = object.characterSet ?? "";
     message.collation = object.collation ?? "";
     message.environment = object.environment ?? "";
-    return message;
-  },
-};
-
-function createBaseTask_DatabaseSchemaBaseline(): Task_DatabaseSchemaBaseline {
-  return { schemaVersion: "" };
-}
-
-export const Task_DatabaseSchemaBaseline: MessageFns<Task_DatabaseSchemaBaseline> = {
-  encode(message: Task_DatabaseSchemaBaseline, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.schemaVersion !== "") {
-      writer.uint32(10).string(message.schemaVersion);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): Task_DatabaseSchemaBaseline {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseTask_DatabaseSchemaBaseline();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.schemaVersion = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  fromJSON(object: any): Task_DatabaseSchemaBaseline {
-    return { schemaVersion: isSet(object.schemaVersion) ? globalThis.String(object.schemaVersion) : "" };
-  },
-
-  toJSON(message: Task_DatabaseSchemaBaseline): unknown {
-    const obj: any = {};
-    if (message.schemaVersion !== "") {
-      obj.schemaVersion = message.schemaVersion;
-    }
-    return obj;
-  },
-
-  create(base?: DeepPartial<Task_DatabaseSchemaBaseline>): Task_DatabaseSchemaBaseline {
-    return Task_DatabaseSchemaBaseline.fromPartial(base ?? {});
-  },
-  fromPartial(object: DeepPartial<Task_DatabaseSchemaBaseline>): Task_DatabaseSchemaBaseline {
-    const message = createBaseTask_DatabaseSchemaBaseline();
-    message.schemaVersion = object.schemaVersion ?? "";
     return message;
   },
 };
@@ -3139,6 +3089,7 @@ function createBaseTaskRun(): TaskRun {
     priorBackupDetail: undefined,
     schedulerInfo: undefined,
     sheet: "",
+    runTime: undefined,
   };
 }
 
@@ -3182,6 +3133,9 @@ export const TaskRun: MessageFns<TaskRun> = {
     }
     if (message.sheet !== "") {
       writer.uint32(154).string(message.sheet);
+    }
+    if (message.runTime !== undefined) {
+      Timestamp.encode(message.runTime, writer.uint32(170).fork()).join();
     }
     return writer;
   },
@@ -3297,6 +3251,14 @@ export const TaskRun: MessageFns<TaskRun> = {
           message.sheet = reader.string();
           continue;
         }
+        case 21: {
+          if (tag !== 170) {
+            break;
+          }
+
+          message.runTime = Timestamp.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3325,6 +3287,7 @@ export const TaskRun: MessageFns<TaskRun> = {
         : undefined,
       schedulerInfo: isSet(object.schedulerInfo) ? TaskRun_SchedulerInfo.fromJSON(object.schedulerInfo) : undefined,
       sheet: isSet(object.sheet) ? globalThis.String(object.sheet) : "",
+      runTime: isSet(object.runTime) ? fromJsonTimestamp(object.runTime) : undefined,
     };
   },
 
@@ -3369,6 +3332,9 @@ export const TaskRun: MessageFns<TaskRun> = {
     if (message.sheet !== "") {
       obj.sheet = message.sheet;
     }
+    if (message.runTime !== undefined) {
+      obj.runTime = fromTimestamp(message.runTime).toISOString();
+    }
     return obj;
   },
 
@@ -3401,6 +3367,9 @@ export const TaskRun: MessageFns<TaskRun> = {
       ? TaskRun_SchedulerInfo.fromPartial(object.schedulerInfo)
       : undefined;
     message.sheet = object.sheet ?? "";
+    message.runTime = (object.runTime !== undefined && object.runTime !== null)
+      ? Timestamp.fromPartial(object.runTime)
+      : undefined;
     return message;
   },
 };
@@ -3762,7 +3731,7 @@ export const TaskRun_SchedulerInfo: MessageFns<TaskRun_SchedulerInfo> = {
 };
 
 function createBaseTaskRun_SchedulerInfo_WaitingCause(): TaskRun_SchedulerInfo_WaitingCause {
-  return { connectionLimit: undefined, task: undefined };
+  return { connectionLimit: undefined, task: undefined, parallelTasksLimit: undefined };
 }
 
 export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInfo_WaitingCause> = {
@@ -3772,6 +3741,9 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     }
     if (message.task !== undefined) {
       TaskRun_SchedulerInfo_WaitingCause_Task.encode(message.task, writer.uint32(18).fork()).join();
+    }
+    if (message.parallelTasksLimit !== undefined) {
+      writer.uint32(24).bool(message.parallelTasksLimit);
     }
     return writer;
   },
@@ -3799,6 +3771,14 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
           message.task = TaskRun_SchedulerInfo_WaitingCause_Task.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.parallelTasksLimit = reader.bool();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3812,6 +3792,7 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     return {
       connectionLimit: isSet(object.connectionLimit) ? globalThis.Boolean(object.connectionLimit) : undefined,
       task: isSet(object.task) ? TaskRun_SchedulerInfo_WaitingCause_Task.fromJSON(object.task) : undefined,
+      parallelTasksLimit: isSet(object.parallelTasksLimit) ? globalThis.Boolean(object.parallelTasksLimit) : undefined,
     };
   },
 
@@ -3822,6 +3803,9 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     }
     if (message.task !== undefined) {
       obj.task = TaskRun_SchedulerInfo_WaitingCause_Task.toJSON(message.task);
+    }
+    if (message.parallelTasksLimit !== undefined) {
+      obj.parallelTasksLimit = message.parallelTasksLimit;
     }
     return obj;
   },
@@ -3835,6 +3819,7 @@ export const TaskRun_SchedulerInfo_WaitingCause: MessageFns<TaskRun_SchedulerInf
     message.task = (object.task !== undefined && object.task !== null)
       ? TaskRun_SchedulerInfo_WaitingCause_Task.fromPartial(object.task)
       : undefined;
+    message.parallelTasksLimit = object.parallelTasksLimit ?? undefined;
     return message;
   },
 };
@@ -4004,6 +3989,7 @@ function createBaseTaskRunLogEntry(): TaskRunLogEntry {
     taskRunStatusUpdate: undefined,
     transactionControl: undefined,
     priorBackup: undefined,
+    retryInfo: undefined,
   };
 }
 
@@ -4035,6 +4021,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
     }
     if (message.priorBackup !== undefined) {
       TaskRunLogEntry_PriorBackup.encode(message.priorBackup, writer.uint32(66).fork()).join();
+    }
+    if (message.retryInfo !== undefined) {
+      TaskRunLogEntry_RetryInfo.encode(message.retryInfo, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -4118,6 +4107,14 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
           message.priorBackup = TaskRunLogEntry_PriorBackup.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.retryInfo = TaskRunLogEntry_RetryInfo.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -4144,6 +4141,7 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
         ? TaskRunLogEntry_TransactionControl.fromJSON(object.transactionControl)
         : undefined,
       priorBackup: isSet(object.priorBackup) ? TaskRunLogEntry_PriorBackup.fromJSON(object.priorBackup) : undefined,
+      retryInfo: isSet(object.retryInfo) ? TaskRunLogEntry_RetryInfo.fromJSON(object.retryInfo) : undefined,
     };
   },
 
@@ -4176,6 +4174,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
     if (message.priorBackup !== undefined) {
       obj.priorBackup = TaskRunLogEntry_PriorBackup.toJSON(message.priorBackup);
     }
+    if (message.retryInfo !== undefined) {
+      obj.retryInfo = TaskRunLogEntry_RetryInfo.toJSON(message.retryInfo);
+    }
     return obj;
   },
 
@@ -4206,6 +4207,9 @@ export const TaskRunLogEntry: MessageFns<TaskRunLogEntry> = {
       : undefined;
     message.priorBackup = (object.priorBackup !== undefined && object.priorBackup !== null)
       ? TaskRunLogEntry_PriorBackup.fromPartial(object.priorBackup)
+      : undefined;
+    message.retryInfo = (object.retryInfo !== undefined && object.retryInfo !== null)
+      ? TaskRunLogEntry_RetryInfo.fromPartial(object.retryInfo)
       : undefined;
     return message;
   },
@@ -4904,6 +4908,98 @@ export const TaskRunLogEntry_PriorBackup: MessageFns<TaskRunLogEntry_PriorBackup
   },
 };
 
+function createBaseTaskRunLogEntry_RetryInfo(): TaskRunLogEntry_RetryInfo {
+  return { error: "", retryCount: 0, maximumRetries: 0 };
+}
+
+export const TaskRunLogEntry_RetryInfo: MessageFns<TaskRunLogEntry_RetryInfo> = {
+  encode(message: TaskRunLogEntry_RetryInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.error !== "") {
+      writer.uint32(10).string(message.error);
+    }
+    if (message.retryCount !== 0) {
+      writer.uint32(16).int32(message.retryCount);
+    }
+    if (message.maximumRetries !== 0) {
+      writer.uint32(24).int32(message.maximumRetries);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TaskRunLogEntry_RetryInfo {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTaskRunLogEntry_RetryInfo();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.error = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.retryCount = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.maximumRetries = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): TaskRunLogEntry_RetryInfo {
+    return {
+      error: isSet(object.error) ? globalThis.String(object.error) : "",
+      retryCount: isSet(object.retryCount) ? globalThis.Number(object.retryCount) : 0,
+      maximumRetries: isSet(object.maximumRetries) ? globalThis.Number(object.maximumRetries) : 0,
+    };
+  },
+
+  toJSON(message: TaskRunLogEntry_RetryInfo): unknown {
+    const obj: any = {};
+    if (message.error !== "") {
+      obj.error = message.error;
+    }
+    if (message.retryCount !== 0) {
+      obj.retryCount = Math.round(message.retryCount);
+    }
+    if (message.maximumRetries !== 0) {
+      obj.maximumRetries = Math.round(message.maximumRetries);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<TaskRunLogEntry_RetryInfo>): TaskRunLogEntry_RetryInfo {
+    return TaskRunLogEntry_RetryInfo.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<TaskRunLogEntry_RetryInfo>): TaskRunLogEntry_RetryInfo {
+    const message = createBaseTaskRunLogEntry_RetryInfo();
+    message.error = object.error ?? "";
+    message.retryCount = object.retryCount ?? 0;
+    message.maximumRetries = object.maximumRetries ?? 0;
+    return message;
+  },
+};
+
 function createBaseGetTaskRunSessionRequest(): GetTaskRunSessionRequest {
   return { parent: "" };
 }
@@ -5551,6 +5647,7 @@ export const RolloutServiceDefinition = {
   name: "RolloutService",
   fullName: "bytebase.v1.RolloutService",
   methods: {
+    /** Permissions required: bb.rollouts.get */
     getRollout: {
       name: "GetRollout",
       requestType: GetRolloutRequest,
@@ -5604,6 +5701,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.rollouts.list */
     listRollouts: {
       name: "ListRollouts",
       requestType: ListRolloutsRequest,
@@ -5657,7 +5755,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
-    /** CreateRollout can be called multiple times with the same rollout.plan but different stage_id to promote rollout stages. */
+    /** Permissions required: bb.rollouts.create */
     createRollout: {
       name: "CreateRollout",
       requestType: CreateRolloutRequest,
@@ -5723,6 +5821,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.rollouts.preview */
     previewRollout: {
       name: "PreviewRollout",
       requestType: PreviewRolloutRequest,
@@ -5809,6 +5908,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.taskRuns.list */
     listTaskRuns: {
       name: "ListTaskRuns",
       requestType: ListTaskRunsRequest,
@@ -5890,6 +5990,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.taskRuns.list */
     getTaskRun: {
       name: "GetTaskRun",
       requestType: GetTaskRunRequest,
@@ -5971,6 +6072,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.taskRuns.list */
     getTaskRunLog: {
       name: "GetTaskRunLog",
       requestType: GetTaskRunLogRequest,
@@ -6058,6 +6160,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.taskRuns.list */
     getTaskRunSession: {
       name: "GetTaskRunSession",
       requestType: GetTaskRunSessionRequest,
@@ -6149,12 +6252,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
-    /**
-     * BatchRunTasks creates task runs for the specified tasks.
-     * DataExport issue only allows the creator to run the task.
-     * Users with "bb.taskRuns.create" permission can run the task, e.g. Workspace Admin and DBA.
-     * Follow role-based rollout policy for the environment.
-     */
+    /** Permissions required: None */
     batchRunTasks: {
       name: "BatchRunTasks",
       requestType: BatchRunTasksRequest,
@@ -6236,10 +6334,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
-    /**
-     * BatchSkipTasks skips the specified tasks.
-     * The access is the same as BatchRunTasks().
-     */
+    /** Permissions required: None */
     batchSkipTasks: {
       name: "BatchSkipTasks",
       requestType: BatchSkipTasksRequest,
@@ -6322,10 +6417,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
-    /**
-     * BatchCancelTaskRuns cancels the specified task runs in batch.
-     * The access is the same as BatchRunTasks().
-     */
+    /** Permissions required: None */
     batchCancelTaskRuns: {
       name: "BatchCancelTaskRuns",
       requestType: BatchCancelTaskRunsRequest,
@@ -6421,6 +6513,7 @@ export const RolloutServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.taskRuns.list */
     previewTaskRunRollback: {
       name: "PreviewTaskRunRollback",
       requestType: PreviewTaskRunRollbackRequest,
