@@ -1,8 +1,16 @@
-import { Status } from "nice-grpc-common";
 import { defineStore } from "pinia";
 import { reactive } from "vue";
-import { databaseServiceClient } from "@/grpcweb";
-import type { Secret } from "@/types/proto/v1/database_service";
+import { create } from "@bufbuild/protobuf";
+import { createContextValues, Code } from "@connectrpc/connect";
+import { databaseServiceClientConnect } from "@/grpcweb";
+import { ignoredCodesContextKey } from "@/grpcweb/context-key";
+import {
+  ListSecretsRequestSchema,
+  UpdateSecretRequestSchema,
+  DeleteSecretRequestSchema,
+} from "@/types/proto-es/v1/database_service_pb";
+// Removed conversion imports as part of Bold Migration Strategy
+import type { Secret } from "@/types/proto-es/v1/database_service_pb";
 import { secretNamePrefix } from "./common";
 
 export const useDatabaseSecretStore = defineStore("database-secret", () => {
@@ -13,16 +21,18 @@ export const useDatabaseSecretStore = defineStore("database-secret", () => {
   };
 
   const fetchSecretList = async (parent: string) => {
-    const res = await databaseServiceClient.listSecrets(
+    const request = create(ListSecretsRequestSchema, {
+      parent,
+    });
+    const response = await databaseServiceClientConnect.listSecrets(
+      request,
       {
-        parent,
-      },
-      {
-        ignoredCodes: [Status.NOT_FOUND, Status.PERMISSION_DENIED],
+        contextValues: createContextValues().set(ignoredCodesContextKey, [Code.NotFound, Code.PermissionDenied]),
       }
     );
-    secretMapByDatabase.set(parent, res.secrets);
-    return res.secrets;
+    const secrets = response.secrets; // Work directly with proto-es types
+    secretMapByDatabase.set(parent, secrets);
+    return secrets;
   };
 
   const upsertSecret = async (
@@ -31,11 +41,12 @@ export const useDatabaseSecretStore = defineStore("database-secret", () => {
     allowMissing: boolean
   ) => {
     const database = secret.name.split(secretNamePrefix)[0];
-    const updatedSecret = await databaseServiceClient.updateSecret({
-      secret,
-      updateMask,
+    const request = create(UpdateSecretRequestSchema, {
+      secret: secret, // Work directly with proto-es types
+      updateMask: { paths: updateMask },
       allowMissing,
     });
+    const updatedSecret = await databaseServiceClientConnect.updateSecret(request);
     if (secretMapByDatabase.has(database)) {
       const list = secretMapByDatabase.get(database) ?? [];
       const index = list.findIndex((s) => s.name === secret.name);
@@ -48,9 +59,10 @@ export const useDatabaseSecretStore = defineStore("database-secret", () => {
   };
 
   const deleteSecret = async (name: string) => {
-    await databaseServiceClient.deleteSecret({
+    const request = create(DeleteSecretRequestSchema, {
       name,
     });
+    await databaseServiceClientConnect.deleteSecret(request);
     const database = name.split(secretNamePrefix)[0];
     if (secretMapByDatabase.has(database)) {
       const list = secretMapByDatabase.get(database) ?? [];

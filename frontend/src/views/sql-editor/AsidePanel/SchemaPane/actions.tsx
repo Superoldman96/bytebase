@@ -40,11 +40,12 @@ import {
   type EditorPanelViewState,
   typeToView,
 } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import {
   GetSchemaStringRequest_ObjectType,
-} from "@/types/proto/v1/database_service";
-import { DataSource, DataSourceType } from "@/types/proto/v1/instance_service";
+} from "@/types/proto-es/v1/database_service_pb";
+import type { DataSource } from "@/types/proto-es/v1/instance_service_pb";
+import { DataSourceType } from "@/types/proto-es/v1/instance_service_pb";
 import {
   defer,
   extractInstanceResourceName,
@@ -150,15 +151,16 @@ export const useActions = () => {
     const { database } = target;
     const db = databaseStore.getDatabaseByName(database);
     const { engine } = db.instanceResource;
+    const protoEsEngine = engine;
 
     const query = await formatCode(
       generateSimpleSelectAllStatement(
-        engine,
+        protoEsEngine,
         schema,
         tableOrViewName,
         SELECT_ALL_LIMIT
       ),
-      engine
+      protoEsEngine
     );
     updateViewState({
       view: "CODE",
@@ -166,7 +168,7 @@ export const useActions = () => {
     runQuery(db, schema, tableOrViewName, query);
   };
 
-  const openNewTab = ({ title, view, schema }: { title?: string; schema?: string; view?: EditorPanelView }) => {
+  const openNewTab = ({ title, view, schema, table }: { title?: string; schema?: string; table?: string, view?: EditorPanelView }) => {
     const tabStore = useSQLEditorTabStore();
     const tabViewStateStore = useTabViewStateStore();
 
@@ -198,7 +200,7 @@ export const useActions = () => {
     }
 
     tabStore.addTab(clonedTab);
-    updateViewState({ view, schema });
+    updateViewState({ view, schema, table});
   }
 
   const viewDetail = async (node: TreeNode) => {
@@ -208,16 +210,19 @@ export const useActions = () => {
       "view",
       "procedure",
       "function",
+      "trigger",
     ] as const;
     if (!SUPPORTED_TYPES.includes(type)) {
       return;
     }
 
     const { schema } = target as NodeTarget<"schema">;
+    const { table } = target as NodeTarget<"table">;
     openNewTab({
       title: "View detail",
       view: typeToView(type),
       schema: schema,
+      table: table,
     });
     await nextTick();
 
@@ -242,6 +247,11 @@ export const useActions = () => {
         name = func;
         detail.func = keyWithPosition(func, funcPosition);
         break
+      case "trigger":
+        const { trigger, position: triggerPosition } = target as NodeTarget<"trigger">;
+        name = trigger;
+        detail.trigger = keyWithPosition(trigger, triggerPosition);
+        break;
     }
 
     updateViewState({
@@ -264,9 +274,6 @@ export const useDropdown = () => {
   const { selectAllFromTableOrView, viewDetail, openNewTab } = useActions();
   const disallowEditSchema = useAppFeature(
     "bb.feature.sql-editor.disallow-edit-schema"
-  );
-  const disallowNavigateToConsole = useAppFeature(
-    "bb.feature.disallow-navigate-to-console"
   );
   const $d = useDialog();
 
@@ -301,7 +308,7 @@ export const useDropdown = () => {
           icon: action.icon,
           onSelect: () => {
             openNewTab({
-              title: `[schema ${schema}] ${action.title}`,
+              title: `[${db.databaseName}] ${action.title}`,
               view: action.view,
               schema,
             })
@@ -368,7 +375,7 @@ export const useDropdown = () => {
           });
         }
 
-        if (!disallowEditSchema.value && !disallowNavigateToConsole.value) {
+        if (!disallowEditSchema.value) {
           if (instanceV1HasAlterSchema(db.instanceResource)) {
             items.push({
               key: "edit-schema",
@@ -504,7 +511,8 @@ export const useDropdown = () => {
       type === "table" ||
       type === "view" ||
       type === "procedure" ||
-      type === "function"
+      type === "function" ||
+      type === "trigger"
     ) {
       items.push({
         key: "view-detail",

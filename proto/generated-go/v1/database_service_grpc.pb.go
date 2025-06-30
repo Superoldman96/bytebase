@@ -26,16 +26,13 @@ const (
 	DatabaseService_UpdateDatabase_FullMethodName       = "/bytebase.v1.DatabaseService/UpdateDatabase"
 	DatabaseService_BatchUpdateDatabases_FullMethodName = "/bytebase.v1.DatabaseService/BatchUpdateDatabases"
 	DatabaseService_SyncDatabase_FullMethodName         = "/bytebase.v1.DatabaseService/SyncDatabase"
+	DatabaseService_BatchSyncDatabases_FullMethodName   = "/bytebase.v1.DatabaseService/BatchSyncDatabases"
 	DatabaseService_GetDatabaseMetadata_FullMethodName  = "/bytebase.v1.DatabaseService/GetDatabaseMetadata"
 	DatabaseService_GetDatabaseSchema_FullMethodName    = "/bytebase.v1.DatabaseService/GetDatabaseSchema"
 	DatabaseService_DiffSchema_FullMethodName           = "/bytebase.v1.DatabaseService/DiffSchema"
 	DatabaseService_ListSecrets_FullMethodName          = "/bytebase.v1.DatabaseService/ListSecrets"
 	DatabaseService_UpdateSecret_FullMethodName         = "/bytebase.v1.DatabaseService/UpdateSecret"
 	DatabaseService_DeleteSecret_FullMethodName         = "/bytebase.v1.DatabaseService/DeleteSecret"
-	DatabaseService_ListRevisions_FullMethodName        = "/bytebase.v1.DatabaseService/ListRevisions"
-	DatabaseService_GetRevision_FullMethodName          = "/bytebase.v1.DatabaseService/GetRevision"
-	DatabaseService_CreateRevision_FullMethodName       = "/bytebase.v1.DatabaseService/CreateRevision"
-	DatabaseService_DeleteRevision_FullMethodName       = "/bytebase.v1.DatabaseService/DeleteRevision"
 	DatabaseService_ListChangelogs_FullMethodName       = "/bytebase.v1.DatabaseService/ListChangelogs"
 	DatabaseService_GetChangelog_FullMethodName         = "/bytebase.v1.DatabaseService/GetChangelog"
 	DatabaseService_GetSchemaString_FullMethodName      = "/bytebase.v1.DatabaseService/GetSchemaString"
@@ -45,24 +42,37 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DatabaseServiceClient interface {
+	// Permissions required: bb.databases.get
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*Database, error)
+	// Permissions required: bb.databases.get
 	BatchGetDatabases(ctx context.Context, in *BatchGetDatabasesRequest, opts ...grpc.CallOption) (*BatchGetDatabasesResponse, error)
+	// Permissions required: bb.databases.list
 	ListDatabases(ctx context.Context, in *ListDatabasesRequest, opts ...grpc.CallOption) (*ListDatabasesResponse, error)
+	// Permissions required: bb.databases.update
 	UpdateDatabase(ctx context.Context, in *UpdateDatabaseRequest, opts ...grpc.CallOption) (*Database, error)
+	// Permissions required: bb.databases.update
 	BatchUpdateDatabases(ctx context.Context, in *BatchUpdateDatabasesRequest, opts ...grpc.CallOption) (*BatchUpdateDatabasesResponse, error)
+	// Permissions required: bb.databases.sync
 	SyncDatabase(ctx context.Context, in *SyncDatabaseRequest, opts ...grpc.CallOption) (*SyncDatabaseResponse, error)
+	// Permissions required: bb.databases.sync
+	BatchSyncDatabases(ctx context.Context, in *BatchSyncDatabasesRequest, opts ...grpc.CallOption) (*BatchSyncDatabasesResponse, error)
+	// Permissions required: bb.databases.getSchema
 	GetDatabaseMetadata(ctx context.Context, in *GetDatabaseMetadataRequest, opts ...grpc.CallOption) (*DatabaseMetadata, error)
+	// Permissions required: bb.databases.getSchema
 	GetDatabaseSchema(ctx context.Context, in *GetDatabaseSchemaRequest, opts ...grpc.CallOption) (*DatabaseSchema, error)
+	// Permissions required: bb.databases.get
 	DiffSchema(ctx context.Context, in *DiffSchemaRequest, opts ...grpc.CallOption) (*DiffSchemaResponse, error)
+	// Permissions required: bb.databaseSecrets.list
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
+	// Permissions required: bb.databaseSecrets.update
 	UpdateSecret(ctx context.Context, in *UpdateSecretRequest, opts ...grpc.CallOption) (*Secret, error)
+	// Permissions required: bb.databaseSecrets.delete
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ListRevisions(ctx context.Context, in *ListRevisionsRequest, opts ...grpc.CallOption) (*ListRevisionsResponse, error)
-	GetRevision(ctx context.Context, in *GetRevisionRequest, opts ...grpc.CallOption) (*Revision, error)
-	CreateRevision(ctx context.Context, in *CreateRevisionRequest, opts ...grpc.CallOption) (*Revision, error)
-	DeleteRevision(ctx context.Context, in *DeleteRevisionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Permissions required: bb.changelogs.list
 	ListChangelogs(ctx context.Context, in *ListChangelogsRequest, opts ...grpc.CallOption) (*ListChangelogsResponse, error)
+	// Permissions required: changelogs.get
 	GetChangelog(ctx context.Context, in *GetChangelogRequest, opts ...grpc.CallOption) (*Changelog, error)
+	// Permissions required: databases.getSchema
 	GetSchemaString(ctx context.Context, in *GetSchemaStringRequest, opts ...grpc.CallOption) (*GetSchemaStringResponse, error)
 }
 
@@ -134,6 +144,16 @@ func (c *databaseServiceClient) SyncDatabase(ctx context.Context, in *SyncDataba
 	return out, nil
 }
 
+func (c *databaseServiceClient) BatchSyncDatabases(ctx context.Context, in *BatchSyncDatabasesRequest, opts ...grpc.CallOption) (*BatchSyncDatabasesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchSyncDatabasesResponse)
+	err := c.cc.Invoke(ctx, DatabaseService_BatchSyncDatabases_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *databaseServiceClient) GetDatabaseMetadata(ctx context.Context, in *GetDatabaseMetadataRequest, opts ...grpc.CallOption) (*DatabaseMetadata, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DatabaseMetadata)
@@ -194,46 +214,6 @@ func (c *databaseServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecr
 	return out, nil
 }
 
-func (c *databaseServiceClient) ListRevisions(ctx context.Context, in *ListRevisionsRequest, opts ...grpc.CallOption) (*ListRevisionsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListRevisionsResponse)
-	err := c.cc.Invoke(ctx, DatabaseService_ListRevisions_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *databaseServiceClient) GetRevision(ctx context.Context, in *GetRevisionRequest, opts ...grpc.CallOption) (*Revision, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Revision)
-	err := c.cc.Invoke(ctx, DatabaseService_GetRevision_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *databaseServiceClient) CreateRevision(ctx context.Context, in *CreateRevisionRequest, opts ...grpc.CallOption) (*Revision, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(Revision)
-	err := c.cc.Invoke(ctx, DatabaseService_CreateRevision_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *databaseServiceClient) DeleteRevision(ctx context.Context, in *DeleteRevisionRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, DatabaseService_DeleteRevision_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *databaseServiceClient) ListChangelogs(ctx context.Context, in *ListChangelogsRequest, opts ...grpc.CallOption) (*ListChangelogsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListChangelogsResponse)
@@ -268,24 +248,37 @@ func (c *databaseServiceClient) GetSchemaString(ctx context.Context, in *GetSche
 // All implementations must embed UnimplementedDatabaseServiceServer
 // for forward compatibility.
 type DatabaseServiceServer interface {
+	// Permissions required: bb.databases.get
 	GetDatabase(context.Context, *GetDatabaseRequest) (*Database, error)
+	// Permissions required: bb.databases.get
 	BatchGetDatabases(context.Context, *BatchGetDatabasesRequest) (*BatchGetDatabasesResponse, error)
+	// Permissions required: bb.databases.list
 	ListDatabases(context.Context, *ListDatabasesRequest) (*ListDatabasesResponse, error)
+	// Permissions required: bb.databases.update
 	UpdateDatabase(context.Context, *UpdateDatabaseRequest) (*Database, error)
+	// Permissions required: bb.databases.update
 	BatchUpdateDatabases(context.Context, *BatchUpdateDatabasesRequest) (*BatchUpdateDatabasesResponse, error)
+	// Permissions required: bb.databases.sync
 	SyncDatabase(context.Context, *SyncDatabaseRequest) (*SyncDatabaseResponse, error)
+	// Permissions required: bb.databases.sync
+	BatchSyncDatabases(context.Context, *BatchSyncDatabasesRequest) (*BatchSyncDatabasesResponse, error)
+	// Permissions required: bb.databases.getSchema
 	GetDatabaseMetadata(context.Context, *GetDatabaseMetadataRequest) (*DatabaseMetadata, error)
+	// Permissions required: bb.databases.getSchema
 	GetDatabaseSchema(context.Context, *GetDatabaseSchemaRequest) (*DatabaseSchema, error)
+	// Permissions required: bb.databases.get
 	DiffSchema(context.Context, *DiffSchemaRequest) (*DiffSchemaResponse, error)
+	// Permissions required: bb.databaseSecrets.list
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
+	// Permissions required: bb.databaseSecrets.update
 	UpdateSecret(context.Context, *UpdateSecretRequest) (*Secret, error)
+	// Permissions required: bb.databaseSecrets.delete
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*emptypb.Empty, error)
-	ListRevisions(context.Context, *ListRevisionsRequest) (*ListRevisionsResponse, error)
-	GetRevision(context.Context, *GetRevisionRequest) (*Revision, error)
-	CreateRevision(context.Context, *CreateRevisionRequest) (*Revision, error)
-	DeleteRevision(context.Context, *DeleteRevisionRequest) (*emptypb.Empty, error)
+	// Permissions required: bb.changelogs.list
 	ListChangelogs(context.Context, *ListChangelogsRequest) (*ListChangelogsResponse, error)
+	// Permissions required: changelogs.get
 	GetChangelog(context.Context, *GetChangelogRequest) (*Changelog, error)
+	// Permissions required: databases.getSchema
 	GetSchemaString(context.Context, *GetSchemaStringRequest) (*GetSchemaStringResponse, error)
 	mustEmbedUnimplementedDatabaseServiceServer()
 }
@@ -315,6 +308,9 @@ func (UnimplementedDatabaseServiceServer) BatchUpdateDatabases(context.Context, 
 func (UnimplementedDatabaseServiceServer) SyncDatabase(context.Context, *SyncDatabaseRequest) (*SyncDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncDatabase not implemented")
 }
+func (UnimplementedDatabaseServiceServer) BatchSyncDatabases(context.Context, *BatchSyncDatabasesRequest) (*BatchSyncDatabasesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchSyncDatabases not implemented")
+}
 func (UnimplementedDatabaseServiceServer) GetDatabaseMetadata(context.Context, *GetDatabaseMetadataRequest) (*DatabaseMetadata, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabaseMetadata not implemented")
 }
@@ -332,18 +328,6 @@ func (UnimplementedDatabaseServiceServer) UpdateSecret(context.Context, *UpdateS
 }
 func (UnimplementedDatabaseServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSecret not implemented")
-}
-func (UnimplementedDatabaseServiceServer) ListRevisions(context.Context, *ListRevisionsRequest) (*ListRevisionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ListRevisions not implemented")
-}
-func (UnimplementedDatabaseServiceServer) GetRevision(context.Context, *GetRevisionRequest) (*Revision, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetRevision not implemented")
-}
-func (UnimplementedDatabaseServiceServer) CreateRevision(context.Context, *CreateRevisionRequest) (*Revision, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CreateRevision not implemented")
-}
-func (UnimplementedDatabaseServiceServer) DeleteRevision(context.Context, *DeleteRevisionRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteRevision not implemented")
 }
 func (UnimplementedDatabaseServiceServer) ListChangelogs(context.Context, *ListChangelogsRequest) (*ListChangelogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListChangelogs not implemented")
@@ -483,6 +467,24 @@ func _DatabaseService_SyncDatabase_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DatabaseService_BatchSyncDatabases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchSyncDatabasesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DatabaseServiceServer).BatchSyncDatabases(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DatabaseService_BatchSyncDatabases_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DatabaseServiceServer).BatchSyncDatabases(ctx, req.(*BatchSyncDatabasesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DatabaseService_GetDatabaseMetadata_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetDatabaseMetadataRequest)
 	if err := dec(in); err != nil {
@@ -591,78 +593,6 @@ func _DatabaseService_DeleteSecret_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DatabaseService_ListRevisions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListRevisionsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DatabaseServiceServer).ListRevisions(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DatabaseService_ListRevisions_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseServiceServer).ListRevisions(ctx, req.(*ListRevisionsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DatabaseService_GetRevision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetRevisionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DatabaseServiceServer).GetRevision(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DatabaseService_GetRevision_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseServiceServer).GetRevision(ctx, req.(*GetRevisionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DatabaseService_CreateRevision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateRevisionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DatabaseServiceServer).CreateRevision(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DatabaseService_CreateRevision_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseServiceServer).CreateRevision(ctx, req.(*CreateRevisionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _DatabaseService_DeleteRevision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteRevisionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(DatabaseServiceServer).DeleteRevision(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: DatabaseService_DeleteRevision_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DatabaseServiceServer).DeleteRevision(ctx, req.(*DeleteRevisionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _DatabaseService_ListChangelogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListChangelogsRequest)
 	if err := dec(in); err != nil {
@@ -749,6 +679,10 @@ var DatabaseService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DatabaseService_SyncDatabase_Handler,
 		},
 		{
+			MethodName: "BatchSyncDatabases",
+			Handler:    _DatabaseService_BatchSyncDatabases_Handler,
+		},
+		{
 			MethodName: "GetDatabaseMetadata",
 			Handler:    _DatabaseService_GetDatabaseMetadata_Handler,
 		},
@@ -771,22 +705,6 @@ var DatabaseService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSecret",
 			Handler:    _DatabaseService_DeleteSecret_Handler,
-		},
-		{
-			MethodName: "ListRevisions",
-			Handler:    _DatabaseService_ListRevisions_Handler,
-		},
-		{
-			MethodName: "GetRevision",
-			Handler:    _DatabaseService_GetRevision_Handler,
-		},
-		{
-			MethodName: "CreateRevision",
-			Handler:    _DatabaseService_CreateRevision_Handler,
-		},
-		{
-			MethodName: "DeleteRevision",
-			Handler:    _DatabaseService_DeleteRevision_Handler,
 		},
 		{
 			MethodName: "ListChangelogs",

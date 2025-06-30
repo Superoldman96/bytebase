@@ -3,7 +3,7 @@ import type {
   TableCatalog,
   ColumnCatalog,
   ObjectSchema,
-} from "@/types/proto/v1/database_catalog_service";
+} from "@/types/proto-es/v1/database_catalog_service_pb";
 import type { Group } from "@/types/proto/v1/group_service";
 import type { MaskingExceptionPolicy_MaskingException_Action } from "@/types/proto/v1/org_policy_service";
 import { type User } from "@/types/proto/v1/user_service";
@@ -32,5 +32,6 @@ export interface AccessUser {
   supportActions: Set<MaskingExceptionPolicy_MaskingException_Action>;
   expirationTimestamp?: number;
   rawExpression: string;
+  description: string;
   databaseResource?: DatabaseResource;
 }

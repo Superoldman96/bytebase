@@ -62,11 +62,13 @@ export interface SearchProjectsRequest {
   showDeleted: boolean;
   /**
    * Filter the project.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
    * Supported filters:
-   * - name
-   * - resource_id
-   * - exclude_default: if not include the default project.
-   * - state
+   * - name: the project name, support "==" and ".matches()" operator.
+   * - resource_id: the project id, support "==" and ".matches()" operator.
+   * - exclude_default: if not include the default project, should be "true" or "false", support "==" operator.
+   * - state: check the State enum for the values, support "==" operator.
    *
    * For example:
    * name = "project name"
@@ -142,7 +144,12 @@ export interface DeleteProjectRequest {
    * Format: projects/{project}
    */
   name: string;
-  /** If set to true, any databases and sheets from this project will also be moved to default project, and all open issues will be closed. */
+  /**
+   * If set to true, any databases from this project will be moved to default project.
+   * Sheets are not moved since BYTEBASE_ARTIFACT sheets belong to the issue and issue project.
+   * Open issues will remain open but associated with the deleted project.
+   * If set to false, the operation will fail if the project has databases or open issues.
+   */
   force: boolean;
 }
 
@@ -152,6 +159,21 @@ export interface UndeleteProjectRequest {
    * Format: projects/{project}
    */
   name: string;
+}
+
+export interface BatchDeleteProjectsRequest {
+  /**
+   * The names of the projects to delete.
+   * Format: projects/{project}
+   */
+  names: string[];
+  /**
+   * If set to true, any databases from this project will be moved to default project.
+   * Sheets are not moved since BYTEBASE_ARTIFACT sheets belong to the issue and issue project.
+   * Open issues will remain open but associated with the deleted project.
+   * If set to false, the operation will fail if the project has databases or open issues.
+   */
+  force: boolean;
 }
 
 export interface BatchGetIamPolicyRequest {
@@ -201,11 +223,27 @@ export interface Project {
   skipBackupErrors: boolean;
   /**
    * Whether to enable the database tenant mode for PostgreSQL.
-   * If enabled, the issue will be created with the pre-appended "set role <db_owner>" statement.
+   * If enabled, the issue will be created with the prepend "set role <db_owner>" statement.
    */
   postgresDatabaseTenantMode: boolean;
   /** Whether to allow the issue creator to self-approve the issue. */
   allowSelfApproval: boolean;
+  /** Execution retry policy for the task run. */
+  executionRetryPolicy:
+    | Project_ExecutionRetryPolicy
+    | undefined;
+  /**
+   * The maximum databases of rows to sample during CI data validation.
+   * Without specification, sampling is disabled, resulting in a full validation.
+   */
+  ciSamplingSize: number;
+  /** The maximum number of parallel tasks to run during the rollout. */
+  parallelTasksPerRollout: number;
+}
+
+export interface Project_ExecutionRetryPolicy {
+  /** The maximum number of retries for the lock timeout issue. */
+  maximumRetries: number;
 }
 
 export interface AddWebhookRequest {
@@ -402,43 +440,8 @@ export enum Activity_Type {
   TYPE_ISSUE_APPROVAL_NOTIFY = "TYPE_ISSUE_APPROVAL_NOTIFY",
   /** TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE - TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE represents the pipeline stage status change, including BEGIN, END for now. */
   TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE = "TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE",
-  /** TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE - TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE represents the pipeline task status change, including PENDING, PENDING_APPROVAL, RUNNING, SUCCESS, FAILURE, CANCELED for now. */
-  TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE = "TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE",
   /** TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE - TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE represents the pipeline task run status change, including PENDING, RUNNING, DONE, FAILED, CANCELED. */
   TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE = "TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE",
-  /** TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE - TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE represents the manual update of the task statement. */
-  TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE = "TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE",
-  /** TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE - TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE represents the manual update of the task earliest allowed time. */
-  TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE = "TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE",
-  /**
-   * TYPE_MEMBER_CREATE - Member related activity types.
-   *
-   * TYPE_MEMBER_CREATE represents creating a members.
-   */
-  TYPE_MEMBER_CREATE = "TYPE_MEMBER_CREATE",
-  /** TYPE_MEMBER_ROLE_UPDATE - TYPE_MEMBER_ROLE_UPDATE represents updating the member role, for example, from ADMIN to MEMBER. */
-  TYPE_MEMBER_ROLE_UPDATE = "TYPE_MEMBER_ROLE_UPDATE",
-  /** TYPE_MEMBER_ACTIVATE - TYPE_MEMBER_ACTIVATE represents activating a deactivated member. */
-  TYPE_MEMBER_ACTIVATE = "TYPE_MEMBER_ACTIVATE",
-  /** TYPE_MEMBER_DEACTIVATE - TYPE_MEMBER_DEACTIVATE represents deactivating an active member. */
-  TYPE_MEMBER_DEACTIVATE = "TYPE_MEMBER_DEACTIVATE",
-  /**
-   * TYPE_PROJECT_REPOSITORY_PUSH - Project related activity types.
-   *
-   * TYPE_PROJECT_REPOSITORY_PUSH represents Bytebase receiving a push event from the project repository.
-   */
-  TYPE_PROJECT_REPOSITORY_PUSH = "TYPE_PROJECT_REPOSITORY_PUSH",
-  /** TYPE_PROJECT_DATABASE_TRANSFER - TYPE_PROJECT_DATABASE_TRANFER represents transfering the database from one project to another. */
-  TYPE_PROJECT_DATABASE_TRANSFER = "TYPE_PROJECT_DATABASE_TRANSFER",
-  /** TYPE_PROJECT_MEMBER_CREATE - TYPE_PROJECT_MEMBER_CREATE represents adding a member to the project. */
-  TYPE_PROJECT_MEMBER_CREATE = "TYPE_PROJECT_MEMBER_CREATE",
-  /** TYPE_PROJECT_MEMBER_DELETE - TYPE_PROJECT_MEMBER_DELETE represents removing a member from the project. */
-  TYPE_PROJECT_MEMBER_DELETE = "TYPE_PROJECT_MEMBER_DELETE",
-  /**
-   * TYPE_SQL_EDITOR_QUERY - SQL Editor related activity types.
-   * TYPE_SQL_EDITOR_QUERY represents executing query in SQL Editor.
-   */
-  TYPE_SQL_EDITOR_QUERY = "TYPE_SQL_EDITOR_QUERY",
   UNRECOGNIZED = "UNRECOGNIZED",
 }
 
@@ -471,45 +474,9 @@ export function activity_TypeFromJSON(object: any): Activity_Type {
     case 5:
     case "TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE":
       return Activity_Type.TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE;
-    case 6:
-    case "TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE":
-      return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE;
     case 22:
     case "TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE":
       return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE;
-    case 8:
-    case "TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE":
-      return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE;
-    case 9:
-    case "TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE":
-      return Activity_Type.TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE;
-    case 10:
-    case "TYPE_MEMBER_CREATE":
-      return Activity_Type.TYPE_MEMBER_CREATE;
-    case 11:
-    case "TYPE_MEMBER_ROLE_UPDATE":
-      return Activity_Type.TYPE_MEMBER_ROLE_UPDATE;
-    case 12:
-    case "TYPE_MEMBER_ACTIVATE":
-      return Activity_Type.TYPE_MEMBER_ACTIVATE;
-    case 13:
-    case "TYPE_MEMBER_DEACTIVATE":
-      return Activity_Type.TYPE_MEMBER_DEACTIVATE;
-    case 14:
-    case "TYPE_PROJECT_REPOSITORY_PUSH":
-      return Activity_Type.TYPE_PROJECT_REPOSITORY_PUSH;
-    case 15:
-    case "TYPE_PROJECT_DATABASE_TRANSFER":
-      return Activity_Type.TYPE_PROJECT_DATABASE_TRANSFER;
-    case 16:
-    case "TYPE_PROJECT_MEMBER_CREATE":
-      return Activity_Type.TYPE_PROJECT_MEMBER_CREATE;
-    case 17:
-    case "TYPE_PROJECT_MEMBER_DELETE":
-      return Activity_Type.TYPE_PROJECT_MEMBER_DELETE;
-    case 19:
-    case "TYPE_SQL_EDITOR_QUERY":
-      return Activity_Type.TYPE_SQL_EDITOR_QUERY;
     case -1:
     case "UNRECOGNIZED":
     default:
@@ -537,32 +504,8 @@ export function activity_TypeToJSON(object: Activity_Type): string {
       return "TYPE_ISSUE_APPROVAL_NOTIFY";
     case Activity_Type.TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE:
       return "TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE";
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE:
-      return "TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE";
     case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE:
       return "TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE";
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE:
-      return "TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE";
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE:
-      return "TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE";
-    case Activity_Type.TYPE_MEMBER_CREATE:
-      return "TYPE_MEMBER_CREATE";
-    case Activity_Type.TYPE_MEMBER_ROLE_UPDATE:
-      return "TYPE_MEMBER_ROLE_UPDATE";
-    case Activity_Type.TYPE_MEMBER_ACTIVATE:
-      return "TYPE_MEMBER_ACTIVATE";
-    case Activity_Type.TYPE_MEMBER_DEACTIVATE:
-      return "TYPE_MEMBER_DEACTIVATE";
-    case Activity_Type.TYPE_PROJECT_REPOSITORY_PUSH:
-      return "TYPE_PROJECT_REPOSITORY_PUSH";
-    case Activity_Type.TYPE_PROJECT_DATABASE_TRANSFER:
-      return "TYPE_PROJECT_DATABASE_TRANSFER";
-    case Activity_Type.TYPE_PROJECT_MEMBER_CREATE:
-      return "TYPE_PROJECT_MEMBER_CREATE";
-    case Activity_Type.TYPE_PROJECT_MEMBER_DELETE:
-      return "TYPE_PROJECT_MEMBER_DELETE";
-    case Activity_Type.TYPE_SQL_EDITOR_QUERY:
-      return "TYPE_SQL_EDITOR_QUERY";
     case Activity_Type.UNRECOGNIZED:
     default:
       return "UNRECOGNIZED";
@@ -589,32 +532,8 @@ export function activity_TypeToNumber(object: Activity_Type): number {
       return 21;
     case Activity_Type.TYPE_ISSUE_PIPELINE_STAGE_STATUS_UPDATE:
       return 5;
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATUS_UPDATE:
-      return 6;
     case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_RUN_STATUS_UPDATE:
       return 22;
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_STATEMENT_UPDATE:
-      return 8;
-    case Activity_Type.TYPE_ISSUE_PIPELINE_TASK_EARLIEST_ALLOWED_TIME_UPDATE:
-      return 9;
-    case Activity_Type.TYPE_MEMBER_CREATE:
-      return 10;
-    case Activity_Type.TYPE_MEMBER_ROLE_UPDATE:
-      return 11;
-    case Activity_Type.TYPE_MEMBER_ACTIVATE:
-      return 12;
-    case Activity_Type.TYPE_MEMBER_DEACTIVATE:
-      return 13;
-    case Activity_Type.TYPE_PROJECT_REPOSITORY_PUSH:
-      return 14;
-    case Activity_Type.TYPE_PROJECT_DATABASE_TRANSFER:
-      return 15;
-    case Activity_Type.TYPE_PROJECT_MEMBER_CREATE:
-      return 16;
-    case Activity_Type.TYPE_PROJECT_MEMBER_DELETE:
-      return 17;
-    case Activity_Type.TYPE_SQL_EDITOR_QUERY:
-      return 19;
     case Activity_Type.UNRECOGNIZED:
     default:
       return -1;
@@ -1337,6 +1256,82 @@ export const UndeleteProjectRequest: MessageFns<UndeleteProjectRequest> = {
   },
 };
 
+function createBaseBatchDeleteProjectsRequest(): BatchDeleteProjectsRequest {
+  return { names: [], force: false };
+}
+
+export const BatchDeleteProjectsRequest: MessageFns<BatchDeleteProjectsRequest> = {
+  encode(message: BatchDeleteProjectsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.names) {
+      writer.uint32(10).string(v!);
+    }
+    if (message.force !== false) {
+      writer.uint32(16).bool(message.force);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchDeleteProjectsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchDeleteProjectsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.names.push(reader.string());
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.force = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchDeleteProjectsRequest {
+    return {
+      names: globalThis.Array.isArray(object?.names) ? object.names.map((e: any) => globalThis.String(e)) : [],
+      force: isSet(object.force) ? globalThis.Boolean(object.force) : false,
+    };
+  },
+
+  toJSON(message: BatchDeleteProjectsRequest): unknown {
+    const obj: any = {};
+    if (message.names?.length) {
+      obj.names = message.names;
+    }
+    if (message.force !== false) {
+      obj.force = message.force;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchDeleteProjectsRequest>): BatchDeleteProjectsRequest {
+    return BatchDeleteProjectsRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BatchDeleteProjectsRequest>): BatchDeleteProjectsRequest {
+    const message = createBaseBatchDeleteProjectsRequest();
+    message.names = object.names?.map((e) => e) || [];
+    message.force = object.force ?? false;
+    return message;
+  },
+};
+
 function createBaseBatchGetIamPolicyRequest(): BatchGetIamPolicyRequest {
   return { scope: "", names: [] };
 }
@@ -1662,6 +1657,9 @@ function createBaseProject(): Project {
     skipBackupErrors: false,
     postgresDatabaseTenantMode: false,
     allowSelfApproval: false,
+    executionRetryPolicy: undefined,
+    ciSamplingSize: 0,
+    parallelTasksPerRollout: 0,
   };
 }
 
@@ -1708,6 +1706,15 @@ export const Project: MessageFns<Project> = {
     }
     if (message.allowSelfApproval !== false) {
       writer.uint32(168).bool(message.allowSelfApproval);
+    }
+    if (message.executionRetryPolicy !== undefined) {
+      Project_ExecutionRetryPolicy.encode(message.executionRetryPolicy, writer.uint32(178).fork()).join();
+    }
+    if (message.ciSamplingSize !== 0) {
+      writer.uint32(184).int32(message.ciSamplingSize);
+    }
+    if (message.parallelTasksPerRollout !== 0) {
+      writer.uint32(192).int32(message.parallelTasksPerRollout);
     }
     return writer;
   },
@@ -1831,6 +1838,30 @@ export const Project: MessageFns<Project> = {
           message.allowSelfApproval = reader.bool();
           continue;
         }
+        case 22: {
+          if (tag !== 178) {
+            break;
+          }
+
+          message.executionRetryPolicy = Project_ExecutionRetryPolicy.decode(reader, reader.uint32());
+          continue;
+        }
+        case 23: {
+          if (tag !== 184) {
+            break;
+          }
+
+          message.ciSamplingSize = reader.int32();
+          continue;
+        }
+        case 24: {
+          if (tag !== 192) {
+            break;
+          }
+
+          message.parallelTasksPerRollout = reader.int32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1864,6 +1895,13 @@ export const Project: MessageFns<Project> = {
         ? globalThis.Boolean(object.postgresDatabaseTenantMode)
         : false,
       allowSelfApproval: isSet(object.allowSelfApproval) ? globalThis.Boolean(object.allowSelfApproval) : false,
+      executionRetryPolicy: isSet(object.executionRetryPolicy)
+        ? Project_ExecutionRetryPolicy.fromJSON(object.executionRetryPolicy)
+        : undefined,
+      ciSamplingSize: isSet(object.ciSamplingSize) ? globalThis.Number(object.ciSamplingSize) : 0,
+      parallelTasksPerRollout: isSet(object.parallelTasksPerRollout)
+        ? globalThis.Number(object.parallelTasksPerRollout)
+        : 0,
     };
   },
 
@@ -1911,6 +1949,15 @@ export const Project: MessageFns<Project> = {
     if (message.allowSelfApproval !== false) {
       obj.allowSelfApproval = message.allowSelfApproval;
     }
+    if (message.executionRetryPolicy !== undefined) {
+      obj.executionRetryPolicy = Project_ExecutionRetryPolicy.toJSON(message.executionRetryPolicy);
+    }
+    if (message.ciSamplingSize !== 0) {
+      obj.ciSamplingSize = Math.round(message.ciSamplingSize);
+    }
+    if (message.parallelTasksPerRollout !== 0) {
+      obj.parallelTasksPerRollout = Math.round(message.parallelTasksPerRollout);
+    }
     return obj;
   },
 
@@ -1933,6 +1980,69 @@ export const Project: MessageFns<Project> = {
     message.skipBackupErrors = object.skipBackupErrors ?? false;
     message.postgresDatabaseTenantMode = object.postgresDatabaseTenantMode ?? false;
     message.allowSelfApproval = object.allowSelfApproval ?? false;
+    message.executionRetryPolicy = (object.executionRetryPolicy !== undefined && object.executionRetryPolicy !== null)
+      ? Project_ExecutionRetryPolicy.fromPartial(object.executionRetryPolicy)
+      : undefined;
+    message.ciSamplingSize = object.ciSamplingSize ?? 0;
+    message.parallelTasksPerRollout = object.parallelTasksPerRollout ?? 0;
+    return message;
+  },
+};
+
+function createBaseProject_ExecutionRetryPolicy(): Project_ExecutionRetryPolicy {
+  return { maximumRetries: 0 };
+}
+
+export const Project_ExecutionRetryPolicy: MessageFns<Project_ExecutionRetryPolicy> = {
+  encode(message: Project_ExecutionRetryPolicy, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.maximumRetries !== 0) {
+      writer.uint32(8).int32(message.maximumRetries);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): Project_ExecutionRetryPolicy {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseProject_ExecutionRetryPolicy();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.maximumRetries = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): Project_ExecutionRetryPolicy {
+    return { maximumRetries: isSet(object.maximumRetries) ? globalThis.Number(object.maximumRetries) : 0 };
+  },
+
+  toJSON(message: Project_ExecutionRetryPolicy): unknown {
+    const obj: any = {};
+    if (message.maximumRetries !== 0) {
+      obj.maximumRetries = Math.round(message.maximumRetries);
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<Project_ExecutionRetryPolicy>): Project_ExecutionRetryPolicy {
+    return Project_ExecutionRetryPolicy.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<Project_ExecutionRetryPolicy>): Project_ExecutionRetryPolicy {
+    const message = createBaseProject_ExecutionRetryPolicy();
+    message.maximumRetries = object.maximumRetries ?? 0;
     return message;
   },
 };
@@ -2498,6 +2608,11 @@ export const ProjectServiceDefinition = {
   name: "ProjectService",
   fullName: "bytebase.v1.ProjectService",
   methods: {
+    /**
+     * GetProject retrieves a project by name.
+     * Users with "bb.projects.get" permission on the workspace or the project owner can access this method.
+     * Permissions required: bb.projects.get
+     */
     getProject: {
       name: "GetProject",
       requestType: GetProjectRequest,
@@ -2540,6 +2655,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.list */
     listProjects: {
       name: "ListProjects",
       requestType: ListProjectsRequest,
@@ -2555,6 +2671,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: None */
     searchProjects: {
       name: "SearchProjects",
       requestType: SearchProjectsRequest,
@@ -2597,6 +2714,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.create */
     createProject: {
       name: "CreateProject",
       requestType: CreateProjectRequest,
@@ -2641,6 +2759,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.update */
     updateProject: {
       name: "UpdateProject",
       requestType: UpdateProjectRequest,
@@ -2725,6 +2844,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.delete */
     deleteProject: {
       name: "DeleteProject",
       requestType: DeleteProjectRequest,
@@ -2769,6 +2889,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.undelete */
     undeleteProject: {
       name: "UndeleteProject",
       requestType: UndeleteProjectRequest,
@@ -2846,6 +2967,57 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.delete */
+    batchDeleteProjects: {
+      name: "BatchDeleteProjects",
+      requestType: BatchDeleteProjectsRequest,
+      requestStream: false,
+      responseType: Empty,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          800010: [
+            new Uint8Array([18, 98, 98, 46, 112, 114, 111, 106, 101, 99, 116, 115, 46, 100, 101, 108, 101, 116, 101]),
+          ],
+          800016: [new Uint8Array([1])],
+          578365826: [
+            new Uint8Array([
+              29,
+              58,
+              1,
+              42,
+              34,
+              24,
+              47,
+              118,
+              49,
+              47,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              68,
+              101,
+              108,
+              101,
+              116,
+              101,
+            ]),
+          ],
+        },
+      },
+    },
+    /** Permissions required: bb.projects.getIamPolicy */
     getIamPolicy: {
       name: "GetIamPolicy",
       requestType: GetIamPolicyRequest,
@@ -2932,7 +3104,10 @@ export const ProjectServiceDefinition = {
         },
       },
     },
-    /** Deprecated. */
+    /**
+     * Deprecated.
+     * Permissions required: bb.projects.getIamPolicy
+     */
     batchGetIamPolicy: {
       name: "BatchGetIamPolicy",
       requestType: BatchGetIamPolicyRequest,
@@ -3017,6 +3192,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.setIamPolicy */
     setIamPolicy: {
       name: "SetIamPolicy",
       requestType: SetIamPolicyRequest,
@@ -3107,6 +3283,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.update */
     addWebhook: {
       name: "AddWebhook",
       requestType: AddWebhookRequest,
@@ -3167,6 +3344,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.update */
     updateWebhook: {
       name: "UpdateWebhook",
       requestType: UpdateWebhookRequest,
@@ -3270,6 +3448,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.update */
     removeWebhook: {
       name: "RemoveWebhook",
       requestType: RemoveWebhookRequest,
@@ -3349,6 +3528,7 @@ export const ProjectServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.projects.update */
     testWebhook: {
       name: "TestWebhook",
       requestType: TestWebhookRequest,

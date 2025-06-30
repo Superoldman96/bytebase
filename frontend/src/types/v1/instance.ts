@@ -1,13 +1,11 @@
+import { environmentNamePrefix } from "@/store";
+import type { Environment } from "@/types/v1/environment";
 import { EMPTY_ID, UNKNOWN_ID } from "../const";
-import { Engine, State } from "../proto/v1/common";
-import type { Environment } from "../proto/v1/environment_service";
-import { Instance, InstanceResource } from "../proto/v1/instance_service";
-import {
-  EMPTY_ENVIRONMENT_NAME,
-  emptyEnvironment,
-  UNKNOWN_ENVIRONMENT_NAME,
-  unknownEnvironment,
-} from "./environment";
+import { Engine, State } from "../proto-es/v1/common_pb";
+import type { Instance, InstanceResource } from "../proto-es/v1/instance_service_pb";
+import { create } from "@bufbuild/protobuf";
+import { InstanceSchema, InstanceResourceSchema } from "../proto-es/v1/instance_service_pb";
+import { UNKNOWN_ENVIRONMENT_NAME, unknownEnvironment } from "./environment";
 
 export const EMPTY_INSTANCE_NAME = `instances/${EMPTY_ID}`;
 export const UNKNOWN_INSTANCE_NAME = `instances/${UNKNOWN_ID}`;
@@ -16,60 +14,31 @@ export interface ComposedInstance extends Instance {
   environmentEntity: Environment;
 }
 
-export const emptyInstance = (): ComposedInstance => {
-  const environmentEntity = emptyEnvironment();
-  const instance = Instance.fromJSON({
-    name: EMPTY_INSTANCE_NAME,
-    uid: String(EMPTY_ID),
-    state: State.ACTIVE,
-    title: "",
-    engine: Engine.MYSQL,
-    environment: environmentEntity.name,
-  });
-  return {
-    ...instance,
-    environmentEntity,
-  };
-};
-
 export const unknownInstance = (): ComposedInstance => {
   const environmentEntity = unknownEnvironment();
-  const instance = {
-    ...emptyInstance(),
+  const instance = create(InstanceSchema, {
     name: UNKNOWN_INSTANCE_NAME,
-    uid: String(UNKNOWN_ID),
+    state: State.ACTIVE,
     title: "<<Unknown instance>>",
-    environment: environmentEntity.name,
-  };
-  return {
-    ...instance,
-    environmentEntity,
-  };
-};
-
-export const emptyInstanceResource = (): InstanceResource => {
-  const instance = InstanceResource.fromJSON({
-    title: "",
     engine: Engine.MYSQL,
+    environment: `${environmentNamePrefix}${environmentEntity.id}`,
   });
   return {
     ...instance,
-    name: EMPTY_INSTANCE_NAME,
-    environment: EMPTY_ENVIRONMENT_NAME,
+    environmentEntity,
   };
 };
 
 export const unknownInstanceResource = (): InstanceResource => {
-  const instance = {
-    ...emptyInstance(),
-    title: "<<Unknown instance>>",
-  };
-  return {
-    ...instance,
+  const instance = unknownInstance();
+  return create(InstanceResourceSchema, {
     name: UNKNOWN_INSTANCE_NAME,
+    engine: instance.engine,
+    title: "<<Unknown instance>>",
+    activation: true,    
+    dataSources: [],
     environment: UNKNOWN_ENVIRONMENT_NAME,
-    activation: true,
-  };
+  });
 };
 
 export const isValidInstanceName = (name: any): name is string => {

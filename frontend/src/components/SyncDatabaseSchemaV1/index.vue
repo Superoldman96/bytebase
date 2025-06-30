@@ -3,7 +3,7 @@
     <p class="text-sm text-gray-500">
       {{ $t("database.sync-schema.description") }}
       <LearnMoreLink
-        url="https://www.bytebase.com/docs/change-database/synchronize-schema?source=console"
+        url="https://docs.bytebase.com/change-database/synchronize-schema?source=console"
       />
     </p>
 
@@ -91,8 +91,8 @@ import {
 } from "@/store";
 import type { ComposedProject } from "@/types";
 import { isValidDatabaseName, isValidEnvironmentName } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
-import { ChangelogView } from "@/types/proto/v1/database_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import { ChangelogView } from "@/types/proto-es/v1/database_service_pb";
 import { extractProjectResourceName, generateIssueTitle } from "@/utils";
 import {
   extractDatabaseNameAndChangelogUID,
@@ -155,7 +155,7 @@ const sourceSchemaString = asyncComputed(async () => {
       return "";
     } else if (isValidDatabaseName(changelogSourceSchemaState.databaseName)) {
       const databaseSchema = await databaseStore.fetchDatabaseSchema(
-        `${changelogSourceSchemaState.databaseName}/schema`
+        changelogSourceSchemaState.databaseName
       );
       return databaseSchema.schema;
     }
@@ -192,7 +192,7 @@ onMounted(async () => {
     // Prepare source schema from the selected changelog.
     await changelogStore.getOrFetchChangelogByName(
       changelogName,
-      ChangelogView.CHANGELOG_VIEW_FULL
+      ChangelogView.FULL
     );
     const { databaseName } = extractDatabaseNameAndChangelogUID(changelogName);
     const database = await databaseStore.getOrFetchDatabaseByName(databaseName);
@@ -281,7 +281,7 @@ const tryChangeStep = async (nextStepIndex: number) => {
     if (changelogSourceSchemaState?.changelogName) {
       await changelogStore.getOrFetchChangelogByName(
         changelogSourceSchemaState.changelogName,
-        ChangelogView.CHANGELOG_VIEW_FULL
+        ChangelogView.FULL
       );
     }
   }

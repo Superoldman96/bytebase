@@ -10,6 +10,7 @@ import Long from "long";
 import { Duration } from "../google/protobuf/duration";
 import { Empty } from "../google/protobuf/empty";
 import { FieldMask } from "../google/protobuf/field_mask";
+import { Timestamp } from "../google/protobuf/timestamp";
 import {
   Engine,
   engineFromJSON,
@@ -104,16 +105,18 @@ export interface ListInstancesRequest {
   /** Show deleted instances if specified. */
   showDeleted: boolean;
   /**
-   * Filter the project.
+   * Filter the instance.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
    * Supported filters:
-   * - name
-   * - resource_id
-   * - environment
-   * - state
-   * - engine
-   * - host
-   * - port
-   * - project
+   * - name: the instance name, support "==" and ".matches()" operator.
+   * - resource_id: the instance id, support "==" and ".matches()" operator.
+   * - environment: the environment full name in "environments/{id}" format, support "==" operator.
+   * - state: the instance state, check State enum for values, support "==" operator.
+   * - engine: the instance engine, check Engine enum for values. Support "==", "in [xx]", "!(in [xx])" operator.
+   * - host: the instance host, support "==" and ".matches()" operator.
+   * - port: the instance port, support "==" and ".matches()" operator.
+   * - project: the project full name in "projects/{id}" format, support "==" operator.
    *
    * For example:
    * name == "sample instance"
@@ -126,7 +129,9 @@ export interface ListInstancesRequest {
    * engine in ["MYSQL", "POSTGRES"]
    * !(engine in ["MYSQL", "POSTGRES"])
    * host == "127.0.0.1"
+   * host.matches("127.0")
    * port == "54321"
+   * port.matches("543")
    * project == "projects/sample-project"
    * You can combine filter conditions like:
    * name.matches("sample") && environment == "environments/test"
@@ -238,6 +243,15 @@ export interface BatchSyncInstancesRequest {
 export interface BatchSyncInstancesResponse {
 }
 
+export interface BatchUpdateInstancesRequest {
+  /** The request message specifying the resources to update. */
+  requests: UpdateInstanceRequest[];
+}
+
+export interface BatchUpdateInstancesResponse {
+  instances: Instance[];
+}
+
 export interface AddDataSourceRequest {
   /**
    * The name of the instance to add a data source to.
@@ -319,6 +333,8 @@ export interface Instance {
    * Default empty, means sync all schemas & databases.
    */
   syncDatabases: string[];
+  /** The last time the instance was synced. */
+  lastSyncTime: Timestamp | undefined;
 }
 
 export interface DataSourceExternalSecret {
@@ -576,7 +592,9 @@ export interface DataSource {
   authenticationPrivateKey: string;
   externalSecret: DataSourceExternalSecret | undefined;
   authenticationType: DataSource_AuthenticationType;
-  clientSecretCredential?: DataSource_ClientSecretCredential | undefined;
+  azureCredential?: DataSource_AzureCredential | undefined;
+  awsCredential?: DataSource_AWSCredential | undefined;
+  gcpCredential?: DataSource_GCPCredential | undefined;
   saslConfig:
     | SASLConfig
     | undefined;
@@ -733,10 +751,20 @@ export function dataSource_RedisTypeToNumber(object: DataSource_RedisType): numb
   }
 }
 
-export interface DataSource_ClientSecretCredential {
+export interface DataSource_AzureCredential {
   tenantId: string;
   clientId: string;
   clientSecret: string;
+}
+
+export interface DataSource_AWSCredential {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken: string;
+}
+
+export interface DataSource_GCPCredential {
+  content: string;
 }
 
 export interface DataSource_Address {
@@ -1714,6 +1742,130 @@ export const BatchSyncInstancesResponse: MessageFns<BatchSyncInstancesResponse> 
   },
 };
 
+function createBaseBatchUpdateInstancesRequest(): BatchUpdateInstancesRequest {
+  return { requests: [] };
+}
+
+export const BatchUpdateInstancesRequest: MessageFns<BatchUpdateInstancesRequest> = {
+  encode(message: BatchUpdateInstancesRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.requests) {
+      UpdateInstanceRequest.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchUpdateInstancesRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchUpdateInstancesRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.requests.push(UpdateInstanceRequest.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchUpdateInstancesRequest {
+    return {
+      requests: globalThis.Array.isArray(object?.requests)
+        ? object.requests.map((e: any) => UpdateInstanceRequest.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: BatchUpdateInstancesRequest): unknown {
+    const obj: any = {};
+    if (message.requests?.length) {
+      obj.requests = message.requests.map((e) => UpdateInstanceRequest.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchUpdateInstancesRequest>): BatchUpdateInstancesRequest {
+    return BatchUpdateInstancesRequest.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BatchUpdateInstancesRequest>): BatchUpdateInstancesRequest {
+    const message = createBaseBatchUpdateInstancesRequest();
+    message.requests = object.requests?.map((e) => UpdateInstanceRequest.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseBatchUpdateInstancesResponse(): BatchUpdateInstancesResponse {
+  return { instances: [] };
+}
+
+export const BatchUpdateInstancesResponse: MessageFns<BatchUpdateInstancesResponse> = {
+  encode(message: BatchUpdateInstancesResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.instances) {
+      Instance.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): BatchUpdateInstancesResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseBatchUpdateInstancesResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.instances.push(Instance.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): BatchUpdateInstancesResponse {
+    return {
+      instances: globalThis.Array.isArray(object?.instances)
+        ? object.instances.map((e: any) => Instance.fromJSON(e))
+        : [],
+    };
+  },
+
+  toJSON(message: BatchUpdateInstancesResponse): unknown {
+    const obj: any = {};
+    if (message.instances?.length) {
+      obj.instances = message.instances.map((e) => Instance.toJSON(e));
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<BatchUpdateInstancesResponse>): BatchUpdateInstancesResponse {
+    return BatchUpdateInstancesResponse.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<BatchUpdateInstancesResponse>): BatchUpdateInstancesResponse {
+    const message = createBaseBatchUpdateInstancesResponse();
+    message.instances = object.instances?.map((e) => Instance.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseAddDataSourceRequest(): AddDataSourceRequest {
   return { name: "", dataSource: undefined, validateOnly: false };
 }
@@ -2011,6 +2163,7 @@ function createBaseInstance(): Instance {
     syncInterval: undefined,
     maximumConnections: 0,
     syncDatabases: [],
+    lastSyncTime: undefined,
   };
 }
 
@@ -2054,6 +2207,9 @@ export const Instance: MessageFns<Instance> = {
     }
     for (const v of message.syncDatabases) {
       writer.uint32(122).string(v!);
+    }
+    if (message.lastSyncTime !== undefined) {
+      Timestamp.encode(message.lastSyncTime, writer.uint32(130).fork()).join();
     }
     return writer;
   },
@@ -2169,6 +2325,14 @@ export const Instance: MessageFns<Instance> = {
           message.syncDatabases.push(reader.string());
           continue;
         }
+        case 16: {
+          if (tag !== 130) {
+            break;
+          }
+
+          message.lastSyncTime = Timestamp.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2197,6 +2361,7 @@ export const Instance: MessageFns<Instance> = {
       syncDatabases: globalThis.Array.isArray(object?.syncDatabases)
         ? object.syncDatabases.map((e: any) => globalThis.String(e))
         : [],
+      lastSyncTime: isSet(object.lastSyncTime) ? fromJsonTimestamp(object.lastSyncTime) : undefined,
     };
   },
 
@@ -2241,6 +2406,9 @@ export const Instance: MessageFns<Instance> = {
     if (message.syncDatabases?.length) {
       obj.syncDatabases = message.syncDatabases;
     }
+    if (message.lastSyncTime !== undefined) {
+      obj.lastSyncTime = fromTimestamp(message.lastSyncTime).toISOString();
+    }
     return obj;
   },
 
@@ -2264,6 +2432,9 @@ export const Instance: MessageFns<Instance> = {
       : undefined;
     message.maximumConnections = object.maximumConnections ?? 0;
     message.syncDatabases = object.syncDatabases?.map((e) => e) || [];
+    message.lastSyncTime = (object.lastSyncTime !== undefined && object.lastSyncTime !== null)
+      ? Timestamp.fromPartial(object.lastSyncTime)
+      : undefined;
     return message;
   },
 };
@@ -2598,7 +2769,9 @@ function createBaseDataSource(): DataSource {
     authenticationPrivateKey: "",
     externalSecret: undefined,
     authenticationType: DataSource_AuthenticationType.AUTHENTICATION_UNSPECIFIED,
-    clientSecretCredential: undefined,
+    azureCredential: undefined,
+    awsCredential: undefined,
+    gcpCredential: undefined,
     saslConfig: undefined,
     additionalAddresses: [],
     directConnection: false,
@@ -2687,8 +2860,14 @@ export const DataSource: MessageFns<DataSource> = {
     if (message.authenticationType !== DataSource_AuthenticationType.AUTHENTICATION_UNSPECIFIED) {
       writer.uint32(176).int32(dataSource_AuthenticationTypeToNumber(message.authenticationType));
     }
-    if (message.clientSecretCredential !== undefined) {
-      DataSource_ClientSecretCredential.encode(message.clientSecretCredential, writer.uint32(186).fork()).join();
+    if (message.azureCredential !== undefined) {
+      DataSource_AzureCredential.encode(message.azureCredential, writer.uint32(186).fork()).join();
+    }
+    if (message.awsCredential !== undefined) {
+      DataSource_AWSCredential.encode(message.awsCredential, writer.uint32(298).fork()).join();
+    }
+    if (message.gcpCredential !== undefined) {
+      DataSource_GCPCredential.encode(message.gcpCredential, writer.uint32(306).fork()).join();
     }
     if (message.saslConfig !== undefined) {
       SASLConfig.encode(message.saslConfig, writer.uint32(194).fork()).join();
@@ -2930,7 +3109,23 @@ export const DataSource: MessageFns<DataSource> = {
             break;
           }
 
-          message.clientSecretCredential = DataSource_ClientSecretCredential.decode(reader, reader.uint32());
+          message.azureCredential = DataSource_AzureCredential.decode(reader, reader.uint32());
+          continue;
+        }
+        case 37: {
+          if (tag !== 298) {
+            break;
+          }
+
+          message.awsCredential = DataSource_AWSCredential.decode(reader, reader.uint32());
+          continue;
+        }
+        case 38: {
+          if (tag !== 306) {
+            break;
+          }
+
+          message.gcpCredential = DataSource_GCPCredential.decode(reader, reader.uint32());
           continue;
         }
         case 24: {
@@ -3067,9 +3262,11 @@ export const DataSource: MessageFns<DataSource> = {
       authenticationType: isSet(object.authenticationType)
         ? dataSource_AuthenticationTypeFromJSON(object.authenticationType)
         : DataSource_AuthenticationType.AUTHENTICATION_UNSPECIFIED,
-      clientSecretCredential: isSet(object.clientSecretCredential)
-        ? DataSource_ClientSecretCredential.fromJSON(object.clientSecretCredential)
+      azureCredential: isSet(object.azureCredential)
+        ? DataSource_AzureCredential.fromJSON(object.azureCredential)
         : undefined,
+      awsCredential: isSet(object.awsCredential) ? DataSource_AWSCredential.fromJSON(object.awsCredential) : undefined,
+      gcpCredential: isSet(object.gcpCredential) ? DataSource_GCPCredential.fromJSON(object.gcpCredential) : undefined,
       saslConfig: isSet(object.saslConfig) ? SASLConfig.fromJSON(object.saslConfig) : undefined,
       additionalAddresses: globalThis.Array.isArray(object?.additionalAddresses)
         ? object.additionalAddresses.map((e: any) => DataSource_Address.fromJSON(e))
@@ -3167,8 +3364,14 @@ export const DataSource: MessageFns<DataSource> = {
     if (message.authenticationType !== DataSource_AuthenticationType.AUTHENTICATION_UNSPECIFIED) {
       obj.authenticationType = dataSource_AuthenticationTypeToJSON(message.authenticationType);
     }
-    if (message.clientSecretCredential !== undefined) {
-      obj.clientSecretCredential = DataSource_ClientSecretCredential.toJSON(message.clientSecretCredential);
+    if (message.azureCredential !== undefined) {
+      obj.azureCredential = DataSource_AzureCredential.toJSON(message.azureCredential);
+    }
+    if (message.awsCredential !== undefined) {
+      obj.awsCredential = DataSource_AWSCredential.toJSON(message.awsCredential);
+    }
+    if (message.gcpCredential !== undefined) {
+      obj.gcpCredential = DataSource_GCPCredential.toJSON(message.gcpCredential);
     }
     if (message.saslConfig !== undefined) {
       obj.saslConfig = SASLConfig.toJSON(message.saslConfig);
@@ -3243,10 +3446,15 @@ export const DataSource: MessageFns<DataSource> = {
       ? DataSourceExternalSecret.fromPartial(object.externalSecret)
       : undefined;
     message.authenticationType = object.authenticationType ?? DataSource_AuthenticationType.AUTHENTICATION_UNSPECIFIED;
-    message.clientSecretCredential =
-      (object.clientSecretCredential !== undefined && object.clientSecretCredential !== null)
-        ? DataSource_ClientSecretCredential.fromPartial(object.clientSecretCredential)
-        : undefined;
+    message.azureCredential = (object.azureCredential !== undefined && object.azureCredential !== null)
+      ? DataSource_AzureCredential.fromPartial(object.azureCredential)
+      : undefined;
+    message.awsCredential = (object.awsCredential !== undefined && object.awsCredential !== null)
+      ? DataSource_AWSCredential.fromPartial(object.awsCredential)
+      : undefined;
+    message.gcpCredential = (object.gcpCredential !== undefined && object.gcpCredential !== null)
+      ? DataSource_GCPCredential.fromPartial(object.gcpCredential)
+      : undefined;
     message.saslConfig = (object.saslConfig !== undefined && object.saslConfig !== null)
       ? SASLConfig.fromPartial(object.saslConfig)
       : undefined;
@@ -3271,12 +3479,12 @@ export const DataSource: MessageFns<DataSource> = {
   },
 };
 
-function createBaseDataSource_ClientSecretCredential(): DataSource_ClientSecretCredential {
+function createBaseDataSource_AzureCredential(): DataSource_AzureCredential {
   return { tenantId: "", clientId: "", clientSecret: "" };
 }
 
-export const DataSource_ClientSecretCredential: MessageFns<DataSource_ClientSecretCredential> = {
-  encode(message: DataSource_ClientSecretCredential, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const DataSource_AzureCredential: MessageFns<DataSource_AzureCredential> = {
+  encode(message: DataSource_AzureCredential, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.tenantId !== "") {
       writer.uint32(10).string(message.tenantId);
     }
@@ -3289,10 +3497,10 @@ export const DataSource_ClientSecretCredential: MessageFns<DataSource_ClientSecr
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): DataSource_ClientSecretCredential {
+  decode(input: BinaryReader | Uint8Array, length?: number): DataSource_AzureCredential {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     let end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseDataSource_ClientSecretCredential();
+    const message = createBaseDataSource_AzureCredential();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3329,7 +3537,7 @@ export const DataSource_ClientSecretCredential: MessageFns<DataSource_ClientSecr
     return message;
   },
 
-  fromJSON(object: any): DataSource_ClientSecretCredential {
+  fromJSON(object: any): DataSource_AzureCredential {
     return {
       tenantId: isSet(object.tenantId) ? globalThis.String(object.tenantId) : "",
       clientId: isSet(object.clientId) ? globalThis.String(object.clientId) : "",
@@ -3337,7 +3545,7 @@ export const DataSource_ClientSecretCredential: MessageFns<DataSource_ClientSecr
     };
   },
 
-  toJSON(message: DataSource_ClientSecretCredential): unknown {
+  toJSON(message: DataSource_AzureCredential): unknown {
     const obj: any = {};
     if (message.tenantId !== "") {
       obj.tenantId = message.tenantId;
@@ -3351,14 +3559,164 @@ export const DataSource_ClientSecretCredential: MessageFns<DataSource_ClientSecr
     return obj;
   },
 
-  create(base?: DeepPartial<DataSource_ClientSecretCredential>): DataSource_ClientSecretCredential {
-    return DataSource_ClientSecretCredential.fromPartial(base ?? {});
+  create(base?: DeepPartial<DataSource_AzureCredential>): DataSource_AzureCredential {
+    return DataSource_AzureCredential.fromPartial(base ?? {});
   },
-  fromPartial(object: DeepPartial<DataSource_ClientSecretCredential>): DataSource_ClientSecretCredential {
-    const message = createBaseDataSource_ClientSecretCredential();
+  fromPartial(object: DeepPartial<DataSource_AzureCredential>): DataSource_AzureCredential {
+    const message = createBaseDataSource_AzureCredential();
     message.tenantId = object.tenantId ?? "";
     message.clientId = object.clientId ?? "";
     message.clientSecret = object.clientSecret ?? "";
+    return message;
+  },
+};
+
+function createBaseDataSource_AWSCredential(): DataSource_AWSCredential {
+  return { accessKeyId: "", secretAccessKey: "", sessionToken: "" };
+}
+
+export const DataSource_AWSCredential: MessageFns<DataSource_AWSCredential> = {
+  encode(message: DataSource_AWSCredential, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.accessKeyId !== "") {
+      writer.uint32(10).string(message.accessKeyId);
+    }
+    if (message.secretAccessKey !== "") {
+      writer.uint32(18).string(message.secretAccessKey);
+    }
+    if (message.sessionToken !== "") {
+      writer.uint32(26).string(message.sessionToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DataSource_AWSCredential {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDataSource_AWSCredential();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.accessKeyId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.secretAccessKey = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sessionToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DataSource_AWSCredential {
+    return {
+      accessKeyId: isSet(object.accessKeyId) ? globalThis.String(object.accessKeyId) : "",
+      secretAccessKey: isSet(object.secretAccessKey) ? globalThis.String(object.secretAccessKey) : "",
+      sessionToken: isSet(object.sessionToken) ? globalThis.String(object.sessionToken) : "",
+    };
+  },
+
+  toJSON(message: DataSource_AWSCredential): unknown {
+    const obj: any = {};
+    if (message.accessKeyId !== "") {
+      obj.accessKeyId = message.accessKeyId;
+    }
+    if (message.secretAccessKey !== "") {
+      obj.secretAccessKey = message.secretAccessKey;
+    }
+    if (message.sessionToken !== "") {
+      obj.sessionToken = message.sessionToken;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DataSource_AWSCredential>): DataSource_AWSCredential {
+    return DataSource_AWSCredential.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DataSource_AWSCredential>): DataSource_AWSCredential {
+    const message = createBaseDataSource_AWSCredential();
+    message.accessKeyId = object.accessKeyId ?? "";
+    message.secretAccessKey = object.secretAccessKey ?? "";
+    message.sessionToken = object.sessionToken ?? "";
+    return message;
+  },
+};
+
+function createBaseDataSource_GCPCredential(): DataSource_GCPCredential {
+  return { content: "" };
+}
+
+export const DataSource_GCPCredential: MessageFns<DataSource_GCPCredential> = {
+  encode(message: DataSource_GCPCredential, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.content !== "") {
+      writer.uint32(10).string(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): DataSource_GCPCredential {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseDataSource_GCPCredential();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): DataSource_GCPCredential {
+    return { content: isSet(object.content) ? globalThis.String(object.content) : "" };
+  },
+
+  toJSON(message: DataSource_GCPCredential): unknown {
+    const obj: any = {};
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<DataSource_GCPCredential>): DataSource_GCPCredential {
+    return DataSource_GCPCredential.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<DataSource_GCPCredential>): DataSource_GCPCredential {
+    const message = createBaseDataSource_GCPCredential();
+    message.content = object.content ?? "";
     return message;
   },
 };
@@ -3912,6 +4270,7 @@ export const InstanceServiceDefinition = {
   name: "InstanceService",
   fullName: "bytebase.v1.InstanceService",
   methods: {
+    /** Permissions required: bb.instances.get */
     getInstance: {
       name: "GetInstance",
       requestType: GetInstanceRequest,
@@ -3955,6 +4314,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.list */
     listInstances: {
       name: "ListInstances",
       requestType: ListInstancesRequest,
@@ -3970,6 +4330,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.create */
     createInstance: {
       name: "CreateInstance",
       requestType: CreateInstanceRequest,
@@ -4017,6 +4378,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.update */
     updateInstance: {
       name: "UpdateInstance",
       requestType: UpdateInstanceRequest,
@@ -4127,6 +4489,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.delete */
     deleteInstance: {
       name: "DeleteInstance",
       requestType: DeleteInstanceRequest,
@@ -4194,6 +4557,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.undelete */
     undeleteInstance: {
       name: "UndeleteInstance",
       requestType: UndeleteInstanceRequest,
@@ -4274,6 +4638,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.sync */
     syncInstance: {
       name: "SyncInstance",
       requestType: SyncInstanceRequest,
@@ -4324,6 +4689,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.get */
     listInstanceDatabase: {
       name: "ListInstanceDatabase",
       requestType: ListInstanceDatabaseRequest,
@@ -4379,6 +4745,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.sync */
     batchSyncInstances: {
       name: "BatchSyncInstances",
       requestType: BatchSyncInstancesRequest,
@@ -4425,6 +4792,80 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.update */
+    batchUpdateInstances: {
+      name: "BatchUpdateInstances",
+      requestType: BatchUpdateInstancesRequest,
+      requestStream: false,
+      responseType: BatchUpdateInstancesResponse,
+      responseStream: false,
+      options: {
+        _unknownFields: {
+          800010: [
+            new Uint8Array([
+              19,
+              98,
+              98,
+              46,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              46,
+              117,
+              112,
+              100,
+              97,
+              116,
+              101,
+            ]),
+          ],
+          800016: [new Uint8Array([1])],
+          800024: [new Uint8Array([1])],
+          578365826: [
+            new Uint8Array([
+              30,
+              58,
+              1,
+              42,
+              34,
+              25,
+              47,
+              118,
+              49,
+              47,
+              105,
+              110,
+              115,
+              116,
+              97,
+              110,
+              99,
+              101,
+              115,
+              58,
+              98,
+              97,
+              116,
+              99,
+              104,
+              85,
+              112,
+              100,
+              97,
+              116,
+              101,
+            ]),
+          ],
+        },
+      },
+    },
+    /** Permissions required: bb.instances.update */
     addDataSource: {
       name: "AddDataSource",
       requestType: AddDataSourceRequest,
@@ -4508,6 +4949,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.update */
     removeDataSource: {
       name: "RemoveDataSource",
       requestType: RemoveDataSourceRequest,
@@ -4594,6 +5036,7 @@ export const InstanceServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.instances.update */
     updateDataSource: {
       name: "UpdateDataSource",
       requestType: UpdateDataSourceRequest,
@@ -4707,6 +5150,32 @@ export type DeepPartial<T> = T extends Builtin ? T
   : T extends ReadonlyArray<infer U> ? ReadonlyArray<DeepPartial<U>>
   : T extends {} ? { [K in keyof T]?: DeepPartial<T[K]> }
   : Partial<T>;
+
+function toTimestamp(date: Date): Timestamp {
+  const seconds = numberToLong(Math.trunc(date.getTime() / 1_000));
+  const nanos = (date.getTime() % 1_000) * 1_000_000;
+  return { seconds, nanos };
+}
+
+function fromTimestamp(t: Timestamp): Date {
+  let millis = (t.seconds.toNumber() || 0) * 1_000;
+  millis += (t.nanos || 0) / 1_000_000;
+  return new globalThis.Date(millis);
+}
+
+function fromJsonTimestamp(o: any): Timestamp {
+  if (o instanceof globalThis.Date) {
+    return toTimestamp(o);
+  } else if (typeof o === "string") {
+    return toTimestamp(new globalThis.Date(o));
+  } else {
+    return Timestamp.fromJSON(o);
+  }
+}
+
+function numberToLong(number: number) {
+  return Long.fromNumber(number);
+}
 
 function isObject(value: any): boolean {
   return typeof value === "object" && value !== null;

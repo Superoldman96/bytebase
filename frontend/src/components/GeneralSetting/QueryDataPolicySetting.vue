@@ -4,7 +4,7 @@
       <span class="mr-2">
         {{ $t("settings.general.workspace.query-data-policy.timeout.self") }}
       </span>
-      <FeatureBadge feature="bb.feature.access-control" />
+      <FeatureBadge :feature="PlanFeature.FEATURE_QUERY_POLICY" />
     </p>
     <p class="text-sm text-gray-400 mt-1">
       {{
@@ -32,23 +32,26 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { NInputNumber } from "naive-ui";
-import { ref, computed } from "vue";
+import { computed, ref } from "vue";
 import {
   featureToRef,
   usePolicyByParentAndType,
   usePolicyV1Store,
 } from "@/store";
-import { Duration } from "@/types/proto/google/protobuf/duration";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import {
   PolicyResourceType,
   PolicyType,
 } from "@/types/proto/v1/org_policy_service";
 import { hasWorkspacePermissionV2 } from "@/utils";
+import { convertDurationToOld } from "@/utils/v1/common-conversions";
 import { FeatureBadge } from "../FeatureGuard";
 
 const policyV1Store = usePolicyV1Store();
-const hasAccessControlFeature = featureToRef("bb.feature.access-control");
+const hasQueryPolicyFeature = featureToRef(PlanFeature.FEATURE_QUERY_POLICY);
 
 const { policy: queryDataPolicy } = usePolicyByParentAndType(
   computed(() => ({
@@ -60,7 +63,7 @@ const { policy: queryDataPolicy } = usePolicyByParentAndType(
 const allowEdit = computed(
   () =>
     hasWorkspacePermissionV2("bb.policies.update") &&
-    hasAccessControlFeature.value
+    hasQueryPolicyFeature.value
 );
 
 const initialState = () => {
@@ -83,7 +86,9 @@ const updateChange = async () => {
       type: PolicyType.DATA_QUERY,
       resourceType: PolicyResourceType.WORKSPACE,
       queryDataPolicy: {
-        timeout: Duration.fromPartial({ seconds: seconds.value }),
+        timeout: convertDurationToOld(
+          create(DurationSchema, { seconds: BigInt(seconds.value) })
+        ),
       },
     },
   });

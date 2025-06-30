@@ -21,13 +21,12 @@ export const WORKSPACE_ROUTE_SEMANTIC_TYPES = "workspace.semantic-types";
 export const WORKSPACE_ROUTE_DATA_CLASSIFICATION =
   "workspace.data-classification";
 export const WORKSPACE_ROUTE_AUDIT_LOG = "workspace.audit-log";
-export const WORKSPACE_ROUTE_MAIL_DELIVERY = "workspace.mail-delivery";
 export const WORKSPACE_ROUTE_USERS = "workspace.users";
 export const WORKSPACE_ROUTE_MEMBERS = "workspace.members";
 export const WORKSPACE_ROUTE_ROLES = "workspace.roles";
 
-export const WORKSPACE_ROUTE_SSO = "workspace.sso";
-export const WORKSPACE_ROUTE_SSO_CREATE = `${WORKSPACE_ROUTE_SSO}.create`;
-export const WORKSPACE_ROUTE_SSO_DETAIL = `${WORKSPACE_ROUTE_SSO}.detail`;
+export const WORKSPACE_ROUTE_IDENTITY_PROVIDERS =
+  "workspace.identity-providers";
+export const WORKSPACE_ROUTE_IDENTITY_PROVIDER_DETAIL = `${WORKSPACE_ROUTE_IDENTITY_PROVIDERS}.detail`;
 
 export const WORKSPACE_ROUTE_IM = "workspace.im";

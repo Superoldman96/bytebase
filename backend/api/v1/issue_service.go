@@ -6,20 +6,20 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/google/cel-go/cel"
+	celast "github.com/google/cel-go/common/ast"
+	celoperators "github.com/google/cel-go/common/operators"
 	"github.com/pkg/errors"
 	"go.uber.org/multierr"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	"github.com/bytebase/bytebase/backend/component/state"
 	"github.com/bytebase/bytebase/backend/component/webhook"
-	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
+	"github.com/bytebase/bytebase/backend/enterprise"
 	metricapi "github.com/bytebase/bytebase/backend/metric"
 	"github.com/bytebase/bytebase/backend/plugin/metric"
 	"github.com/bytebase/bytebase/backend/runner/metricreport"
@@ -27,15 +27,16 @@ import (
 	"github.com/bytebase/bytebase/backend/utils"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/proto/generated-go/v1/v1connect"
 )
 
 // IssueService implements the issue service.
 type IssueService struct {
-	v1pb.UnimplementedIssueServiceServer
+	v1connect.UnimplementedIssueServiceHandler
 	store          *store.Store
 	webhookManager *webhook.Manager
 	stateCfg       *state.State
-	licenseService enterprise.LicenseService
+	licenseService *enterprise.LicenseService
 	profile        *config.Profile
 	iamManager     *iam.Manager
 	metricReporter *metricreport.Reporter
@@ -46,7 +47,7 @@ func NewIssueService(
 	store *store.Store,
 	webhookManager *webhook.Manager,
 	stateCfg *state.State,
-	licenseService enterprise.LicenseService,
+	licenseService *enterprise.LicenseService,
 	profile *config.Profile,
 	iamManager *iam.Manager,
 	metricReporter *metricreport.Reporter,
@@ -63,16 +64,16 @@ func NewIssueService(
 }
 
 // GetIssue gets a issue.
-func (s *IssueService) GetIssue(ctx context.Context, request *v1pb.GetIssueRequest) (*v1pb.Issue, error) {
-	issue, err := s.getIssueMessage(ctx, request.Name)
+func (s *IssueService) GetIssue(ctx context.Context, req *connect.Request[v1pb.GetIssueRequest]) (*connect.Response[v1pb.Issue], error) {
+	issue, err := s.getIssueMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 	issueV1, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return issueV1, nil
+	return connect.NewResponse(issueV1), nil
 }
 
 func (s *IssueService) getIssueFind(ctx context.Context, filter string, query string, limit, offset *int) (*store.FindIssueMessage, error) {
@@ -83,157 +84,183 @@ func (s *IssueService) getIssueFind(ctx context.Context, filter string, query st
 	if query != "" {
 		issueFind.Query = &query
 	}
-	filters, err := ParseFilter(filter)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	for _, spec := range filters {
-		switch spec.Key {
-		case "creator":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "creator" filter`)
-			}
-			user, err := s.getUserByIdentifier(ctx, spec.Value)
-			if err != nil {
-				return nil, err
-			}
-			issueFind.CreatorID = &user.ID
-		case "subscriber":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "subscriber" filter`)
-			}
-			user, err := s.getUserByIdentifier(ctx, spec.Value)
-			if err != nil {
-				return nil, err
-			}
-			issueFind.SubscriberID = &user.ID
-		case "status":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "status" filter`)
-			}
-			for _, raw := range strings.Split(spec.Value, " | ") {
-				newStatus, err := convertToAPIIssueStatus(v1pb.IssueStatus(v1pb.IssueStatus_value[raw]))
-				if err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "failed to convert to issue status, err: %v", err)
-				}
-				issueFind.StatusList = append(issueFind.StatusList, newStatus)
-			}
-		case "create_time":
-			if spec.Operator != ComparatorTypeGreaterEqual && spec.Operator != ComparatorTypeLessEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "<=" or ">=" operation for "create_time" filter`)
-			}
-			t, err := time.Parse(time.RFC3339, spec.Value)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse create_time %s, err: %v", spec.Value, err)
-			}
-			if spec.Operator == ComparatorTypeGreaterEqual {
-				issueFind.CreatedAtAfter = &t
-			} else {
-				issueFind.CreatedAtBefore = &t
-			}
-		case "create_time_after":
-			t, err := time.Parse(time.RFC3339, spec.Value)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse create_time_after %s, err: %v", spec.Value, err)
-			}
-			issueFind.CreatedAtAfter = &t
-		case "type":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "type" filter`)
-			}
-			issueType, err := convertToAPIIssueType(v1pb.Issue_Type(v1pb.Issue_Type_value[spec.Value]))
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to convert to issue type, err: %v", err)
-			}
-			issueFind.Types = &[]base.IssueType{issueType}
-		case "task_type":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "task_type" filter`)
-			}
-			switch spec.Value {
-			case "DDL":
-				issueFind.TaskTypes = &[]base.TaskType{
-					base.TaskDatabaseSchemaUpdate,
-					base.TaskDatabaseSchemaUpdateGhost,
-				}
-			case "DML":
-				issueFind.TaskTypes = &[]base.TaskType{
-					base.TaskDatabaseDataUpdate,
-				}
-			case "DATA_EXPORT":
-				issueFind.TaskTypes = &[]base.TaskType{
-					base.TaskDatabaseDataExport,
-				}
-			default:
-				return nil, status.Errorf(codes.InvalidArgument, `unknown value %q`, spec.Value)
-			}
-		case "instance":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "instance" filter`)
-			}
-			instanceResourceID, err := common.GetInstanceID(spec.Value)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, `invalid instance resource id "%s": %v`, spec.Value, err.Error())
-			}
-			issueFind.InstanceResourceID = &instanceResourceID
-		case "database":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "database" filter`)
-			}
-			instanceID, databaseName, err := common.GetInstanceDatabaseID(spec.Value)
-			if err != nil {
-				return nil, status.Error(codes.InvalidArgument, err.Error())
-			}
-			database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-				InstanceID:   &instanceID,
-				DatabaseName: &databaseName,
-			})
-			if err != nil {
-				return nil, status.Error(codes.Internal, err.Error())
-			}
-			if database == nil {
-				return nil, status.Errorf(codes.InvalidArgument, `database "%q" not found`, spec.Value)
-			}
-			issueFind.InstanceID = &database.InstanceID
-			issueFind.DatabaseName = &database.DatabaseName
-		case "labels":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "%s" filter`, spec.Key)
-			}
-			for _, label := range strings.Split(spec.Value, " & ") {
-				issueLabel := label
-				issueFind.LabelList = append(issueFind.LabelList, issueLabel)
-			}
-		case "has_pipeline":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, `only support "=" operation for "%s" filter`, spec.Key)
-			}
-			switch spec.Value {
-			case "false":
-				issueFind.NoPipeline = true
-			case "true":
-			default:
-				return nil, status.Errorf(codes.InvalidArgument, "invalid value %q for has_pipeline", spec.Value)
-			}
-		}
+	if filter == "" {
+		return issueFind, nil
 	}
 
+	e, err := cel.NewEnv()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create cel env"))
+	}
+	ast, iss := e.Parse(filter)
+	if iss != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to parse filter %v, error: %v", filter, iss.String()))
+	}
+
+	var parseFilter func(expr celast.Expr) (string, error)
+	parseFilter = func(expr celast.Expr) (string, error) {
+		switch expr.Kind() {
+		case celast.CallKind:
+			functionName := expr.AsCall().FunctionName()
+			switch functionName {
+			case celoperators.LogicalAnd:
+				return getSubConditionFromExpr(expr, parseFilter, "AND")
+			case celoperators.Equals:
+				variable, value := getVariableAndValueFromExpr(expr)
+				switch variable {
+				case "creator":
+					user, err := s.getUserByIdentifier(ctx, value.(string))
+					if err != nil {
+						return "", connect.NewError(connect.CodeInternal, errors.Errorf("failed to get user %v with error %v", value, err.Error()))
+					}
+					issueFind.CreatorID = &user.ID
+				case "instance":
+					instanceResourceID, err := common.GetInstanceID(value.(string))
+					if err != nil {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`invalid instance resource id "%s": %v`, value, err.Error()))
+					}
+					issueFind.InstanceResourceID = &instanceResourceID
+				case "database":
+					database, err := getDatabaseMessage(ctx, s.store, value.(string))
+					if err != nil {
+						return "", connect.NewError(connect.CodeInternal, errors.Errorf("%v", err.Error()))
+					}
+					if database == nil || database.Deleted {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`database "%q" not found`, value))
+					}
+					issueFind.InstanceID = &database.InstanceID
+					issueFind.DatabaseName = &database.DatabaseName
+				case "has_pipeline":
+					hasPipeline, ok := value.(bool)
+					if !ok {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`"has_pipeline" should be bool`))
+					}
+					if !hasPipeline {
+						issueFind.NoPipeline = true
+					}
+				case "status":
+					issueStatus, err := convertToAPIIssueStatus(v1pb.IssueStatus(v1pb.IssueStatus_value[value.(string)]))
+					if err != nil {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert to issue status, err: %v", err))
+					}
+					issueFind.StatusList = append(issueFind.StatusList, issueStatus)
+				case "type":
+					issueType, err := convertToAPIIssueType(v1pb.Issue_Type(v1pb.Issue_Type_value[value.(string)]))
+					if err != nil {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert to issue type, err: %v", err))
+					}
+					issueFind.Types = &[]storepb.Issue_Type{issueType}
+				case "task_type":
+					taskType, ok := value.(string)
+					if !ok {
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`"task_type" should be string`))
+					}
+					switch taskType {
+					case "DDL":
+						issueFind.TaskTypes = &[]storepb.Task_Type{
+							storepb.Task_DATABASE_SCHEMA_UPDATE,
+							storepb.Task_DATABASE_SCHEMA_UPDATE_GHOST,
+						}
+					case "DML":
+						issueFind.TaskTypes = &[]storepb.Task_Type{
+							storepb.Task_DATABASE_DATA_UPDATE,
+						}
+					case "DATA_EXPORT":
+						issueFind.TaskTypes = &[]storepb.Task_Type{
+							storepb.Task_DATABASE_EXPORT,
+						}
+					default:
+						return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`unknown value %q`, value))
+					}
+				case "labels":
+					issueFind.LabelList = append(issueFind.LabelList, value.(string))
+				default:
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unsupport variable %q with %v operator", variable, celoperators.Equals))
+				}
+			case celoperators.GreaterEquals, celoperators.LessEquals:
+				variable, rawValue := getVariableAndValueFromExpr(expr)
+				value, ok := rawValue.(string)
+				if !ok {
+					return "", errors.Errorf("expect string, got %T, hint: filter literals should be string", rawValue)
+				}
+				if variable != "create_time" {
+					return "", errors.Errorf(`">=" and "<=" are only supported for "create_time"`)
+				}
+				t, err := time.Parse(time.RFC3339, value)
+				if err != nil {
+					return "", errors.Errorf("failed to parse time %v, error: %v", value, err)
+				}
+				if functionName == celoperators.GreaterEquals {
+					issueFind.CreatedAtAfter = &t
+				} else {
+					issueFind.CreatedAtBefore = &t
+				}
+			case celoperators.In:
+				variable, value := getVariableAndValueFromExpr(expr)
+				rawList, ok := value.([]any)
+				if !ok {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid list value %q for %v", value, variable))
+				}
+				if len(rawList) == 0 {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("empty list value for filter %v", variable))
+				}
+
+				switch variable {
+				case "status":
+					for _, raw := range rawList {
+						newStatus, err := convertToAPIIssueStatus(v1pb.IssueStatus(v1pb.IssueStatus_value[raw.(string)]))
+						if err != nil {
+							return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert to issue status, err: %v", err))
+						}
+						issueFind.StatusList = append(issueFind.StatusList, newStatus)
+					}
+				case "type":
+					types := []storepb.Issue_Type{}
+					for _, raw := range rawList {
+						issueType, err := convertToAPIIssueType(v1pb.Issue_Type(v1pb.Issue_Type_value[raw.(string)]))
+						if err != nil {
+							return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert to issue type, err: %v", err))
+						}
+						types = append(types, issueType)
+					}
+					issueFind.Types = &types
+				case "labels":
+					for _, label := range rawList {
+						issueLabel, ok := label.(string)
+						if !ok {
+							return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`label should be string`))
+						}
+						issueFind.LabelList = append(issueFind.LabelList, issueLabel)
+					}
+				default:
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unsupport variable %q with %v operator", variable, celoperators.In))
+				}
+			}
+		default:
+			return "", errors.Errorf("unexpected expr kind %v", expr.Kind())
+		}
+		return "", nil
+	}
+
+	if _, err := parseFilter(ast.NativeRep().Expr()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to parse filter, error: %v", err))
+	}
 	return issueFind, nil
 }
 
-func (s *IssueService) ListIssues(ctx context.Context, request *v1pb.ListIssuesRequest) (*v1pb.ListIssuesResponse, error) {
-	if request.PageSize < 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "page size must be non-negative: %d", request.PageSize)
+func (s *IssueService) ListIssues(ctx context.Context, req *connect.Request[v1pb.ListIssuesRequest]) (*connect.Response[v1pb.ListIssuesResponse], error) {
+	if req.Msg.PageSize < 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("page size must be non-negative: %d", req.Msg.PageSize))
 	}
 
-	projectID, err := common.GetProjectID(request.Parent)
+	projectID, err := common.GetProjectID(req.Msg.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 
 	offset, err := parseLimitAndOffset(&pageSize{
-		token:   request.PageToken,
-		limit:   int(request.PageSize),
+		token:   req.Msg.PageToken,
+		limit:   int(req.Msg.PageSize),
 		maximum: 1000,
 	})
 	if err != nil {
@@ -241,7 +268,7 @@ func (s *IssueService) ListIssues(ctx context.Context, request *v1pb.ListIssuesR
 	}
 	limitPlusOne := offset.limit + 1
 
-	issueFind, err := s.getIssueFind(ctx, request.Filter, request.Query, &limitPlusOne, &offset.offset)
+	issueFind, err := s.getIssueFind(ctx, req.Msg.Filter, req.Msg.Query, &limitPlusOne, &offset.offset)
 	if err != nil {
 		return nil, err
 	}
@@ -249,40 +276,40 @@ func (s *IssueService) ListIssues(ctx context.Context, request *v1pb.ListIssuesR
 
 	issues, err := s.store.ListIssueV2(ctx, issueFind)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to search issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to search issue, error: %v", err))
 	}
 
 	var nextPageToken string
 	if len(issues) == limitPlusOne {
 		if nextPageToken, err = offset.getNextPageToken(); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get next page token, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get next page token, error: %v", err))
 		}
 		issues = issues[:offset.limit]
 	}
 
 	converted, err := s.convertToIssues(ctx, issues)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return &v1pb.ListIssuesResponse{
+	return connect.NewResponse(&v1pb.ListIssuesResponse{
 		Issues:        converted,
 		NextPageToken: nextPageToken,
-	}, nil
+	}), nil
 }
 
-func (s *IssueService) SearchIssues(ctx context.Context, request *v1pb.SearchIssuesRequest) (*v1pb.SearchIssuesResponse, error) {
-	if request.PageSize < 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "page size must be non-negative: %d", request.PageSize)
+func (s *IssueService) SearchIssues(ctx context.Context, req *connect.Request[v1pb.SearchIssuesRequest]) (*connect.Response[v1pb.SearchIssuesResponse], error) {
+	if req.Msg.PageSize < 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("page size must be non-negative: %d", req.Msg.PageSize))
 	}
 
-	projectID, err := common.GetProjectID(request.Parent)
+	projectID, err := common.GetProjectID(req.Msg.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 
 	offset, err := parseLimitAndOffset(&pageSize{
-		token:   request.PageToken,
-		limit:   int(request.PageSize),
+		token:   req.Msg.PageToken,
+		limit:   int(req.Msg.PageSize),
 		maximum: 1000,
 	})
 	if err != nil {
@@ -290,7 +317,7 @@ func (s *IssueService) SearchIssues(ctx context.Context, request *v1pb.SearchIss
 	}
 	limitPlusOne := offset.limit + 1
 
-	issueFind, err := s.getIssueFind(ctx, request.Filter, request.Query, &limitPlusOne, &offset.offset)
+	issueFind, err := s.getIssueFind(ctx, req.Msg.Filter, req.Msg.Query, &limitPlusOne, &offset.offset)
 	if err != nil {
 		return nil, err
 	}
@@ -299,45 +326,45 @@ func (s *IssueService) SearchIssues(ctx context.Context, request *v1pb.SearchIss
 	}
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 	projectIDsFilter, err := getProjectIDsSearchFilter(ctx, user, iam.PermissionIssuesGet, s.iamManager, s.store)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get projectIDs, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get projectIDs, error: %v", err))
 	}
 	issueFind.ProjectIDs = projectIDsFilter
 
 	issues, err := s.store.ListIssueV2(ctx, issueFind)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to search issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to search issue, error: %v", err))
 	}
 
 	var nextPageToken string
 	if len(issues) == limitPlusOne {
 		if nextPageToken, err = offset.getNextPageToken(); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get next page token, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get next page token, error: %v", err))
 		}
 		issues = issues[:offset.limit]
 	}
 
 	converted, err := s.convertToIssues(ctx, issues)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return &v1pb.SearchIssuesResponse{
+	return connect.NewResponse(&v1pb.SearchIssuesResponse{
 		Issues:        converted,
 		NextPageToken: nextPageToken,
-	}, nil
+	}), nil
 }
 
 func (s *IssueService) getUserByIdentifier(ctx context.Context, identifier string) (*store.UserMessage, error) {
 	email := strings.TrimPrefix(identifier, "users/")
 	if email == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid empty creator identifier")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid empty creator identifier"))
 	}
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, `failed to find user "%s" with error: %v`, email, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf(`failed to find user "%s" with error: %v`, email, err.Error()))
 	}
 	if user == nil {
 		return nil, errors.Errorf("cannot found user %s", email)
@@ -346,75 +373,75 @@ func (s *IssueService) getUserByIdentifier(ctx context.Context, identifier strin
 }
 
 // CreateIssue creates a issue.
-func (s *IssueService) CreateIssue(ctx context.Context, request *v1pb.CreateIssueRequest) (*v1pb.Issue, error) {
+func (s *IssueService) CreateIssue(ctx context.Context, req *connect.Request[v1pb.CreateIssueRequest]) (*connect.Response[v1pb.Issue], error) {
 	// Validate requests.
-	if request.Issue.Title == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "issue title is required")
+	if req.Msg.Issue.Title == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("issue title is required"))
 	}
-	if request.Issue.Type == v1pb.Issue_TYPE_UNSPECIFIED {
-		return nil, status.Errorf(codes.InvalidArgument, "issue type is required")
+	if req.Msg.Issue.Type == v1pb.Issue_TYPE_UNSPECIFIED {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("issue type is required"))
 	}
 
-	switch request.Issue.Type {
+	switch req.Msg.Issue.Type {
 	case v1pb.Issue_GRANT_REQUEST:
-		return s.createIssueGrantRequest(ctx, request)
+		return s.createIssueGrantRequest(ctx, req.Msg)
 	case v1pb.Issue_DATABASE_CHANGE:
-		return s.createIssueDatabaseChange(ctx, request)
-	case v1pb.Issue_DATABASE_DATA_EXPORT:
-		return s.createIssueDatabaseDataExport(ctx, request)
+		return s.createIssueDatabaseChange(ctx, req.Msg)
+	case v1pb.Issue_DATABASE_EXPORT:
+		return s.createIssueDatabaseDataExport(ctx, req.Msg)
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "unknown issue type %q", request.Issue.Type)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unknown issue type %q", req.Msg.Issue.Type))
 	}
 }
 
-func (s *IssueService) createIssueDatabaseChange(ctx context.Context, request *v1pb.CreateIssueRequest) (*v1pb.Issue, error) {
+func (s *IssueService) createIssueDatabaseChange(ctx context.Context, request *v1pb.CreateIssueRequest) (*connect.Response[v1pb.Issue], error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 	projectID, err := common.GetProjectID(request.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
 		ResourceID: &projectID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project, error: %v", err))
 	}
 	if project == nil {
-		return nil, status.Errorf(codes.NotFound, "project not found for id: %v", projectID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project not found for id: %v", projectID))
 	}
 
 	if request.Issue.Plan == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "plan is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("plan is required"))
 	}
 
 	var planUID *int64
 	_, planID, err := common.GetProjectIDPlanID(request.Issue.Plan)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	plan, err := s.store.GetPlan(ctx, &store.FindPlanMessage{UID: &planID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get plan, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get plan, error: %v", err))
 	}
 	if plan == nil {
-		return nil, status.Errorf(codes.NotFound, "plan not found for id: %d", planID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("plan not found for id: %d", planID))
 	}
 	planUID = &plan.UID
 	var rolloutUID *int
 	if request.Issue.Rollout != "" {
 		_, rolloutID, err := common.GetProjectIDRolloutID(request.Issue.Rollout)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 		}
 		pipeline, err := s.store.GetPipelineV2ByID(ctx, rolloutID)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get rollout, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get rollout, error: %v", err))
 		}
 		if pipeline == nil {
-			return nil, status.Errorf(codes.NotFound, "rollout not found for id: %d", rolloutID)
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("rollout not found for id: %d", rolloutID))
 		}
 		rolloutUID = &pipeline.ID
 	}
@@ -424,12 +451,12 @@ func (s *IssueService) createIssueDatabaseChange(ctx context.Context, request *v
 		PlanUID:     planUID,
 		PipelineUID: rolloutUID,
 		Title:       request.Issue.Title,
-		Status:      base.IssueOpen,
-		Type:        base.IssueDatabaseGeneral,
+		Status:      storepb.Issue_OPEN,
+		Type:        storepb.Issue_DATABASE_CHANGE,
 		Description: request.Issue.Description,
 	}
 
-	issueCreateMessage.Payload = &storepb.IssuePayload{
+	issueCreateMessage.Payload = &storepb.Issue{
 		Approval: &storepb.IssuePayloadApproval{
 			ApprovalFindingDone: false,
 			ApprovalTemplates:   nil,
@@ -440,13 +467,13 @@ func (s *IssueService) createIssueDatabaseChange(ctx context.Context, request *v
 
 	issue, err := s.store.CreateIssueV2(ctx, issueCreateMessage, user.ID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create issue, error: %v", err))
 	}
 	s.stateCfg.ApprovalFinding.Store(issue.UID, issue)
 
 	s.webhookManager.CreateEvent(ctx, &webhook.Event{
 		Actor:   user,
-		Type:    webhook.EventTypeIssueCreate,
+		Type:    common.EventTypeIssueCreate,
 		Comment: "",
 		Issue:   webhook.NewIssue(issue),
 		Project: webhook.NewProject(issue.Project),
@@ -454,45 +481,45 @@ func (s *IssueService) createIssueDatabaseChange(ctx context.Context, request *v
 
 	converted, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
 
-	return converted, nil
+	return connect.NewResponse(converted), nil
 }
 
-func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1pb.CreateIssueRequest) (*v1pb.Issue, error) {
+func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1pb.CreateIssueRequest) (*connect.Response[v1pb.Issue], error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 	projectID, err := common.GetProjectID(request.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
 		ResourceID: &projectID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project, error: %v", err))
 	}
 	if project == nil {
-		return nil, status.Errorf(codes.NotFound, "project not found for id: %v", projectID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project not found for id: %v", projectID))
 	}
 
 	if request.Issue.GrantRequest.GetRole() == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "expect grant request role")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("expect grant request role"))
 	}
 	if request.Issue.GrantRequest.GetUser() == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "expect grant request user")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("expect grant request user"))
 	}
 	// Validate CEL expression if it's not empty.
 	if expression := request.Issue.GrantRequest.GetCondition().GetExpression(); expression != "" {
 		e, err := cel.NewEnv(common.IAMPolicyConditionCELAttributes...)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create cel environment, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create cel environment, error: %v", err))
 		}
 		if _, issues := e.Compile(expression); issues != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "found issues in grant request condition expression, issues: %v", issues.String())
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("found issues in grant request condition expression, issues: %v", issues.String()))
 		}
 	}
 
@@ -501,17 +528,17 @@ func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1p
 		PlanUID:     nil,
 		PipelineUID: nil,
 		Title:       request.Issue.Title,
-		Status:      base.IssueOpen,
-		Type:        base.IssueGrantRequest,
+		Status:      storepb.Issue_OPEN,
+		Type:        storepb.Issue_GRANT_REQUEST,
 		Description: request.Issue.Description,
 	}
 
 	convertedGrantRequest, err := convertGrantRequest(ctx, s.store, request.Issue.GrantRequest)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert GrantRequest, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert GrantRequest, error: %v", err))
 	}
 
-	issueCreateMessage.Payload = &storepb.IssuePayload{
+	issueCreateMessage.Payload = &storepb.Issue{
 		GrantRequest: convertedGrantRequest,
 		Approval: &storepb.IssuePayloadApproval{
 			ApprovalFindingDone: false,
@@ -523,13 +550,13 @@ func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1p
 
 	issue, err := s.store.CreateIssueV2(ctx, issueCreateMessage, user.ID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create issue, error: %v", err))
 	}
 	s.stateCfg.ApprovalFinding.Store(issue.UID, issue)
 
 	s.webhookManager.CreateEvent(ctx, &webhook.Event{
 		Actor:   user,
-		Type:    webhook.EventTypeIssueCreate,
+		Type:    common.EventTypeIssueCreate,
 		Comment: "",
 		Issue:   webhook.NewIssue(issue),
 		Project: webhook.NewProject(issue.Project),
@@ -537,7 +564,7 @@ func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1p
 
 	converted, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
 
 	s.metricReporter.Report(ctx, &metric.Metric{
@@ -548,57 +575,57 @@ func (s *IssueService) createIssueGrantRequest(ctx context.Context, request *v1p
 		},
 	})
 
-	return converted, nil
+	return connect.NewResponse(converted), nil
 }
 
-func (s *IssueService) createIssueDatabaseDataExport(ctx context.Context, request *v1pb.CreateIssueRequest) (*v1pb.Issue, error) {
+func (s *IssueService) createIssueDatabaseDataExport(ctx context.Context, request *v1pb.CreateIssueRequest) (*connect.Response[v1pb.Issue], error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 	projectID, err := common.GetProjectID(request.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
 		ResourceID: &projectID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project, error: %v", err))
 	}
 	if project == nil {
-		return nil, status.Errorf(codes.NotFound, "project not found for id: %v", projectID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project not found for id: %v", projectID))
 	}
 
 	if request.Issue.Plan == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "plan is required")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("plan is required"))
 	}
 
 	var planUID *int64
 	_, planID, err := common.GetProjectIDPlanID(request.Issue.Plan)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	plan, err := s.store.GetPlan(ctx, &store.FindPlanMessage{UID: &planID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get plan, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get plan, error: %v", err))
 	}
 	if plan == nil {
-		return nil, status.Errorf(codes.NotFound, "plan not found for id: %d", planID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("plan not found for id: %d", planID))
 	}
 	planUID = &plan.UID
 	var rolloutUID *int
 	if request.Issue.Rollout != "" {
 		_, rolloutID, err := common.GetProjectIDRolloutID(request.Issue.Rollout)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 		}
 		pipeline, err := s.store.GetPipelineV2ByID(ctx, rolloutID)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get rollout, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get rollout, error: %v", err))
 		}
 		if pipeline == nil {
-			return nil, status.Errorf(codes.NotFound, "rollout not found for id: %d", rolloutID)
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("rollout not found for id: %d", rolloutID))
 		}
 		rolloutUID = &pipeline.ID
 	}
@@ -608,12 +635,12 @@ func (s *IssueService) createIssueDatabaseDataExport(ctx context.Context, reques
 		PlanUID:     planUID,
 		PipelineUID: rolloutUID,
 		Title:       request.Issue.Title,
-		Status:      base.IssueOpen,
-		Type:        base.IssueDatabaseDataExport,
+		Status:      storepb.Issue_OPEN,
+		Type:        storepb.Issue_DATABASE_EXPORT,
 		Description: request.Issue.Description,
 	}
 
-	issueCreateMessage.Payload = &storepb.IssuePayload{
+	issueCreateMessage.Payload = &storepb.Issue{
 		Approval: &storepb.IssuePayloadApproval{
 			ApprovalFindingDone: false,
 			ApprovalTemplates:   nil,
@@ -624,13 +651,13 @@ func (s *IssueService) createIssueDatabaseDataExport(ctx context.Context, reques
 
 	issue, err := s.store.CreateIssueV2(ctx, issueCreateMessage, user.ID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create issue, error: %v", err))
 	}
 	s.stateCfg.ApprovalFinding.Store(issue.UID, issue)
 
 	s.webhookManager.CreateEvent(ctx, &webhook.Event{
 		Actor:   user,
-		Type:    webhook.EventTypeIssueCreate,
+		Type:    common.EventTypeIssueCreate,
 		Comment: "",
 		Issue:   webhook.NewIssue(issue),
 		Project: webhook.NewProject(issue.Project),
@@ -638,67 +665,67 @@ func (s *IssueService) createIssueDatabaseDataExport(ctx context.Context, reques
 
 	converted, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
 
-	return converted, nil
+	return connect.NewResponse(converted), nil
 }
 
 // ApproveIssue approves the approval flow of the issue.
-func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIssueRequest) (*v1pb.Issue, error) {
-	issue, err := s.getIssueMessage(ctx, request.Name)
+func (s *IssueService) ApproveIssue(ctx context.Context, req *connect.Request[v1pb.ApproveIssueRequest]) (*connect.Response[v1pb.Issue], error) {
+	issue, err := s.getIssueMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 	payload := issue.Payload
 	if payload.Approval == nil {
-		return nil, status.Errorf(codes.Internal, "issue payload approval is nil")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("issue payload approval is nil"))
 	}
 	if !payload.Approval.ApprovalFindingDone {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding is not done")
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding is not done"))
 	}
 	if payload.Approval.ApprovalFindingError != "" {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding failed: %v", payload.Approval.ApprovalFindingError)
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding failed: %v", payload.Approval.ApprovalFindingError))
 	}
 	if len(payload.Approval.ApprovalTemplates) != 1 {
-		return nil, status.Errorf(codes.Internal, "expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates))
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates)))
 	}
 
 	rejectedStep := utils.FindRejectedStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 	if rejectedStep != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "cannot approve because the issue has been rejected")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("cannot approve because the issue has been rejected"))
 	}
 
 	step := utils.FindNextPendingStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 	if step == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "the issue has been approved")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("the issue has been approved"))
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	user, err := s.store.GetUserByID(ctx, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to find user by id %v", principalID)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to find user by id %v", principalID))
 	}
 
 	policy, err := s.store.GetProjectIamPolicy(ctx, issue.Project.ResourceID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project policy, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project policy, error: %v", err))
 	}
 
 	workspacePolicy, err := s.store.GetWorkspaceIamPolicy(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get workspace policy, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get workspace policy, error: %v", err))
 	}
 
 	canApprove, err := isUserReviewer(ctx, s.store, issue, step, user, policy.Policy, workspacePolicy.Policy)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check if principal can approve step, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check if principal can approve step, error: %v", err))
 	}
 	if !canApprove {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot approve because the user does not have the required permission")
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot approve because the user does not have the required permission"))
 	}
 
 	payload.Approval.Approvers = append(payload.Approval.Approvers, &storepb.IssuePayloadApproval_Approver{
@@ -708,26 +735,26 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 
 	approved, err := utils.CheckApprovalApproved(payload.Approval)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check if the approval is approved, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check if the approval is approved, error: %v", err))
 	}
 
 	newApprovers, err := utils.HandleIncomingApprovalSteps(payload.Approval)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to handle incoming approval steps, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to handle incoming approval steps, error: %v", err))
 	}
 	payload.Approval.Approvers = append(payload.Approval.Approvers, newApprovers...)
 
 	issue, err = s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{
-		PayloadUpsert: &storepb.IssuePayload{
+		PayloadUpsert: &storepb.Issue{
 			Approval: payload.Approval,
 		},
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update issue, error: %v", err))
 	}
 
 	// Grant the privilege if the issue is approved.
-	if approved && issue.Type == base.IssueGrantRequest {
+	if approved && issue.Type == storepb.Issue_GRANT_REQUEST {
 		if err := utils.UpdateProjectPolicyFromGrantIssue(ctx, s.store, issue, payload.GrantRequest); err != nil {
 			return nil, err
 		}
@@ -736,7 +763,7 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 
 	if err := func() error {
 		p := &storepb.IssueCommentPayload{
-			Comment: request.Comment,
+			Comment: req.Msg.Comment,
 			Event: &storepb.IssueCommentPayload_Approval_{
 				Approval: &storepb.IssueCommentPayload_Approval{
 					Status: storepb.IssueCommentPayload_Approval_APPROVED,
@@ -754,18 +781,18 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 		slog.Warn("failed to create issue comment", log.BBError(err))
 	}
 
-	if err := func() error {
+	func() {
 		if len(payload.Approval.ApprovalTemplates) != 1 {
-			return nil
+			return
 		}
 		approvalStep := utils.FindNextPendingStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 		if approvalStep == nil {
-			return nil
+			return
 		}
 
 		s.webhookManager.CreateEvent(ctx, &webhook.Event{
 			Actor:   s.store.GetSystemBotUser(ctx),
-			Type:    webhook.EventTypeIssueApprovalCreate,
+			Type:    common.EventTypeIssueApprovalCreate,
 			Comment: "",
 			Issue:   webhook.NewIssue(issue),
 			Project: webhook.NewProject(issue.Project),
@@ -773,11 +800,7 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 				ApprovalStep: approvalStep,
 			},
 		})
-
-		return nil
-	}(); err != nil {
-		slog.Error("failed to create approval step pending activity after creating issue", log.BBError(err))
-	}
+	}()
 
 	func() {
 		if !approved {
@@ -787,7 +810,7 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 		// notify issue approved
 		s.webhookManager.CreateEvent(ctx, &webhook.Event{
 			Actor:   s.store.GetSystemBotUser(ctx),
-			Type:    webhook.EventTypeIssueApprovalPass,
+			Type:    common.EventTypeIssueApprovalPass,
 			Comment: "",
 			Issue:   webhook.NewIssue(issue),
 			Project: webhook.NewProject(issue.Project),
@@ -798,27 +821,29 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 			if issue.PipelineUID == nil {
 				return nil
 			}
-			stages, err := s.store.ListStageV2(ctx, *issue.PipelineUID)
+			tasks, err := s.store.ListTasks(ctx, &store.TaskFind{PipelineID: issue.PipelineUID})
 			if err != nil {
-				return errors.Wrapf(err, "failed to list stages")
+				return errors.Wrapf(err, "failed to list tasks")
 			}
-			if len(stages) == 0 {
+			if len(tasks) == 0 {
 				return nil
 			}
 
-			policy, err := GetValidRolloutPolicyForStage(ctx, s.store, stages[0])
+			// Get the first environment from tasks
+			firstEnvironment := tasks[0].Environment
+			policy, err := GetValidRolloutPolicyForEnvironment(ctx, s.store, firstEnvironment)
 			if err != nil {
 				return err
 			}
 			s.webhookManager.CreateEvent(ctx, &webhook.Event{
 				Actor:   user,
-				Type:    webhook.EventTypeIssueRolloutReady,
+				Type:    common.EventTypeIssueRolloutReady,
 				Comment: "",
 				Issue:   webhook.NewIssue(issue),
 				Project: webhook.NewProject(issue.Project),
 				IssueRolloutReady: &webhook.EventIssueRolloutReady{
 					RolloutPolicy: policy,
-					StageName:     stages[0].Environment,
+					StageName:     firstEnvironment,
 				},
 			})
 			return nil
@@ -828,7 +853,7 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 	}()
 
 	// If the issue is a grant request and approved, we will always auto close it.
-	if issue.Type == base.IssueGrantRequest {
+	if issue.Type == storepb.Issue_GRANT_REQUEST {
 		if err := func() error {
 			payload := issue.Payload
 			approved, err := utils.CheckApprovalApproved(payload.Approval)
@@ -836,7 +861,7 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 				return errors.Wrap(err, "failed to check if the approval is approved")
 			}
 			if approved {
-				if err := webhook.ChangeIssueStatus(ctx, s.store, s.webhookManager, issue, base.IssueDone, s.store.GetSystemBotUser(ctx), ""); err != nil {
+				if err := webhook.ChangeIssueStatus(ctx, s.store, s.webhookManager, issue, storepb.Issue_DONE, s.store.GetSystemBotUser(ctx), ""); err != nil {
 					return errors.Wrap(err, "failed to update issue status")
 				}
 			}
@@ -848,66 +873,66 @@ func (s *IssueService) ApproveIssue(ctx context.Context, request *v1pb.ApproveIs
 
 	issueV1, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return issueV1, nil
+	return connect.NewResponse(issueV1), nil
 }
 
 // RejectIssue rejects a issue.
-func (s *IssueService) RejectIssue(ctx context.Context, request *v1pb.RejectIssueRequest) (*v1pb.Issue, error) {
-	issue, err := s.getIssueMessage(ctx, request.Name)
+func (s *IssueService) RejectIssue(ctx context.Context, req *connect.Request[v1pb.RejectIssueRequest]) (*connect.Response[v1pb.Issue], error) {
+	issue, err := s.getIssueMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 	payload := issue.Payload
 	if payload.Approval == nil {
-		return nil, status.Errorf(codes.Internal, "issue payload approval is nil")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("issue payload approval is nil"))
 	}
 	if !payload.Approval.ApprovalFindingDone {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding is not done")
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding is not done"))
 	}
 	if payload.Approval.ApprovalFindingError != "" {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding failed: %v", payload.Approval.ApprovalFindingError)
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding failed: %v", payload.Approval.ApprovalFindingError))
 	}
 	if len(payload.Approval.ApprovalTemplates) != 1 {
-		return nil, status.Errorf(codes.Internal, "expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates))
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates)))
 	}
 
 	rejectedStep := utils.FindRejectedStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 	if rejectedStep != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "cannot reject because the issue has been rejected")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("cannot reject because the issue has been rejected"))
 	}
 
 	step := utils.FindNextPendingStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 	if step == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "the issue has been approved")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("the issue has been approved"))
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	user, err := s.store.GetUserByID(ctx, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to find user by id %v", principalID)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to find user by id %v", principalID))
 	}
 
 	policy, err := s.store.GetProjectIamPolicy(ctx, issue.Project.ResourceID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project policy, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project policy, error: %v", err))
 	}
 
 	workspacePolicy, err := s.store.GetWorkspaceIamPolicy(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get workspace policy, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get workspace policy, error: %v", err))
 	}
 
 	canApprove, err := isUserReviewer(ctx, s.store, issue, step, user, policy.Policy, workspacePolicy.Policy)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check if principal can reject step, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check if principal can reject step, error: %v", err))
 	}
 	if !canApprove {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot reject because the user does not have the required permission")
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot reject because the user does not have the required permission"))
 	}
 	payload.Approval.Approvers = append(payload.Approval.Approvers, &storepb.IssuePayloadApproval_Approver{
 		Status:      storepb.IssuePayloadApproval_Approver_REJECTED,
@@ -915,17 +940,17 @@ func (s *IssueService) RejectIssue(ctx context.Context, request *v1pb.RejectIssu
 	})
 
 	issue, err = s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{
-		PayloadUpsert: &storepb.IssuePayload{
+		PayloadUpsert: &storepb.Issue{
 			Approval: payload.Approval,
 		},
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update issue, error: %v", err))
 	}
 
 	if err := func() error {
 		p := &storepb.IssueCommentPayload{
-			Comment: request.Comment,
+			Comment: req.Msg.Comment,
 			Event: &storepb.IssueCommentPayload_Approval_{
 				Approval: &storepb.IssueCommentPayload_Approval{
 					Status: storepb.IssueCommentPayload_Approval_REJECTED,
@@ -943,48 +968,48 @@ func (s *IssueService) RejectIssue(ctx context.Context, request *v1pb.RejectIssu
 
 	issueV1, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return issueV1, nil
+	return connect.NewResponse(issueV1), nil
 }
 
 // RequestIssue requests a issue.
-func (s *IssueService) RequestIssue(ctx context.Context, request *v1pb.RequestIssueRequest) (*v1pb.Issue, error) {
-	issue, err := s.getIssueMessage(ctx, request.Name)
+func (s *IssueService) RequestIssue(ctx context.Context, req *connect.Request[v1pb.RequestIssueRequest]) (*connect.Response[v1pb.Issue], error) {
+	issue, err := s.getIssueMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 	payload := issue.Payload
 	if payload.Approval == nil {
-		return nil, status.Errorf(codes.Internal, "issue payload approval is nil")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("issue payload approval is nil"))
 	}
 	if !payload.Approval.ApprovalFindingDone {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding is not done")
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding is not done"))
 	}
 	if payload.Approval.ApprovalFindingError != "" {
-		return nil, status.Errorf(codes.FailedPrecondition, "approval template finding failed: %v", payload.Approval.ApprovalFindingError)
+		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding failed: %v", payload.Approval.ApprovalFindingError))
 	}
 	if len(payload.Approval.ApprovalTemplates) != 1 {
-		return nil, status.Errorf(codes.Internal, "expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates))
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("expecting one approval template but got %v", len(payload.Approval.ApprovalTemplates)))
 	}
 
 	rejectedStep := utils.FindRejectedStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 	if rejectedStep == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "cannot request issues because the issue is not rejected")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("cannot request issues because the issue is not rejected"))
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	user, err := s.store.GetUserByID(ctx, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to find user by id %v", principalID)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to find user by id %v", principalID))
 	}
 
 	canRequest := canRequestIssue(issue.Creator, user)
 	if !canRequest {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot request issues because you are not the issue creator")
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot request issues because you are not the issue creator"))
 	}
 
 	var updatedApprovers []*storepb.IssuePayloadApproval_Approver
@@ -998,31 +1023,31 @@ func (s *IssueService) RequestIssue(ctx context.Context, request *v1pb.RequestIs
 
 	newApprovers, err := utils.HandleIncomingApprovalSteps(payload.Approval)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to handle incoming approval steps, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to handle incoming approval steps, error: %v", err))
 	}
 	payload.Approval.Approvers = append(payload.Approval.Approvers, newApprovers...)
 
 	issue, err = s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{
-		PayloadUpsert: &storepb.IssuePayload{
+		PayloadUpsert: &storepb.Issue{
 			Approval: payload.Approval,
 		},
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update issue, error: %v", err))
 	}
 
-	if err := func() error {
+	func() {
 		if len(payload.Approval.ApprovalTemplates) != 1 {
-			return nil
+			return
 		}
 		approvalStep := utils.FindNextPendingStep(payload.Approval.ApprovalTemplates[0], payload.Approval.Approvers)
 		if approvalStep == nil {
-			return nil
+			return
 		}
 
 		s.webhookManager.CreateEvent(ctx, &webhook.Event{
 			Actor:   s.store.GetSystemBotUser(ctx),
-			Type:    webhook.EventTypeIssueApprovalCreate,
+			Type:    common.EventTypeIssueApprovalCreate,
 			Comment: "",
 			Issue:   webhook.NewIssue(issue),
 			Project: webhook.NewProject(issue.Project),
@@ -1030,15 +1055,11 @@ func (s *IssueService) RequestIssue(ctx context.Context, request *v1pb.RequestIs
 				ApprovalStep: approvalStep,
 			},
 		})
-
-		return nil
-	}(); err != nil {
-		slog.Error("failed to create approval step pending activity after re-request issue review", log.BBError(err))
-	}
+	}()
 
 	if err := func() error {
 		p := &storepb.IssueCommentPayload{
-			Comment: request.Comment,
+			Comment: req.Msg.Comment,
 			Event: &storepb.IssueCommentPayload_Approval_{
 				Approval: &storepb.IssueCommentPayload_Approval{
 					Status: storepb.IssueCommentPayload_Approval_PENDING,
@@ -1058,21 +1079,21 @@ func (s *IssueService) RequestIssue(ctx context.Context, request *v1pb.RequestIs
 
 	issueV1, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return issueV1, nil
+	return connect.NewResponse(issueV1), nil
 }
 
 // UpdateIssue updates the issue.
-func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssueRequest) (*v1pb.Issue, error) {
+func (s *IssueService) UpdateIssue(ctx context.Context, req *connect.Request[v1pb.UpdateIssueRequest]) (*connect.Response[v1pb.Issue], error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
-	if request.UpdateMask == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
+	if req.Msg.UpdateMask == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("update_mask must be set"))
 	}
-	issue, err := s.getIssueMessage(ctx, request.Issue.Name)
+	issue, err := s.getIssueMessage(ctx, req.Msg.Issue.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1082,52 +1103,52 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 	patch := &store.UpdateIssueMessage{}
 	var webhookEvents []*webhook.Event
 	var issueCommentCreates []*store.IssueCommentMessage
-	for _, path := range request.UpdateMask.Paths {
+	for _, path := range req.Msg.UpdateMask.Paths {
 		updateMasks[path] = true
 		switch path {
 		case "approval_finding_done":
-			if request.Issue.ApprovalFindingDone {
-				return nil, status.Errorf(codes.InvalidArgument, "cannot set approval_finding_done to true")
+			if req.Msg.Issue.ApprovalFindingDone {
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("cannot set approval_finding_done to true"))
 			}
 			payload := issue.Payload
 			if payload.Approval == nil {
-				return nil, status.Errorf(codes.Internal, "issue payload approval is nil")
+				return nil, connect.NewError(connect.CodeInternal, errors.Errorf("issue payload approval is nil"))
 			}
 			if !payload.Approval.ApprovalFindingDone {
-				return nil, status.Errorf(codes.FailedPrecondition, "approval template finding is not done")
+				return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("approval template finding is not done"))
 			}
 
 			if patch.PayloadUpsert == nil {
-				patch.PayloadUpsert = &storepb.IssuePayload{}
+				patch.PayloadUpsert = &storepb.Issue{}
 			}
 			patch.PayloadUpsert.Approval = &storepb.IssuePayloadApproval{
 				ApprovalFindingDone: false,
 			}
 
-			if issue.PlanUID != nil {
+			if issue.Type == storepb.Issue_DATABASE_CHANGE && issue.PlanUID != nil {
 				plan, err := s.store.GetPlan(ctx, &store.FindPlanMessage{UID: issue.PlanUID})
 				if err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to get plan, error: %v", err)
+					return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get plan, error: %v", err))
 				}
 				if plan == nil {
-					return nil, status.Errorf(codes.NotFound, "plan %q not found", *issue.PlanUID)
+					return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("plan %q not found", *issue.PlanUID))
 				}
 
 				planCheckRuns, err := getPlanCheckRunsFromPlan(ctx, s.store, plan)
 				if err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to get plan check runs for plan, error: %v", err)
+					return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get plan check runs for plan, error: %v", err))
 				}
-				if err := s.store.CreatePlanCheckRuns(ctx, planCheckRuns...); err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to create plan check runs, error: %v", err)
+				if err := s.store.CreatePlanCheckRuns(ctx, plan, planCheckRuns...); err != nil {
+					return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create plan check runs, error: %v", err))
 				}
 			}
 
 		case "title":
-			if request.Issue.Title == "" {
-				return nil, status.Errorf(codes.InvalidArgument, "title cannot be empty")
+			if req.Msg.Issue.Title == "" {
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("title cannot be empty"))
 			}
 
-			patch.Title = &request.Issue.Title
+			patch.Title = &req.Msg.Issue.Title
 
 			issueCommentCreates = append(issueCommentCreates, &store.IssueCommentMessage{
 				IssueUID: issue.UID,
@@ -1135,7 +1156,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 					Event: &storepb.IssueCommentPayload_IssueUpdate_{
 						IssueUpdate: &storepb.IssueCommentPayload_IssueUpdate{
 							FromTitle: &issue.Title,
-							ToTitle:   &request.Issue.Title,
+							ToTitle:   &req.Msg.Issue.Title,
 						},
 					},
 				},
@@ -1143,7 +1164,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 
 			webhookEvents = append(webhookEvents, &webhook.Event{
 				Actor:   user,
-				Type:    webhook.EventTypeIssueUpdate,
+				Type:    common.EventTypeIssueUpdate,
 				Comment: "",
 				Issue:   webhook.NewIssue(issue),
 				Project: webhook.NewProject(issue.Project),
@@ -1153,7 +1174,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 			})
 
 		case "description":
-			patch.Description = &request.Issue.Description
+			patch.Description = &req.Msg.Issue.Description
 
 			issueCommentCreates = append(issueCommentCreates, &store.IssueCommentMessage{
 				IssueUID: issue.UID,
@@ -1161,7 +1182,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 					Event: &storepb.IssueCommentPayload_IssueUpdate_{
 						IssueUpdate: &storepb.IssueCommentPayload_IssueUpdate{
 							FromDescription: &issue.Description,
-							ToDescription:   &request.Issue.Description,
+							ToDescription:   &req.Msg.Issue.Description,
 						},
 					},
 				},
@@ -1169,7 +1190,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 
 			webhookEvents = append(webhookEvents, &webhook.Event{
 				Actor:   user,
-				Type:    webhook.EventTypeIssueUpdate,
+				Type:    common.EventTypeIssueUpdate,
 				Comment: "",
 				Issue:   webhook.NewIssue(issue),
 				Project: webhook.NewProject(issue.Project),
@@ -1178,32 +1199,14 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 				},
 			})
 
-		case "subscribers":
-			var subscribers []*store.UserMessage
-			for _, subscriber := range request.Issue.Subscribers {
-				subscriberEmail, err := common.GetUserEmail(subscriber)
-				if err != nil {
-					return nil, status.Errorf(codes.InvalidArgument, "failed to get user email from %v, error: %v", subscriber, err)
-				}
-				user, err := s.store.GetUserByEmail(ctx, subscriberEmail)
-				if err != nil {
-					return nil, status.Errorf(codes.Internal, "failed to get user %v, error: %v", subscriberEmail, err)
-				}
-				if user == nil {
-					return nil, status.Errorf(codes.NotFound, "user %v not found", subscriber)
-				}
-				subscribers = append(subscribers, user)
-			}
-			patch.Subscribers = &subscribers
-
 		case "labels":
-			if len(request.Issue.Labels) == 0 {
+			if len(req.Msg.Issue.Labels) == 0 {
 				patch.RemoveLabels = true
 			} else {
 				if patch.PayloadUpsert == nil {
-					patch.PayloadUpsert = &storepb.IssuePayload{}
+					patch.PayloadUpsert = &storepb.Issue{}
 				}
-				patch.PayloadUpsert.Labels = request.Issue.Labels
+				patch.PayloadUpsert.Labels = req.Msg.Issue.Labels
 			}
 
 			issueCommentCreates = append(issueCommentCreates, &store.IssueCommentMessage{
@@ -1212,7 +1215,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 					Event: &storepb.IssueCommentPayload_IssueUpdate_{
 						IssueUpdate: &storepb.IssueCommentPayload_IssueUpdate{
 							FromLabels: issue.Payload.Labels,
-							ToLabels:   request.Issue.Labels,
+							ToLabels:   req.Msg.Issue.Labels,
 						},
 					},
 				},
@@ -1222,7 +1225,7 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 
 	issue, err = s.store.UpdateIssueV2(ctx, issue.UID, patch)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update issue, error: %v", err))
 	}
 
 	if updateMasks["approval_finding_done"] {
@@ -1240,55 +1243,55 @@ func (s *IssueService) UpdateIssue(ctx context.Context, request *v1pb.UpdateIssu
 
 	issueV1, err := s.convertToIssue(ctx, issue)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert to issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert to issue, error: %v", err))
 	}
-	return issueV1, nil
+	return connect.NewResponse(issueV1), nil
 }
 
 // BatchUpdateIssuesStatus batch updates issues status.
-func (s *IssueService) BatchUpdateIssuesStatus(ctx context.Context, request *v1pb.BatchUpdateIssuesStatusRequest) (*v1pb.BatchUpdateIssuesStatusResponse, error) {
+func (s *IssueService) BatchUpdateIssuesStatus(ctx context.Context, req *connect.Request[v1pb.BatchUpdateIssuesStatusRequest]) (*connect.Response[v1pb.BatchUpdateIssuesStatusResponse], error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 
 	var issueIDs []int
 	var issues []*store.IssueMessage
-	for _, issueName := range request.Issues {
+	for _, issueName := range req.Msg.Issues {
 		issue, err := s.getIssueMessage(ctx, issueName)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to find issue %v, err: %v", issueName, err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to find issue %v, err: %v", issueName, err))
 		}
 		if issue == nil {
-			return nil, status.Errorf(codes.NotFound, "cannot find issue %v", issueName)
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("cannot find issue %v", issueName))
 		}
 		issueIDs = append(issueIDs, issue.UID)
 		issues = append(issues, issue)
 
 		// Check if there is any running/pending task runs.
 		if issue.PipelineUID != nil {
-			taskRunStatusList := []base.TaskRunStatus{base.TaskRunRunning, base.TaskRunPending}
+			taskRunStatusList := []storepb.TaskRun_Status{storepb.TaskRun_RUNNING, storepb.TaskRun_PENDING}
 			taskRuns, err := s.store.ListTaskRunsV2(ctx, &store.FindTaskRunMessage{PipelineUID: issue.PipelineUID, Status: &taskRunStatusList})
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to list task runs, err: %v", err)
+				return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to list task runs, err: %v", err))
 			}
 			if len(taskRuns) > 0 {
-				return nil, status.Errorf(codes.FailedPrecondition, "cannot update status because there are running/pending task runs for issue %q", issueName)
+				return nil, connect.NewError(connect.CodeFailedPrecondition, errors.Errorf("cannot update status because there are running/pending task runs for issue %q", issueName))
 			}
 		}
 	}
 
 	if len(issueIDs) == 0 {
-		return &v1pb.BatchUpdateIssuesStatusResponse{}, nil
+		return connect.NewResponse(&v1pb.BatchUpdateIssuesStatusResponse{}), nil
 	}
 
-	newStatus, err := convertToAPIIssueStatus(request.Status)
+	newStatus, err := convertToAPIIssueStatus(req.Msg.Status)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to convert to issue status, err: %v", err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert to issue status, err: %v", err))
 	}
 
 	if err := s.store.BatchUpdateIssueStatuses(ctx, issueIDs, newStatus); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to batch update issues, err: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to batch update issues, err: %v", err))
 	}
 
 	if err := func() error {
@@ -1303,8 +1306,8 @@ func (s *IssueService) BatchUpdateIssuesStatus(ctx context.Context, request *v1p
 			func() {
 				s.webhookManager.CreateEvent(ctx, &webhook.Event{
 					Actor:   user,
-					Type:    webhook.EventTypeIssueStatusUpdate,
-					Comment: request.Reason,
+					Type:    common.EventTypeIssueStatusUpdate,
+					Comment: req.Msg.Reason,
 					Issue:   webhook.NewIssue(updatedIssue),
 					Project: webhook.NewProject(updatedIssue.Project),
 				})
@@ -1315,11 +1318,11 @@ func (s *IssueService) BatchUpdateIssuesStatus(ctx context.Context, request *v1p
 				if _, err := s.store.CreateIssueComment(ctx, &store.IssueCommentMessage{
 					IssueUID: issue.UID,
 					Payload: &storepb.IssueCommentPayload{
-						Comment: request.Reason,
+						Comment: req.Msg.Reason,
 						Event: &storepb.IssueCommentPayload_IssueUpdate_{
 							IssueUpdate: &storepb.IssueCommentPayload_IssueUpdate{
 								FromStatus: convertToIssueCommentPayloadIssueUpdateIssueStatus(&fromStatus),
-								ToStatus:   convertToIssueCommentPayloadIssueUpdateIssueStatus(&request.Status),
+								ToStatus:   convertToIssueCommentPayloadIssueUpdateIssueStatus(&req.Msg.Status),
 							},
 						},
 					},
@@ -1334,25 +1337,25 @@ func (s *IssueService) BatchUpdateIssuesStatus(ctx context.Context, request *v1p
 		slog.Error("failed to create activity after changing the issue status", log.BBError(err))
 	}
 
-	return &v1pb.BatchUpdateIssuesStatusResponse{}, nil
+	return connect.NewResponse(&v1pb.BatchUpdateIssuesStatusResponse{}), nil
 }
 
-func (s *IssueService) ListIssueComments(ctx context.Context, request *v1pb.ListIssueCommentsRequest) (*v1pb.ListIssueCommentsResponse, error) {
-	if request.PageSize < 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "page size must be non-negative: %d", request.PageSize)
+func (s *IssueService) ListIssueComments(ctx context.Context, req *connect.Request[v1pb.ListIssueCommentsRequest]) (*connect.Response[v1pb.ListIssueCommentsResponse], error) {
+	if req.Msg.PageSize < 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("page size must be non-negative: %d", req.Msg.PageSize))
 	}
-	_, issueUID, err := common.GetProjectIDIssueUID(request.Parent)
+	_, issueUID, err := common.GetProjectIDIssueUID(req.Msg.Parent)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{UID: &issueUID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get issue, err: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get issue, err: %v", err))
 	}
 
 	offset, err := parseLimitAndOffset(&pageSize{
-		token:   request.PageToken,
-		limit:   int(request.PageSize),
+		token:   req.Msg.PageToken,
+		limit:   int(req.Msg.PageSize),
 		maximum: 1000,
 	})
 	if err != nil {
@@ -1366,41 +1369,41 @@ func (s *IssueService) ListIssueComments(ctx context.Context, request *v1pb.List
 		Offset:   &offset.offset,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list issue comments, err: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to list issue comments, err: %v", err))
 	}
 	var nextPageToken string
 	if len(issueComments) == limitPlusOne {
 		if nextPageToken, err = offset.getNextPageToken(); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get next page token, error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get next page token, error: %v", err))
 		}
 		issueComments = issueComments[:offset.limit]
 	}
 
-	return &v1pb.ListIssueCommentsResponse{
-		IssueComments: convertToIssueComments(request.Parent, issueComments),
+	return connect.NewResponse(&v1pb.ListIssueCommentsResponse{
+		IssueComments: convertToIssueComments(req.Msg.Parent, issueComments),
 		NextPageToken: nextPageToken,
-	}, nil
+	}), nil
 }
 
 // CreateIssueComment creates the issue comment.
-func (s *IssueService) CreateIssueComment(ctx context.Context, request *v1pb.CreateIssueCommentRequest) (*v1pb.IssueComment, error) {
-	if request.IssueComment.Comment == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "issue comment is empty")
+func (s *IssueService) CreateIssueComment(ctx context.Context, req *connect.Request[v1pb.CreateIssueCommentRequest]) (*connect.Response[v1pb.IssueComment], error) {
+	if req.Msg.IssueComment.Comment == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("issue comment is empty"))
 	}
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "user not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 
-	issue, err := s.getIssueMessage(ctx, request.Parent)
+	issue, err := s.getIssueMessage(ctx, req.Msg.Parent)
 	if err != nil {
 		return nil, err
 	}
 
 	s.webhookManager.CreateEvent(ctx, &webhook.Event{
 		Actor:   user,
-		Type:    webhook.EventTypeIssueCommentCreate,
-		Comment: request.IssueComment.Comment,
+		Type:    common.EventTypeIssueCommentCreate,
+		Comment: req.Msg.IssueComment.Comment,
 		Issue:   webhook.NewIssue(issue),
 		Project: webhook.NewProject(issue.Project),
 	})
@@ -1408,88 +1411,71 @@ func (s *IssueService) CreateIssueComment(ctx context.Context, request *v1pb.Cre
 	ic, err := s.store.CreateIssueComment(ctx, &store.IssueCommentMessage{
 		IssueUID: issue.UID,
 		Payload: &storepb.IssueCommentPayload{
-			Comment: request.IssueComment.Comment,
+			Comment: req.Msg.IssueComment.Comment,
 		},
 	}, user.ID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create issue comment: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create issue comment: %v", err))
 	}
 
-	// Add issue commenter to issue subscribers.
-	hasSubscriber := false
-	for _, subscriber := range issue.Subscribers {
-		if subscriber.ID == user.ID {
-			hasSubscriber = true
-			break
-		}
-	}
-	if !hasSubscriber {
-		issue.Subscribers = append(issue.Subscribers, user)
-		if _, err := s.store.UpdateIssueV2(ctx, issue.UID, &store.UpdateIssueMessage{
-			Subscribers: &issue.Subscribers,
-		}); err != nil {
-			return nil, err
-		}
-	}
-
-	return convertToIssueComment(request.Parent, ic), nil
+	return connect.NewResponse(convertToIssueComment(req.Msg.Parent, ic)), nil
 }
 
 // UpdateIssueComment updates the issue comment.
-func (s *IssueService) UpdateIssueComment(ctx context.Context, request *v1pb.UpdateIssueCommentRequest) (*v1pb.IssueComment, error) {
-	if request.UpdateMask.Paths == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "update_mask is required")
+func (s *IssueService) UpdateIssueComment(ctx context.Context, req *connect.Request[v1pb.UpdateIssueCommentRequest]) (*connect.Response[v1pb.IssueComment], error) {
+	if req.Msg.UpdateMask.Paths == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("update_mask is required"))
 	}
 
-	_, _, issueCommentUID, err := common.GetProjectIDIssueUIDIssueCommentUID(request.IssueComment.Name)
+	_, _, issueCommentUID, err := common.GetProjectIDIssueUIDIssueCommentUID(req.Msg.IssueComment.Name)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid comment name %q: %v", request.IssueComment.Name, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid comment name %q: %v", req.Msg.IssueComment.Name, err))
 	}
 	issueComment, err := s.store.GetIssueComment(ctx, &store.FindIssueCommentMessage{UID: &issueCommentUID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get issue comment: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get issue comment: %v", err))
 	}
 	if issueComment == nil {
-		return nil, status.Errorf(codes.NotFound, "issue comment not found")
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("issue comment not found"))
 	}
 
 	update := &store.UpdateIssueCommentMessage{
 		UID: issueCommentUID,
 	}
-	for _, path := range request.UpdateMask.Paths {
+	for _, path := range req.Msg.UpdateMask.Paths {
 		switch path {
 		case "comment":
-			update.Comment = &request.IssueComment.Comment
+			update.Comment = &req.Msg.IssueComment.Comment
 		default:
-			return nil, status.Errorf(codes.InvalidArgument, `unsupport update_mask: "%s"`, path)
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`unsupport update_mask: "%s"`, path))
 		}
 	}
 
 	if err := s.store.UpdateIssueComment(ctx, update); err != nil {
 		if common.ErrorCode(err) == common.NotFound {
-			return nil, status.Errorf(codes.NotFound, "cannot found the issue comment %s", request.IssueComment.Name)
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("cannot found the issue comment %s", req.Msg.IssueComment.Name))
 		}
-		return nil, status.Errorf(codes.Internal, "failed to update the issue comment with error: %v", err.Error())
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update the issue comment with error: %v", err.Error()))
 	}
 	issueComment, err = s.store.GetIssueComment(ctx, &store.FindIssueCommentMessage{UID: &issueCommentUID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get issue comment: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get issue comment: %v", err))
 	}
 
-	return convertToIssueComment(request.Parent, issueComment), nil
+	return connect.NewResponse(convertToIssueComment(req.Msg.Parent, issueComment)), nil
 }
 
 func (s *IssueService) getIssueMessage(ctx context.Context, name string) (*store.IssueMessage, error) {
 	issueID, err := common.GetIssueID(name)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("%v", err.Error()))
 	}
 	issue, err := s.store.GetIssueV2(ctx, &store.FindIssueMessage{UID: &issueID})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get issue, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get issue, error: %v", err))
 	}
 	if issue == nil {
-		return nil, status.Errorf(codes.NotFound, "issue %d not found", issueID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("issue %d not found", issueID))
 	}
 	return issue, nil
 }
@@ -1516,26 +1502,5 @@ func isUserReviewer(ctx context.Context, stores *store.Store, issue *store.Issue
 	}
 
 	roles := utils.GetUserFormattedRolesMap(ctx, stores, user, policies...)
-
-	switch val := node.Payload.(type) {
-	case *storepb.ApprovalNode_GroupValue_:
-		switch val.GroupValue {
-		case storepb.ApprovalNode_GROUP_VALUE_UNSPECIFILED:
-			return false, errors.Errorf("invalid group value")
-		case storepb.ApprovalNode_WORKSPACE_OWNER:
-			return roles[common.FormatRole(base.WorkspaceAdmin.String())], nil
-		case storepb.ApprovalNode_WORKSPACE_DBA:
-			return roles[common.FormatRole(base.WorkspaceDBA.String())], nil
-		case storepb.ApprovalNode_PROJECT_OWNER:
-			return roles[common.FormatRole(base.ProjectOwner.String())], nil
-		case storepb.ApprovalNode_PROJECT_MEMBER:
-			return roles[common.FormatRole(base.ProjectDeveloper.String())], nil
-		default:
-			return false, errors.Errorf("invalid group value")
-		}
-	case *storepb.ApprovalNode_Role:
-		return roles[val.Role], nil
-	default:
-		return false, errors.Errorf("invalid node payload type")
-	}
+	return roles[node.Role], nil
 }

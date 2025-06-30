@@ -27,25 +27,31 @@ const (
 	PlanService_ListPlanCheckRuns_FullMethodName        = "/bytebase.v1.PlanService/ListPlanCheckRuns"
 	PlanService_RunPlanChecks_FullMethodName            = "/bytebase.v1.PlanService/RunPlanChecks"
 	PlanService_BatchCancelPlanCheckRuns_FullMethodName = "/bytebase.v1.PlanService/BatchCancelPlanCheckRuns"
-	PlanService_PreviewPlan_FullMethodName              = "/bytebase.v1.PlanService/PreviewPlan"
 )
 
 // PlanServiceClient is the client API for PlanService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PlanServiceClient interface {
+	// Permissions required: bb.plans.get
 	GetPlan(ctx context.Context, in *GetPlanRequest, opts ...grpc.CallOption) (*Plan, error)
+	// Permissions required: bb.plans.list
 	ListPlans(ctx context.Context, in *ListPlansRequest, opts ...grpc.CallOption) (*ListPlansResponse, error)
 	// Search for plans that the caller has the bb.plans.get permission on and also satisfy the specified filter & query.
+	// Permissions required: bb.plans.get
 	SearchPlans(ctx context.Context, in *SearchPlansRequest, opts ...grpc.CallOption) (*SearchPlansResponse, error)
+	// Permissions required: bb.plans.create
 	CreatePlan(ctx context.Context, in *CreatePlanRequest, opts ...grpc.CallOption) (*Plan, error)
 	// UpdatePlan updates the plan.
 	// The plan creator and the user with bb.plans.update permission on the project can update the plan.
+	// Permissions required: bb.plans.update
 	UpdatePlan(ctx context.Context, in *UpdatePlanRequest, opts ...grpc.CallOption) (*Plan, error)
+	// Permissions required: bb.planCheckRuns.list
 	ListPlanCheckRuns(ctx context.Context, in *ListPlanCheckRunsRequest, opts ...grpc.CallOption) (*ListPlanCheckRunsResponse, error)
+	// Permissions required: bb.planCheckRuns.run
 	RunPlanChecks(ctx context.Context, in *RunPlanChecksRequest, opts ...grpc.CallOption) (*RunPlanChecksResponse, error)
+	// Permissions required: bb.planCheckRuns.run
 	BatchCancelPlanCheckRuns(ctx context.Context, in *BatchCancelPlanCheckRunsRequest, opts ...grpc.CallOption) (*BatchCancelPlanCheckRunsResponse, error)
-	PreviewPlan(ctx context.Context, in *PreviewPlanRequest, opts ...grpc.CallOption) (*PreviewPlanResponse, error)
 }
 
 type planServiceClient struct {
@@ -136,32 +142,29 @@ func (c *planServiceClient) BatchCancelPlanCheckRuns(ctx context.Context, in *Ba
 	return out, nil
 }
 
-func (c *planServiceClient) PreviewPlan(ctx context.Context, in *PreviewPlanRequest, opts ...grpc.CallOption) (*PreviewPlanResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(PreviewPlanResponse)
-	err := c.cc.Invoke(ctx, PlanService_PreviewPlan_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // PlanServiceServer is the server API for PlanService service.
 // All implementations must embed UnimplementedPlanServiceServer
 // for forward compatibility.
 type PlanServiceServer interface {
+	// Permissions required: bb.plans.get
 	GetPlan(context.Context, *GetPlanRequest) (*Plan, error)
+	// Permissions required: bb.plans.list
 	ListPlans(context.Context, *ListPlansRequest) (*ListPlansResponse, error)
 	// Search for plans that the caller has the bb.plans.get permission on and also satisfy the specified filter & query.
+	// Permissions required: bb.plans.get
 	SearchPlans(context.Context, *SearchPlansRequest) (*SearchPlansResponse, error)
+	// Permissions required: bb.plans.create
 	CreatePlan(context.Context, *CreatePlanRequest) (*Plan, error)
 	// UpdatePlan updates the plan.
 	// The plan creator and the user with bb.plans.update permission on the project can update the plan.
+	// Permissions required: bb.plans.update
 	UpdatePlan(context.Context, *UpdatePlanRequest) (*Plan, error)
+	// Permissions required: bb.planCheckRuns.list
 	ListPlanCheckRuns(context.Context, *ListPlanCheckRunsRequest) (*ListPlanCheckRunsResponse, error)
+	// Permissions required: bb.planCheckRuns.run
 	RunPlanChecks(context.Context, *RunPlanChecksRequest) (*RunPlanChecksResponse, error)
+	// Permissions required: bb.planCheckRuns.run
 	BatchCancelPlanCheckRuns(context.Context, *BatchCancelPlanCheckRunsRequest) (*BatchCancelPlanCheckRunsResponse, error)
-	PreviewPlan(context.Context, *PreviewPlanRequest) (*PreviewPlanResponse, error)
 	mustEmbedUnimplementedPlanServiceServer()
 }
 
@@ -195,9 +198,6 @@ func (UnimplementedPlanServiceServer) RunPlanChecks(context.Context, *RunPlanChe
 }
 func (UnimplementedPlanServiceServer) BatchCancelPlanCheckRuns(context.Context, *BatchCancelPlanCheckRunsRequest) (*BatchCancelPlanCheckRunsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchCancelPlanCheckRuns not implemented")
-}
-func (UnimplementedPlanServiceServer) PreviewPlan(context.Context, *PreviewPlanRequest) (*PreviewPlanResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method PreviewPlan not implemented")
 }
 func (UnimplementedPlanServiceServer) mustEmbedUnimplementedPlanServiceServer() {}
 func (UnimplementedPlanServiceServer) testEmbeddedByValue()                     {}
@@ -364,24 +364,6 @@ func _PlanService_BatchCancelPlanCheckRuns_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PlanService_PreviewPlan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PreviewPlanRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PlanServiceServer).PreviewPlan(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PlanService_PreviewPlan_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PlanServiceServer).PreviewPlan(ctx, req.(*PreviewPlanRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // PlanService_ServiceDesc is the grpc.ServiceDesc for PlanService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -420,10 +402,6 @@ var PlanService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchCancelPlanCheckRuns",
 			Handler:    _PlanService_BatchCancelPlanCheckRuns_Handler,
-		},
-		{
-			MethodName: "PreviewPlan",
-			Handler:    _PlanService_PreviewPlan_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

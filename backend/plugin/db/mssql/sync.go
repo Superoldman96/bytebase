@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -91,6 +91,26 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	procedureMap, err := getProcedures(txn)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get procedures from database %q", d.databaseName)
+	}
+	tableTriggers, viewTriggers, err := getTriggers(txn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get triggers from database %q", d.databaseName)
+	}
+	for schemaName, tables := range tableMap {
+		for i := range tables {
+			table := tables[i]
+			if triggers, ok := tableTriggers[db.TableKey{Schema: schemaName, Table: table.Name}]; ok {
+				table.Triggers = append(table.Triggers, triggers...)
+			}
+		}
+	}
+	for schemaName, views := range viewMap {
+		for i := range views {
+			view := views[i]
+			if triggers, ok := viewTriggers[db.TableKey{Schema: schemaName, Table: view.Name}]; ok {
+				view.Triggers = append(view.Triggers, triggers...)
+			}
+		}
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -340,7 +360,7 @@ func getForeignKeys(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.F
 		for _, v := range m {
 			foreignkeyNames = append(foreignkeyNames, v.Name)
 		}
-		sort.Strings(foreignkeyNames)
+		slices.Sort(foreignkeyNames)
 		for _, fkName := range foreignkeyNames {
 			result[k] = append(result[k], m[fkName])
 		}
@@ -381,6 +401,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 		c.is_nullable,
 		c.is_identity,
 		d.definition AS default_value,
+		d.default_name AS default_name,
 		CAST(p.[value] AS nvarchar(4000)) AS comment,
 		id.seed_value AS seed_value,
 		id.increment_value AS increment_value
@@ -402,7 +423,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var schemaName, tableName, columnName, typeName, definition, collationName, defaultValue, comment sql.NullString
+		var schemaName, tableName, columnName, typeName, definition, collationName, defaultValue, defaultName, comment sql.NullString
 		var isComputed, isPersisted, isNullable, isIdentity sql.NullBool
 		var maxLength, precision, scale, seedValue, incrementValue sql.NullInt64
 		if err := rows.Scan(
@@ -420,6 +441,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 			&isNullable,
 			&isIdentity,
 			&defaultValue,
+			&defaultName,
 			&comment,
 			&seedValue,
 			&incrementValue,
@@ -445,7 +467,10 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 			column.Collation = collationName.String
 		}
 		if defaultValue.Valid {
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultValue.String}
+			column.DefaultExpression = defaultValue.String
+		}
+		if defaultName.Valid {
+			column.DefaultConstraintName = defaultName.String
 		}
 		column.Nullable = true
 		if isNullable.Valid && !isNullable.Bool {
@@ -516,7 +541,13 @@ func getColumnType(definition, typeName sql.NullString, isComputed, isPersisted 
 					return "", err
 				}
 			} else {
-				if _, err := fmt.Fprintf(&buf, "(%d)", maxLength.Int64); err != nil {
+				// For Unicode types (nchar, nvarchar), SQL Server stores byte count in max_length
+				// Each Unicode character takes 2 bytes, so we need to divide by 2
+				length := maxLength.Int64
+				if typeName.String == "nchar" || typeName.String == "nvarchar" {
+					length /= 2
+				}
+				if _, err := fmt.Fprintf(&buf, "(%d)", length); err != nil {
 					return "", err
 				}
 			}
@@ -603,8 +634,14 @@ func getIndexes(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.Index
 		for _, v := range m {
 			tableIndexes[k] = append(tableIndexes[k], v)
 		}
-		sort.Slice(tableIndexes[k], func(i, j int) bool {
-			return tableIndexes[k][i].Name < tableIndexes[k][j].Name
+		slices.SortFunc(tableIndexes[k], func(a, b *storepb.IndexMetadata) int {
+			if a.Name < b.Name {
+				return -1
+			}
+			if a.Name > b.Name {
+				return 1
+			}
+			return 0
 		})
 	}
 	return tableIndexes, nil
@@ -693,8 +730,14 @@ func getKeys(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.IndexMet
 		for _, v := range m {
 			tableIndexes[k] = append(tableIndexes[k], v)
 		}
-		sort.Slice(tableIndexes[k], func(i, j int) bool {
-			return tableIndexes[k][i].Name < tableIndexes[k][j].Name
+		slices.SortFunc(tableIndexes[k], func(a, b *storepb.IndexMetadata) int {
+			if a.Name < b.Name {
+				return -1
+			}
+			if a.Name > b.Name {
+				return 1
+			}
+			return 0
 		})
 	}
 	return tableIndexes, nil
@@ -724,9 +767,14 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 		SELECT
 			SCHEMA_NAME(v.schema_id) AS schema_name,
 			v.name AS view_name,
-			m.definition
+			m.definition,
+			CAST(ep.value AS NVARCHAR(MAX)) AS comment
 		FROM sys.views v
 		INNER JOIN sys.sql_modules m ON v.object_id = m.object_id
+		LEFT JOIN sys.extended_properties ep ON ep.major_id = v.object_id 
+			AND ep.minor_id = 0 
+			AND ep.class = 1 
+			AND ep.name = 'MS_Description'
 		ORDER BY schema_name, view_name;`
 	rows, err := txn.Query(query)
 	if err != nil {
@@ -736,8 +784,8 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 	for rows.Next() {
 		view := &storepb.ViewMetadata{}
 		var schemaName string
-		var definition sql.NullString
-		if err := rows.Scan(&schemaName, &view.Name, &definition); err != nil {
+		var definition, comment sql.NullString
+		if err := rows.Scan(&schemaName, &view.Name, &definition, &comment); err != nil {
 			return nil, err
 		}
 
@@ -753,6 +801,10 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 		}
 		view.Definition = viewDefinition
 
+		if comment.Valid {
+			view.Comment = comment.String
+		}
+
 		key := db.TableKey{Schema: schemaName, Table: view.Name}
 		view.Columns = columnMap[key]
 
@@ -765,19 +817,104 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 	return viewMap, nil
 }
 
+func getTriggers(txn *sql.Tx) (map[db.TableKey][]*storepb.TriggerMetadata, map[db.TableKey][]*storepb.TriggerMetadata, error) {
+	query := `
+SELECT
+    st.name,
+    STUFF((
+        SELECT ',' + te.type_desc
+        FROM sys.trigger_events AS te
+        WHERE te.object_id = st.object_id
+        FOR XML PATH('')
+    ), 1, 1, '') AS events,
+CASE
+        WHEN st.type = 'TR' THEN 'AFTER' -- DML triggers created with FOR or AFTER
+        WHEN st.type = 'TA' THEN 'AFTER' -- DDL triggers
+        WHEN st.type = 'TI' THEN 'INSTEAD OF' -- INSTEAD OF triggers
+        ELSE 'UNKNOWN' -- Handle other potential types
+END AS timing,
+ssm.definition AS body,
+so.name AS parentName,
+ss.name AS schemaName,
+so.type AS objectType,
+CAST(ep.value AS NVARCHAR(MAX)) AS comment
+FROM
+    sys.triggers AS st
+JOIN
+    sys.sql_modules AS ssm
+ON
+    st.object_id = ssm.object_id
+JOIN
+    sys.objects AS so
+ON
+    st.parent_id = so.object_id
+JOIN
+    sys.schemas AS ss
+ON so.schema_id = ss.schema_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = st.object_id 
+	AND ep.minor_id = 0 
+	AND ep.class = 1 
+	AND ep.name = 'MS_Description'
+WHERE st.is_disabled = 0 AND st.is_ms_shipped = 0 AND st.parent_id <> 0 AND  so.type IN ('U', 'V')
+ORDER BY st.name;
+`
+	tableTriggers := make(map[db.TableKey][]*storepb.TriggerMetadata)
+	viewTriggers := make(map[db.TableKey][]*storepb.TriggerMetadata)
+	rows, err := txn.Query(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, events, timing, parentName, schemaName, parentType string
+		var body, comment sql.NullString
+		if err := rows.Scan(&name, &events, &timing, &body, &parentName, &schemaName, &parentType, &comment); err != nil {
+			return nil, nil, err
+		}
+		bodyString := fmt.Sprintf("/* Definition of trigger %s.%s.%s is encrypted. */", schemaName, parentName, name)
+		if body.Valid {
+			bodyString = body.String
+		}
+		m := tableTriggers
+		if parentType == "V" {
+			m = viewTriggers
+		}
+		trigger := &storepb.TriggerMetadata{
+			Name:   name,
+			Event:  events,
+			Timing: timing,
+			Body:   bodyString,
+		}
+		if comment.Valid {
+			trigger.Comment = comment.String
+		}
+		key := db.TableKey{Schema: schemaName, Table: parentName}
+		m[key] = append(m[key], trigger)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return tableTriggers, viewTriggers, nil
+}
+
 // getSequences gets all sequences of a database.
 func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 	query := `
 	SELECT
 		s.name,
 		seq.name,
-		tp.name
+		tp.name,
+		CAST(ep.value AS NVARCHAR(MAX)) AS comment
 	FROM
 		sys.sequences seq
 	INNER JOIN
 		sys.schemas s ON s.schema_id = seq.schema_id
 	INNER JOIN
 		sys.types tp ON tp.system_type_id = seq.system_type_id
+	LEFT JOIN sys.extended_properties ep ON ep.major_id = seq.object_id 
+		AND ep.minor_id = 0 
+		AND ep.class = 1 
+		AND ep.name = 'MS_Description'
 	ORDER BY s.name, seq.name;`
 	rows, err := txn.Query(query)
 	if err != nil {
@@ -789,8 +926,12 @@ func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 	for rows.Next() {
 		sequence := &storepb.SequenceMetadata{}
 		var schemaName string
-		if err := rows.Scan(&schemaName, &sequence.Name, &sequence.DataType); err != nil {
+		var comment sql.NullString
+		if err := rows.Scan(&schemaName, &sequence.Name, &sequence.DataType, &comment); err != nil {
 			return nil, err
+		}
+		if comment.Valid {
+			sequence.Comment = comment.String
 		}
 		sequenceMap[schemaName] = append(sequenceMap[schemaName], sequence)
 	}
@@ -804,7 +945,6 @@ func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 func getProcedures(txn *sql.Tx) (map[string][]*storepb.ProcedureMetadata, error) {
 	procedureMap := make(map[string][]*storepb.ProcedureMetadata)
 
-	// The CAST(...) = 0 means the procedure is not a system function.
 	query := `
 	SELECT
 		SCHEMA_NAME(ao.schema_id) AS schema_name,
@@ -863,9 +1003,14 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 	SELECT
 		SCHEMA_NAME(ao.schema_id) AS schema_name,
 		ao.name AS func_name,
-		asm.definition
+		asm.definition,
+		CAST(ep.value AS NVARCHAR(MAX)) AS comment
 	FROM sys.all_objects ao
         INNER JOIN sys.all_sql_modules asm ON asm.object_id = ao.object_id
+		LEFT JOIN sys.extended_properties ep ON ep.major_id = ao.object_id 
+			AND ep.minor_id = 0 
+			AND ep.class = 1 
+			AND ep.name = 'MS_Description'
 	WHERE ao.type IN ('FN', 'IF', 'TF')
 		AND ao.is_ms_shipped = 0 AND
 		(
@@ -885,8 +1030,8 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 	for rows.Next() {
 		function := &storepb.FunctionMetadata{}
 		var schemaName string
-		var definition sql.NullString
-		if err := rows.Scan(&schemaName, &function.Name, &definition); err != nil {
+		var definition, comment sql.NullString
+		if err := rows.Scan(&schemaName, &function.Name, &definition, &comment); err != nil {
 			return nil, err
 		}
 		var functionDefinition string
@@ -900,6 +1045,11 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 			functionDefinition = definition.String
 		}
 		function.Definition = functionDefinition
+
+		if comment.Valid {
+			function.Comment = comment.String
+		}
+
 		funcMap[schemaName] = append(funcMap[schemaName], function)
 	}
 	if err := rows.Err(); err != nil {

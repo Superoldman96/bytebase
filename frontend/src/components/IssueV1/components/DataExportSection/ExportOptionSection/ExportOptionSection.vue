@@ -40,7 +40,7 @@
       }}</span>
       <ExportFormatSelector
         :key="refreshKey"
-        v-model:format="state.config.format"
+        v-model:format="convertedFormat"
         :editable="optionsEditable"
       />
     </div>
@@ -64,11 +64,14 @@ import { computed, watch, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   allowUserToEditStatementForTask,
-  notifyNotEditableLegacyIssue,
   useIssueContext,
 } from "@/components/IssueV1/logic";
 import ErrorList from "@/components/misc/ErrorList.vue";
-import { planServiceClient } from "@/grpcweb";
+import { create } from "@bufbuild/protobuf";
+import { planServiceClientConnect } from "@/grpcweb";
+import { UpdatePlanRequestSchema } from "@/types/proto-es/v1/plan_service_pb";
+import { convertOldPlanToNew, convertNewPlanToOld } from "@/utils/v1/plan-conversions";
+import { convertExportFormatToNew, convertExportFormatToOld } from "@/utils/v1/common-conversions";
 import { pushNotification } from "@/store";
 import { IssueStatus } from "@/types/proto/v1/issue_service";
 import {
@@ -89,9 +92,7 @@ const { issue, isCreating, selectedTask, events } = context;
 const refreshKey = ref(0);
 
 const spec = computed(
-  () =>
-    head(issue.value.planEntity?.steps.flatMap((step) => step.specs)) ||
-    Plan_Spec.fromPartial({})
+  () => head(issue.value.planEntity?.specs) || Plan_Spec.fromPartial({})
 );
 
 const state = reactive<LocalState>({
@@ -108,12 +109,18 @@ const optionsEditable = computed(() => {
 });
 
 const denyEditTaskReasons = computed(() =>
-  allowUserToEditStatementForTask(
-    issue.value,
-    selectedTask.value,
-    context.getPlanCheckRunsForTask(selectedTask.value)
-  )
+  allowUserToEditStatementForTask(issue.value, selectedTask.value)
 );
+
+// Convert between old and new ExportFormat types
+const convertedFormat = computed({
+  get() {
+    return convertExportFormatToNew(state.config.format);
+  },
+  set(value) {
+    state.config.format = convertExportFormatToOld(value);
+  }
+});
 
 const handleCancelEdit = () => {
   state.isEditing = false;
@@ -127,14 +134,14 @@ const handleCancelEdit = () => {
 const handleSaveEdit = async () => {
   const planPatch = cloneDeep(issue.value.planEntity);
   if (!planPatch) {
-    notifyNotEditableLegacyIssue();
-    return;
+    // Should not reach here.
+    throw new Error("Plan is not defined. Cannot update export options.");
   }
 
   const distinctSpecIds = new Set([spec.value.id]);
-  const specsToPatch = planPatch.steps
-    .flatMap((step) => step.specs)
-    .filter((spec) => distinctSpecIds.has(spec.id));
+  const specsToPatch = (planPatch.specs || []).filter((spec) =>
+    distinctSpecIds.has(spec.id)
+  );
   for (let i = 0; i < specsToPatch.length; i++) {
     const spec = specsToPatch[i];
     const config = spec.exportDataConfig;
@@ -143,10 +150,13 @@ const handleSaveEdit = async () => {
     config.password = state.config.password || undefined;
   }
 
-  const updatedPlan = await planServiceClient.updatePlan({
-    plan: planPatch,
-    updateMask: ["steps"],
+  const newPlan = convertOldPlanToNew(planPatch);
+  const request = create(UpdatePlanRequestSchema, {
+    plan: newPlan,
+    updateMask: { paths: ["specs"] },
   });
+  const response = await planServiceClientConnect.updatePlan(request);
+  const updatedPlan = convertNewPlanToOld(response);
   issue.value.planEntity = updatedPlan;
 
   events.emit("status-changed", { eager: true });
@@ -164,11 +174,13 @@ watch(
     if (!isCreating.value) {
       return;
     }
-    spec.value.exportDataConfig = Plan_ExportDataConfig.fromPartial({
-      ...spec.value.exportDataConfig,
-      format: state.config.format,
-      password: state.config.password,
-    });
+    for (const spec of issue.value.planEntity?.specs ?? []) {
+      spec.exportDataConfig = Plan_ExportDataConfig.fromPartial({
+        ...spec.exportDataConfig,
+        format: state.config.format,
+        password: state.config.password,
+      });
+    }
   },
   { deep: true }
 );

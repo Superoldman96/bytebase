@@ -3,7 +3,7 @@
     <div class="text-sm text-control-light">
       {{ $t("database.classification.description") }}
       <LearnMoreLink
-        url="https://www.bytebase.com/docs/security/data-masking/data-classification?source=console"
+        url="https://docs.bytebase.com/security/data-masking/data-classification?source=console"
         class="ml-1"
       />
     </div>
@@ -12,7 +12,7 @@
         <NSwitch
           :value="!state.classification.classificationFromConfig"
           :disabled="
-            !allowEdit || !hasSensitiveDataFeature || !hasClassificationConfig
+            !allowEdit || !hasClassificationFeature || !hasClassificationConfig
           "
           @update:value="onClassificationConfigChange"
         />
@@ -47,7 +47,7 @@
       <div class="flex items-center justify-end gap-2">
         <NButton
           type="primary"
-          :disabled="!allowEdit || !hasSensitiveDataFeature"
+          :disabled="!allowEdit || !hasClassificationFeature"
           @click="onUpload"
         >
           <template #icon>
@@ -60,7 +60,7 @@
           type="file"
           accept=".json"
           class="sr-only hidden"
-          :disabled="!allowEdit || !hasSensitiveDataFeature"
+          :disabled="!allowEdit || !hasClassificationFeature"
           @input="onFileChange"
         />
       </div>
@@ -74,7 +74,7 @@
         class="space-y-1 text-center flex flex-col justify-center items-center absolute top-0 bottom-0 left-0 right-0"
         :support-file-extensions="['.json']"
         :max-file-size-in-mi-b="maxFileSizeInMiB"
-        :disabled="!allowEdit || !hasSensitiveDataFeature"
+        :disabled="!allowEdit || !hasClassificationFeature"
         @on-select="onFileSelect"
       >
       </SingleFileSelector>
@@ -96,14 +96,24 @@ import { head, isEqual, isEmpty } from "lodash-es";
 import { UploadIcon } from "lucide-vue-next";
 import { NSwitch, useDialog, NDivider, NButton } from "naive-ui";
 import { v4 as uuidv4 } from "uuid";
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { featureToRef, useSettingV1Store, pushNotification } from "@/store";
-import {
+import type {
   DataClassificationSetting_DataClassificationConfig_Level as ClassificationLevel,
   DataClassificationSetting_DataClassificationConfig_DataClassification as DataClassification,
-} from "@/types/proto/v1/setting_service";
-import { DataClassificationSetting_DataClassificationConfig } from "@/types/proto/v1/setting_service";
+  DataClassificationSetting_DataClassificationConfig,
+} from "@/types/proto-es/v1/setting_service_pb";
+import {
+  DataClassificationSetting_DataClassificationConfigSchema,
+  DataClassificationSetting_DataClassificationConfig_LevelSchema,
+  DataClassificationSetting_DataClassificationConfig_DataClassificationSchema,
+  DataClassificationSettingSchema,
+  Setting_SettingName,
+  ValueSchema as SettingValueSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
+import { create } from "@bufbuild/protobuf";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import LearnMoreLink from "../LearnMoreLink.vue";
 import ClassificationTree from "../SchemaTemplate/ClassificationTree.vue";
@@ -128,12 +138,16 @@ const { t } = useI18n();
 const $dialog = useDialog();
 const settingStore = useSettingV1Store();
 
-const formerConfig = computed(() =>
-  DataClassificationSetting_DataClassificationConfig.fromPartial({
+const formerConfig = computed(() => {
+  const classification = head(settingStore.classification);
+  return create(DataClassificationSetting_DataClassificationConfigSchema, {
     id: uuidv4(),
-    ...head(settingStore.classification),
-  })
-);
+    title: classification?.title || "",
+    levels: classification?.levels || [],
+    classification: classification?.classification || {},
+    classificationFromConfig: classification?.classificationFromConfig || false,
+  });
+});
 
 const hasClassificationConfig = computed(
   () => settingStore.classification.length > 0
@@ -141,7 +155,25 @@ const hasClassificationConfig = computed(
 
 const state = reactive<LocalState>({
   showExampleModal: false,
-  classification: { ...formerConfig.value },
+  classification: create(DataClassificationSetting_DataClassificationConfigSchema, {
+    id: uuidv4(),
+    title: "",
+    levels: [],
+    classification: {},
+    classificationFromConfig: false,
+  }),
+});
+
+// Initialize state with formerConfig
+watchEffect(() => {
+  const config = formerConfig.value;
+  Object.assign(state.classification, {
+    id: config.id,
+    title: config.title,
+    levels: config.levels,
+    classification: config.classification,
+    classificationFromConfig: config.classificationFromConfig,
+  });
 });
 
 const emptyConfig = computed(
@@ -151,7 +183,7 @@ const emptyConfig = computed(
 const allowSave = computed(() => {
   return (
     allowEdit.value &&
-    hasSensitiveDataFeature.value &&
+    hasClassificationFeature.value &&
     !isEqual(formerConfig.value, state.classification)
   );
 });
@@ -193,12 +225,15 @@ const saveChanges = async () => {
 
 const upsertSetting = async () => {
   await settingStore.upsertSetting({
-    name: "bb.workspace.data-classification",
-    value: {
-      dataClassificationSettingValue: {
-        configs: [state.classification],
+    name: Setting_SettingName.DATA_CLASSIFICATION,
+    value: create(SettingValueSchema, {
+      value: {
+        case: "dataClassificationSettingValue",
+        value: create(DataClassificationSettingSchema, {
+          configs: [state.classification],
+        }),
       },
-    },
+    }),
   });
   pushNotification({
     module: "bytebase",
@@ -211,7 +246,9 @@ const allowEdit = computed(() => {
   return hasWorkspacePermissionV2("bb.settings.set");
 });
 
-const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
+const hasClassificationFeature = featureToRef(
+  PlanFeature.FEATURE_DATA_CLASSIFICATION
+);
 
 const onUpload = () => {
   uploader.value?.click();
@@ -270,11 +307,11 @@ const onFileSelect = (file: File) => {
     Object.assign(state.classification, {
       title: data.title || state.classification.title || "",
       levels: data.levels.map((level) =>
-        ClassificationLevel.fromPartial(level)
+        create(DataClassificationSetting_DataClassificationConfig_LevelSchema, level)
       ),
       classification: Object.values(data.classification).reduce(
         (map, data) => {
-          map[data.id] = DataClassification.fromPartial(data);
+          map[data.id] = create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, data);
           return map;
         },
         {} as { [key: string]: DataClassification }
@@ -303,71 +340,71 @@ const onFileSelect = (file: File) => {
   fr.readAsText(file);
 };
 
-const example: UploadClassificationConfig = {
+const example = {
   title: "Classification Example",
   levels: [
-    {
+    create(DataClassificationSetting_DataClassificationConfig_LevelSchema, {
       id: "1",
       title: "Level 1",
       description: "",
-    },
-    {
+    }),
+    create(DataClassificationSetting_DataClassificationConfig_LevelSchema, {
       id: "2",
       title: "Level 2",
       description: "",
-    },
-    {
+    }),
+    create(DataClassificationSetting_DataClassificationConfig_LevelSchema, {
       id: "3",
       title: "Level 3",
       description: "",
-    },
-    {
+    }),
+    create(DataClassificationSetting_DataClassificationConfig_LevelSchema, {
       id: "4",
       title: "Level 4",
       description: "",
-    },
+    }),
   ],
   classification: {
-    "1": {
+    "1": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "1",
       title: "Basic",
       description: "",
-    },
-    "1-1": {
+    }),
+    "1-1": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "1-1",
       title: "Basic",
       description: "",
       levelId: "1",
-    },
-    "1-2": {
+    }),
+    "1-2": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "1-2",
       title: "Contact",
       description: "",
       levelId: "2",
-    },
-    "1-3": {
+    }),
+    "1-3": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "1-3",
       title: "Health",
       description: "",
       levelId: "4",
-    },
-    "2": {
+    }),
+    "2": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "2",
       title: "Relationship",
       description: "",
-    },
-    "2-1": {
+    }),
+    "2-1": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "2-1",
       title: "Social",
       description: "",
       levelId: "1",
-    },
-    "2-2": {
+    }),
+    "2-2": create(DataClassificationSetting_DataClassificationConfig_DataClassificationSchema, {
       id: "2-2",
       title: "Business",
       description: "",
       levelId: "3",
-    },
+    }),
   },
-};
+} satisfies UploadClassificationConfig;
 </script>

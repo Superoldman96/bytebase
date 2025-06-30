@@ -20,9 +20,6 @@
       >
         {{ $t(readableCurrentPlan) }}
       </router-link>
-      <div v-if="subscriptionViewMode === 'PLAIN'">
-        {{ $t(readableCurrentPlan) }}
-      </div>
     </div>
 
     <NTooltip v-bind="tooltipProps">
@@ -43,7 +40,7 @@
       <template #default>
         <div class="flex flex-col gap-y-1">
           <div v-if="canUpgrade" class="whitespace-nowrap">
-            {{ $t("settings.release.new-version-available") }}
+            {{ $t("remind.release.new-version-available") }}
           </div>
           <div>BE Git hash: {{ gitCommitBE }}</div>
           <div>FE Git hash: {{ gitCommitFE }}</div>
@@ -57,23 +54,23 @@
     @cancel="state.showTrialModal = false"
   />
   <ReleaseRemindModal
-    v-if="!hideReleaseRemind && state.showReleaseModal"
+    v-if="state.showReleaseModal"
     @cancel="state.showReleaseModal = false"
   />
 </template>
 
 <script lang="ts" setup>
+import { Volume2Icon } from "lucide-vue-next";
+import { NTooltip, type TooltipProps } from "naive-ui";
+import { storeToRefs } from "pinia";
+import { computed, reactive } from "vue";
 import {
   useActuatorV1Store,
   useAppFeature,
   useSubscriptionV1Store,
 } from "@/store";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import { autoSubscriptionRoute, hasWorkspacePermissionV2 } from "@/utils";
-import { Volume2Icon } from "lucide-vue-next";
-import { NTooltip, type TooltipProps } from "naive-ui";
-import { storeToRefs } from "pinia";
-import { computed, reactive } from "vue";
 import ReleaseRemindModal from "../ReleaseRemindModal.vue";
 import TrialModal from "../TrialModal.vue";
 
@@ -88,11 +85,7 @@ defineProps<{
 
 const actuatorStore = useActuatorV1Store();
 const subscriptionStore = useSubscriptionV1Store();
-const hideReleaseRemind = useAppFeature("bb.feature.hide-release-remind");
 const hideTrial = useAppFeature("bb.feature.hide-trial");
-const disallowNavigateToConsole = useAppFeature(
-  "bb.feature.disallow-navigate-to-console"
-);
 
 const state = reactive<LocalState>({
   showTrialModal: false,
@@ -105,9 +98,6 @@ const canUpgrade = computed(() => {
 });
 
 const subscriptionViewMode = computed(() => {
-  if (disallowNavigateToConsole.value) {
-    return "PLAIN";
-  }
   if (
     !hideTrial.value &&
     subscriptionStore.currentPlan === PlanType.FREE &&
@@ -139,10 +129,9 @@ const version = computed(() => {
 });
 
 const gitCommitBE = computed(() => {
-  return `${actuatorStore.gitCommit.substring(0, 7)}`;
+  return `${actuatorStore.gitCommitBE.substring(0, 7)}`;
 });
 const gitCommitFE = computed(() => {
-  const commitHash = import.meta.env.GIT_COMMIT as string | undefined;
-  return (commitHash ?? "unknown").substring(0, 7);
+  return `${actuatorStore.gitCommitFE.substring(0, 7)}`;
 });
 </script>

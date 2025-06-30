@@ -46,6 +46,7 @@
 
     <SQLCheckPanel
       v-if="checkResult && filteredAdvices && showDetailPanel"
+      :project="database.project"
       :database="database"
       :advices="filteredAdvices"
       :affected-rows="checkResult.affectedRows"
@@ -68,23 +69,23 @@
 import { asyncComputed } from "@vueuse/core";
 import type { ButtonProps } from "naive-ui";
 import { NButton, NPopover } from "naive-ui";
-import { v4 as uuidv4 } from "uuid";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { onMounted } from "vue";
 import { useI18n } from "vue-i18n";
+import { create } from "@bufbuild/protobuf";
 import { BBSpin } from "@/bbkit";
-import { releaseServiceClient } from "@/grpcweb";
+import { releaseServiceClientConnect } from "@/grpcweb";
 import type { ComposedDatabase } from "@/types";
-import type { DatabaseMetadata } from "@/types/proto/v1/database_service";
+import type { DatabaseMetadata } from "@/types/proto-es/v1/database_service_pb";
 import {
   CheckReleaseResponse,
   Release_File_ChangeType,
-  ReleaseFileType,
 } from "@/types/proto/v1/release_service";
+import { CheckReleaseRequestSchema, ReleaseFileType } from "@/types/proto-es/v1/release_service_pb";
+import { convertNewCheckReleaseResponseToOld, convertOldChangeTypeToNew } from "@/utils/v1/release-conversions";
 import { Advice, Advice_Status } from "@/types/proto/v1/sql_service";
 import type { Defer, VueStyle } from "@/utils";
 import { defer } from "@/utils";
-import { providePlanCheckRunContext } from "../PlanCheckRun/context";
 import ErrorList from "../misc/ErrorList.vue";
 import SQLCheckPanel from "./SQLCheckPanel.vue";
 import SQLCheckSummary from "./SQLCheckSummary.vue";
@@ -152,26 +153,26 @@ const statementErrors = asyncComputed(async () => {
   return [];
 }, []);
 
-providePlanCheckRunContext({});
-
 const runCheckInternal = async (statement: string) => {
   const { database, changeType } = props;
-  const result = await releaseServiceClient.checkRelease({
+  const request = create(CheckReleaseRequestSchema, {
     parent: database.project,
     release: {
       files: [
         {
-          // Use a random uuid to avoid duplication.
-          version: uuidv4(),
+          // Use "0" for dummy version.
+          version: "0",
           type: ReleaseFileType.VERSIONED,
           statement: new TextEncoder().encode(statement),
           // Default to DDL change type.
-          changeType: changeType || Release_File_ChangeType.DDL,
+          changeType: convertOldChangeTypeToNew(changeType || Release_File_ChangeType.DDL),
         },
       ],
     },
     targets: [database.name],
   });
+  const response = await releaseServiceClientConnect.checkRelease(request);
+  const result = convertNewCheckReleaseResponseToOld(response);
   return result;
 };
 

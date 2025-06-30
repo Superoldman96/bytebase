@@ -142,11 +142,6 @@
     </template>
   </div>
 
-  <FeatureModal
-    feature="bb.feature.multi-tenancy"
-    :open="state.showFeatureModal"
-    @cancel="state.showFeatureModal = false"
-  />
   <div
     v-if="state.creating"
     class="absolute inset-0 z-10 bg-white/70 flex items-center justify-center"
@@ -156,18 +151,12 @@
 </template>
 
 <script lang="ts" setup>
-import { isEmpty } from "lodash-es";
-import { NInput } from "naive-ui";
-import { v4 as uuidv4 } from "uuid";
-import { computed, reactive } from "vue";
-import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
 import { BBSpin } from "@/bbkit";
 import InstanceRoleSelect from "@/components/InstanceRoleSelect.vue";
 import {
-  ProjectSelect,
   EnvironmentSelect,
   InstanceSelect,
+  ProjectSelect,
 } from "@/components/v2";
 import {
   experimentalCreateIssueByPlan,
@@ -183,16 +172,21 @@ import {
   isValidProjectName,
   UNKNOWN_PROJECT_NAME,
 } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
-import type { InstanceRole } from "@/types/proto/v1/instance_role_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import type { InstanceRole } from "@/types/proto-es/v1/instance_role_service_pb";
 import { Issue, Issue_Type } from "@/types/proto/v1/issue_service";
 import type { Plan_CreateDatabaseConfig } from "@/types/proto/v1/plan_service";
 import { Plan, Plan_Spec } from "@/types/proto/v1/plan_service";
 import {
-  instanceV1HasCollationAndCharacterSet,
   enginesSupportCreateDatabase,
+  instanceV1HasCollationAndCharacterSet,
 } from "@/utils";
-import { FeatureModal } from "../FeatureGuard";
+import { isEmpty } from "lodash-es";
+import { NInput } from "naive-ui";
+import { v4 as uuidv4 } from "uuid";
+import { computed, reactive } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 
 const INTERNAL_RDS_INSTANCE_USER_LIST = ["rds_ad", "rdsadmin", "rds_iam"];
 
@@ -206,7 +200,6 @@ interface LocalState {
   characterSet: string;
   collation: string;
   cluster: string;
-  showFeatureModal: boolean;
   creating: boolean;
 }
 
@@ -233,7 +226,6 @@ const state = reactive<LocalState>({
   characterSet: "",
   collation: "",
   cluster: "",
-  showFeatureModal: false,
   creating: false,
 });
 const { project } = useProjectByName(
@@ -244,7 +236,9 @@ const isReservedName = computed(() => {
   return state.databaseName.toLowerCase() == "bytebase";
 });
 
-const supportedEngines = computed(() => enginesSupportCreateDatabase());
+const supportedEngines = computed(() => 
+  enginesSupportCreateDatabase()
+);
 
 const allowCreate = computed(() => {
   return (
@@ -365,8 +359,8 @@ const createV1 = async () => {
 
   state.creating = true;
   try {
-    const planCreate = Plan.fromJSON({
-      steps: [{ specs: [spec] }],
+    const planCreate = Plan.fromPartial({
+      specs: [spec],
       creator: currentUserV1.value.name,
     });
     const { createdIssue } = await experimentalCreateIssueByPlan(

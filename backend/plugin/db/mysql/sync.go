@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -14,7 +14,6 @@ import (
 
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
@@ -200,7 +199,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			'',
 			SEQ_IN_INDEX,
 			INDEX_TYPE,
-			CASE NON_UNIQUE WHEN 0 THEN 1 ELSE 0 END AS IS_UNIQUE,
+			NON_UNIQUE,
 			1,
 			INDEX_COMMENT
 		FROM information_schema.STATISTICS
@@ -221,7 +220,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 				EXPRESSION,
 				SEQ_IN_INDEX,
 				INDEX_TYPE,
-				CASE NON_UNIQUE WHEN 0 THEN 1 ELSE 0 END AS IS_UNIQUE,
+				NON_UNIQUE,
 				CASE IS_VISIBLE WHEN 'YES' THEN 1 ELSE 0 END,
 				INDEX_COMMENT
 			FROM information_schema.STATISTICS
@@ -240,7 +239,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		var collation sql.NullString
 		var position int
 		var subPart int64
-		var unique, visible bool
+		var nonUnique, visible bool
 		if err := indexRows.Scan(
 			&tableName,
 			&indexName,
@@ -250,7 +249,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			&expressionName,
 			&position,
 			&indexType,
-			&unique,
+			&nonUnique,
 			&visible,
 			&comment,
 		); err != nil {
@@ -277,7 +276,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			indexMap[key][indexName] = &storepb.IndexMetadata{
 				Name:    indexName,
 				Type:    indexType,
-				Unique:  unique,
+				Unique:  !nonUnique,
 				Primary: indexName == "PRIMARY",
 				Visible: visible,
 				Comment: comment,
@@ -353,8 +352,8 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		); err != nil {
 			return nil, err
 		}
-		// Quoted string has a single quote around it.
-		column.Comment = stripSingleQuote(column.Comment)
+		// Quoted string has a single quote around it and is escaped by QUOTE().
+		column.Comment = unquoteMySQLString(column.Comment)
 		if defaultStr.Valid {
 			defaultStr.String = stripSingleQuote(defaultStr.String)
 		}
@@ -449,6 +448,9 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		); err != nil {
 			return nil, err
 		}
+		// Note: MySQL's information_schema.VIEWS doesn't have a comment column
+		// View comments are not supported in MySQL
+		view.Comment = ""
 		key := db.TableKey{Schema: "", Table: view.Name}
 		view.Columns = columnMap[key]
 		viewMap[key] = view
@@ -545,8 +547,13 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		); err != nil {
 			return nil, err
 		}
-		// Quoted string has a single quote around it.
-		comment = stripSingleQuote(comment)
+		// Quoted string has a single quote around it and is escaped by QUOTE().
+		comment = unquoteMySQLString(comment)
+
+		// Note: We should NOT skip partitioned tables here.
+		// The CREATE_OPTIONS might contain 'partitioned' for partitioned tables,
+		// but we still need to include them in the table list.
+		// The partition details are fetched separately by listPartitionTables.
 
 		key := db.TableKey{Schema: "", Table: tableName}
 		switch tableType {
@@ -577,7 +584,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 				for indexName := range indexes {
 					indexNames = append(indexNames, indexName)
 				}
-				sort.Strings(indexNames)
+				slices.Sort(indexNames)
 				for _, indexName := range indexNames {
 					tableMetadata.Indexes = append(tableMetadata.Indexes, indexes[indexName])
 				}
@@ -658,6 +665,7 @@ func (d *Driver) getEventList(ctx context.Context, databaseName string) ([]*stor
 			SqlMode:             sqlMode,
 			CharacterSetClient:  charsetClient,
 			CollationConnection: collationConnection,
+			Comment:             "", // EVENT_COMMENT may not be available in all MySQL versions
 		}
 		events = append(events, event)
 	}
@@ -761,6 +769,7 @@ func (d *Driver) getTriggerList(ctx context.Context, databaseName string) (map[d
 			SqlMode:             sqlMode,
 			CharacterSetClient:  charsetClient,
 			CollationConnection: collationConnection,
+			Comment:             "", // MySQL doesn't support trigger comments via information_schema
 		}
 		tableKey := db.TableKey{Schema: "", Table: table}
 		triggerMap[tableKey] = append(triggerMap[tableKey], trigger)
@@ -780,7 +789,8 @@ func (d *Driver) syncRoutines(ctx context.Context, databaseName string) ([]*stor
 			SQL_MODE,
 			CHARACTER_SET_CLIENT,
 			COLLATION_CONNECTION,
-			DATABASE_COLLATION
+			DATABASE_COLLATION,
+			IFNULL(ROUTINE_COMMENT, '')
 		FROM
 			INFORMATION_SCHEMA.ROUTINES
 		WHERE ROUTINE_SCHEMA = ? AND ROUTINE_TYPE IN ('FUNCTION', 'PROCEDURE')
@@ -794,7 +804,7 @@ func (d *Driver) syncRoutines(ctx context.Context, databaseName string) ([]*stor
 	var functions []*storepb.FunctionMetadata
 	var procedures []*storepb.ProcedureMetadata
 	for routineRows.Next() {
-		var name, routineType string
+		var name, routineType, routineComment string
 		var sqlMode, charsetClient, collationConnection, databaseCollation sql.NullString
 		if err := routineRows.Scan(
 			&name,
@@ -803,6 +813,7 @@ func (d *Driver) syncRoutines(ctx context.Context, databaseName string) ([]*stor
 			&charsetClient,
 			&collationConnection,
 			&databaseCollation,
+			&routineComment,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -818,6 +829,7 @@ func (d *Driver) syncRoutines(ctx context.Context, databaseName string) ([]*stor
 				CharacterSetClient:  charsetClient.String,
 				CollationConnection: collationConnection.String,
 				DatabaseCollation:   databaseCollation.String,
+				Comment:             routineComment,
 			})
 		} else {
 			functionDef, err := d.getCreateFunctionStmt(ctx, databaseName, name)
@@ -831,6 +843,7 @@ func (d *Driver) syncRoutines(ctx context.Context, databaseName string) ([]*stor
 				CharacterSetClient:  charsetClient.String,
 				CollationConnection: collationConnection.String,
 				DatabaseCollation:   databaseCollation.String,
+				Comment:             routineComment,
 			})
 		}
 	}
@@ -968,24 +981,22 @@ func setColumnMetadataDefault(column *storepb.ColumnMetadata, defaultStr sql.Nul
 		// In MySQL 5.7, the extra value is empty for a column with CURRENT_TIMESTAMP default.
 		switch {
 		case isCurrentTimestampLike(defaultStr.String):
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
+			column.DefaultExpression = defaultStr.String
 		case strings.Contains(extra, "DEFAULT_GENERATED"):
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: fmt.Sprintf("(%s)", defaultStr.String)}
+			column.DefaultExpression = fmt.Sprintf("(%s)", defaultStr.String)
 		default:
 			// For non-generated and non CURRENT_XXX default value, use string.
-			column.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: defaultStr.String}}
+			column.Default = defaultStr.String
 		}
 	} else if strings.Contains(strings.ToUpper(extra), autoIncrementSymbol) {
 		// TODO(zp): refactor column default value.
 		// Use the upper case to consistent with MySQL Dump.
-		column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: autoIncrementSymbol}
+		column.DefaultExpression = autoIncrementSymbol
 	} else if nullableBool {
 		// This is NULL if the column has an explicit default of NULL,
 		// or if the column definition includes no DEFAULT clause.
 		// https://dev.mysql.com/doc/refman/8.0/en/information-schema-columns-table.html
-		column.DefaultValue = &storepb.ColumnMetadata_DefaultNull{
-			DefaultNull: true,
-		}
+		column.DefaultNull = true
 	}
 
 	if strings.Contains(extra, "on update CURRENT_TIMESTAMP") {
@@ -1318,8 +1329,13 @@ func (d *Driver) getForeignKeyList(ctx context.Context, databaseName string) (ma
 
 	orderedResult := make(map[db.TableKey][]*storepb.ForeignKeyMetadata)
 	for key, fks := range unordered {
-		sort.Slice(fks, func(i, j int) bool {
-			return fks[i].Name < fks[j].Name
+		slices.SortFunc(fks, func(x, y *storepb.ForeignKeyMetadata) int {
+			if x.Name < y.Name {
+				return -1
+			} else if x.Name > y.Name {
+				return 1
+			}
+			return 0
 		})
 		orderedResult[key] = fks
 	}
@@ -1331,4 +1347,58 @@ func stripSingleQuote(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
+}
+
+// unquoteMySQLString unescapes a string that was escaped by MySQL's QUOTE() function.
+// MySQL's QUOTE() function escapes:
+// - \ → \\
+// - ' → \'
+// - ASCII NUL (0x00) → \0
+// - Control-Z (0x1A) → \Z
+func unquoteMySQLString(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// First remove surrounding quotes if present
+	s = stripSingleQuote(s)
+
+	// Now unescape the content
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '\\':
+				result = append(result, '\\')
+				i++ // skip next character
+			case '\'':
+				result = append(result, '\'')
+				i++ // skip next character
+			case '0':
+				result = append(result, 0) // ASCII NUL
+				i++                        // skip next character
+			case 'Z':
+				result = append(result, 0x1A) // Control-Z
+				i++                           // skip next character
+			case 'n':
+				result = append(result, '\n') // newline
+				i++                           // skip next character
+			case 't':
+				result = append(result, '\t') // tab
+				i++                           // skip next character
+			case 'r':
+				result = append(result, '\r') // carriage return
+				i++                           // skip next character
+			case 'b':
+				result = append(result, '\b') // backspace
+				i++                           // skip next character
+			default:
+				// Unknown escape sequence, keep the backslash
+				result = append(result, s[i])
+			}
+		} else {
+			result = append(result, s[i])
+		}
+	}
+	return string(result)
 }

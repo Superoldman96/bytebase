@@ -33,6 +33,10 @@
               v-if="viewState.view === 'PACKAGES'"
               :key="tab?.id"
             />
+            <TriggersPanel
+              v-if="viewState.view === 'TRIGGERS'"
+              :key="tab?.id"
+            />
             <ExternalTablesPanel
               v-if="viewState.view === 'EXTERNAL_TABLES'"
               :key="tab?.id"
@@ -65,6 +69,7 @@ import {
   nextAnimationFrame,
   type VueClass,
 } from "@/utils";
+import type { DatabaseMetadata } from "@/types/proto-es/v1/database_service_pb";
 import DatabaseChooser from "@/views/sql-editor/EditorCommon/DatabaseChooser.vue";
 import { useCurrentTabViewStateContext } from "../context/viewState.tsx";
 import DiagramPanel from "./DiagramPanel";
@@ -77,6 +82,7 @@ import SequencesPanel from "./SequencesPanel";
 import TablesPanel from "./TablesPanel";
 import ViewsPanel from "./ViewsPanel";
 import { SchemaSelectToolbar } from "./common";
+import TriggersPanel from "./TriggersPanel/TriggersPanel.vue";
 
 defineProps<{
   contentClass?: VueClass;
@@ -100,7 +106,7 @@ const databaseMetadata = computedAsync(() => {
 
 watch(
   [() => tab.value?.id, databaseMetadata, selectedSchemaName],
-  ([id, database, schema]) => {
+  ([id, database, schema]: [string | undefined, DatabaseMetadata | undefined, string | undefined]) => {
     if (!id) return;
     if (!database) return;
     if (
@@ -108,7 +114,7 @@ watch(
     ) {
       return;
     }
-    if (!schema || database.schemas.findIndex((s) => s.name === schema) < 0) {
+    if (!schema || database.schemas.findIndex((s: any) => s.name === schema) < 0) {
       selectedSchemaName.value = first(database.schemas)?.name;
     }
   },

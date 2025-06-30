@@ -21,12 +21,13 @@
 </template>
 
 <script lang="tsx" setup>
+import { create } from "@bufbuild/protobuf";
+import { type Duration, DurationSchema } from "@bufbuild/protobuf/wkt";
 import { computedAsync } from "@vueuse/core";
 import { last } from "lodash-es";
 import { NButton, type DataTableColumn, NDataTable } from "naive-ui";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { BBGridRow } from "@/bbkit";
 import HumanizeDate from "@/components/misc/HumanizeDate.vue";
 import { Drawer, DrawerContent } from "@/components/v2";
 import { useSheetV1Store } from "@/store";
@@ -35,7 +36,6 @@ import {
   getTimeForPbTimestamp,
   type ComposedTaskRun,
 } from "@/types";
-import { Duration } from "@/types/proto/google/protobuf/duration";
 import { TaskRun_Status } from "@/types/proto/v1/rollout_service";
 import { humanizeDurationV1, sheetNameOfTaskV1 } from "@/utils";
 import { useIssueContext } from "../../logic";
@@ -48,8 +48,6 @@ import TaskRunStatusIcon from "./TaskRunStatusIcon.vue";
 defineOptions({
   inheritAttrs: false,
 });
-
-export type TaskRunGridRow = BBGridRow<ComposedTaskRun>;
 
 defineProps<{
   taskRunList: ComposedTaskRun[];
@@ -145,15 +143,12 @@ const columnList = computed((): DataTableColumn<ComposedTaskRun>[] => {
       key: "actions",
       title: "",
       width: 60,
-      render: (taskRun: ComposedTaskRun) => (
-        <NButton
-          v-if={shouldShowDetailButton(taskRun)}
-          size="tiny"
-          onClick={() => showDetail(taskRun)}
-        >
-          {t("common.detail")}
-        </NButton>
-      ),
+      render: (taskRun: ComposedTaskRun) =>
+        shouldShowDetailButton(taskRun) ? (
+          <NButton size="tiny" onClick={() => showDetail(taskRun)}>
+            {t("common.detail")}
+          </NButton>
+        ) : null,
     },
   ];
 });
@@ -170,16 +165,16 @@ const executionDurationOfTaskRun = (
   }
   if (taskRun.status === TaskRun_Status.RUNNING) {
     const elapsedMS = Date.now() - getTimeForPbTimestamp(startTime);
-    return Duration.fromPartial({
-      seconds: Math.floor(elapsedMS / 1000),
+    return create(DurationSchema, {
+      seconds: BigInt(Math.floor(elapsedMS / 1000)),
       nanos: (elapsedMS % 1000) * 1e6,
     });
   }
   const startMS = getTimeForPbTimestamp(startTime);
   const updateMS = getTimeForPbTimestamp(updateTime);
   const elapsedMS = updateMS - startMS;
-  return Duration.fromPartial({
-    seconds: Math.floor(elapsedMS / 1000),
+  return create(DurationSchema, {
+    seconds: BigInt(Math.floor(elapsedMS / 1000)),
     nanos: (elapsedMS % 1000) * 1e6,
   });
 };

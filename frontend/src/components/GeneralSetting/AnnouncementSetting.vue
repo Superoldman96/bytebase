@@ -5,7 +5,7 @@
         <h1 class="text-2xl font-bold">
           {{ title }}
         </h1>
-        <FeatureBadge feature="bb.feature.announcement" />
+        <FeatureBadge :feature="PlanFeature.FEATURE_DASHBOARD_ANNOUNCEMENT" />
       </div>
 
       <span v-if="!allowEdit" class="text-sm text-gray-400">
@@ -105,8 +105,10 @@ import { computed, reactive } from "vue";
 import { AnnouncementLevelSelect } from "@/components/v2";
 import { featureToRef } from "@/store";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
-import { Announcement } from "@/types/proto/v1/setting_service";
-import { Announcement_AlertLevel } from "@/types/proto/v1/setting_service";
+import type { Announcement } from "@/types/proto-es/v1/setting_service_pb";
+import { Announcement_AlertLevel, AnnouncementSchema } from "@/types/proto-es/v1/setting_service_pb";
+import { create } from "@bufbuild/protobuf";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { FeatureBadge } from "../FeatureGuard";
 
 const props = defineProps<{
@@ -115,13 +117,13 @@ const props = defineProps<{
 }>();
 
 const settingV1Store = useSettingV1Store();
-const hasAnnouncementFeature = featureToRef("bb.feature.announcement");
+const hasAnnouncementFeature = featureToRef(PlanFeature.FEATURE_DASHBOARD_ANNOUNCEMENT);
 
 const rawAnnouncement = computed(() =>
   cloneDeep(
     settingV1Store.workspaceProfileSetting?.announcement ??
-      Announcement.fromPartial({
-        level: Announcement_AlertLevel.ALERT_LEVEL_INFO,
+      create(AnnouncementSchema, {
+        level: Announcement_AlertLevel.INFO,
       })
   )
 );

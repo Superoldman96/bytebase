@@ -1,7 +1,7 @@
 <template>
   <div class="w-full flex items-start gap-x-4 flex-wrap">
     <div
-      class="textlabel h-[26px] inline-flex items-center"
+      class="text-base font-medium inline-flex items-center"
       :class="labelClass"
     >
       {{ $t("task.task-checks") }}
@@ -34,7 +34,9 @@
 
 <script lang="ts" setup>
 import { ref } from "vue";
-import { planServiceClient } from "@/grpcweb";
+import { create } from "@bufbuild/protobuf";
+import { planServiceClientConnect } from "@/grpcweb";
+import { RunPlanChecksRequestSchema } from "@/types/proto-es/v1/plan_service_pb";
 import type { ComposedDatabase } from "@/types";
 import type {
   PlanCheckRun,
@@ -66,9 +68,10 @@ const { events } = usePlanCheckRunContext();
 const selectedType = ref<PlanCheckRun_Type>();
 
 const runChecks = async () => {
-  await planServiceClient.runPlanChecks({
+  const request = create(RunPlanChecksRequestSchema, {
     name: props.planName,
   });
+  await planServiceClientConnect.runPlanChecks(request);
   events.emit("status-changed");
 };
 </script>

@@ -25,12 +25,9 @@
   <NDivider />
 
   <div class="flex flex-col">
-    <p class="w-auto flex items-center text-base text-main mb-2">
+    <p class="w-auto flex items-center text-base text-main mb-2 gap-x-2">
       <span>{{ $t("common.statement") }}</span>
-      <ClipboardIcon
-        class="ml-1 w-4 h-4 cursor-pointer hover:opacity-80"
-        @click.prevent="copyStatement"
-      />
+      <CopyButton :content="statement" />
     </p>
     <MonacoEditor
       class="h-auto max-h-[480px] min-h-[120px] border rounded-[3px] text-sm overflow-clip relative"
@@ -51,23 +48,18 @@
 </template>
 
 <script lang="ts" setup>
-import { ClipboardIcon } from "lucide-vue-next";
 import { NDivider } from "naive-ui";
 import { computed, reactive, ref, watch } from "vue";
+import { create } from "@bufbuild/protobuf";
+import { GetTaskRunRequestSchema } from "@/types/proto-es/v1/rollout_service_pb";
+import { convertNewTaskRunToOld } from "@/utils/v1/rollout-conversions";
 import { MonacoEditor } from "@/components/MonacoEditor";
-import { rolloutServiceClient } from "@/grpcweb";
-import {
-  pushNotification,
-  useRevisionStore,
-  useSheetV1Store,
-} from "@/store";
+import { CopyButton } from "@/components/v2";
+import { rolloutServiceClientConnect } from "@/grpcweb";
+import { useRevisionStore, useSheetV1Store } from "@/store";
 import { getDateForPbTimestamp, type ComposedDatabase } from "@/types";
 import type { TaskRun } from "@/types/proto/v1/rollout_service";
-import {
-  extractIssueUID,
-  getSheetStatement,
-  toClipboard,
-} from "@/utils";
+import { extractIssueUID, getSheetStatement } from "@/utils";
 import TaskRunLogTable from "../IssueV1/components/TaskRunSection/TaskRunLogTable/TaskRunLogTable.vue";
 import HumanizeDate from "../misc/HumanizeDate.vue";
 
@@ -98,9 +90,11 @@ watch(
     state.loading = true;
     const revision = await revisionStore.getOrFetchRevisionByName(revisionName);
     if (revision) {
-      const taskRunData = await rolloutServiceClient.getTaskRun({
+      const request = create(GetTaskRunRequestSchema, {
         name: revision.taskRun,
       });
+      const response = await rolloutServiceClientConnect.getTaskRun(request);
+      const taskRunData = convertNewTaskRunToOld(response);
       taskRun.value = taskRunData;
       // Prepare the sheet data from task run.
       if (taskRunData.sheet) {
@@ -131,14 +125,4 @@ const relatedIssueUID = computed(() => {
   if (!uid) return null;
   return uid;
 });
-
-const copyStatement = async () => {
-  toClipboard(statement.value).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "INFO",
-      title: `Statement copied to clipboard.`,
-    });
-  });
-};
 </script>

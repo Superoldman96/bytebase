@@ -83,7 +83,7 @@
             </span>
           </div>
 
-          <div v-if="!hideDocLink" class="pl-2 first:pl-0">
+          <div class="pl-2 first:pl-0">
             <a
               v-if="row.link"
               class="normal-link"
@@ -174,7 +174,7 @@
         </template>
 
         <a
-          v-if="!hideDocLink && row.link"
+          v-if="row.link"
           class="ml-1 normal-link"
           :href="row.link.url"
           :target="row.link.target"
@@ -240,10 +240,12 @@ import { NButton } from "naive-ui";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { create } from "@bufbuild/protobuf";
 import { SQLRuleEditDialog } from "@/components/SQLReview/components";
-import { planServiceClient } from "@/grpcweb";
+import { planServiceClientConnect } from "@/grpcweb";
+import { BatchCancelPlanCheckRunsRequestSchema } from "@/types/proto-es/v1/plan_service_pb";
 import { WORKSPACE_ROUTE_SQL_REVIEW } from "@/router/dashboard/workspaceRoutes";
-import { useAppFeature, useReviewPolicyForDatabase } from "@/store";
+import { useReviewPolicyForDatabase } from "@/store";
 import {
   getProjectNamePlanIdPlanCheckRunId,
   planNamePrefix,
@@ -293,8 +295,6 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
-const { events } = usePlanCheckRunContext();
-const hideDocLink = useAppFeature("bb.feature.sql-check.hide-doc-link");
 const state = reactive<LocalState>({
   activeRule: undefined,
 });
@@ -494,7 +494,7 @@ const getActiveRule = (type: string): RuleTemplateV2 | undefined => {
     return {
       type,
       category: "BUILTIN",
-      engine,
+      engine: engine,
       level: builtinRuleLevel(type),
       componentList: [],
     };
@@ -529,10 +529,13 @@ const cancelPlanCheckRun = async () => {
   const planCheckRunName = props.planCheckRun.name;
   const [projectName, planId] =
     getProjectNamePlanIdPlanCheckRunId(planCheckRunName);
-  await planServiceClient.batchCancelPlanCheckRuns({
+  const request = create(BatchCancelPlanCheckRunsRequestSchema, {
     parent: `${projectNamePrefix}${projectName}/${planNamePrefix}${planId}`,
     planCheckRuns: [planCheckRunName],
   });
-  events.emit("status-changed");
+  await planServiceClientConnect.batchCancelPlanCheckRuns(request);
+  if (usePlanCheckRunContext()) {
+    usePlanCheckRunContext().events.emit("status-changed");
+  }
 };
 </script>

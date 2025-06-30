@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/opcode"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
@@ -33,7 +34,7 @@ type StatementPriorBackupCheckAdvisor struct {
 
 // Check checks for no mixed DDL and DML.
 func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx advisor.Context) ([]*storepb.Advice, error) {
-	if checkCtx.PreUpdateBackupDetail == nil || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
+	if !checkCtx.EnablePriorBackup || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
 		return nil, nil
 	}
 
@@ -72,32 +73,29 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 				Title:         title,
 				Content:       "Prior backup cannot deal with mixed DDL and DML statements",
 				Code:          advisor.BuiltinPriorBackupCheck.Int32(),
-				StartPosition: advisor.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
+				StartPosition: common.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
 			})
 		}
 	}
 
-	if !advisor.DatabaseExists(ctx, checkCtx, extractDatabaseName(checkCtx.PreUpdateBackupDetail.Database)) {
+	databaseName := common.BackupDatabaseNameOfEngine(storepb.Engine_TIDB)
+	if !advisor.DatabaseExists(ctx, checkCtx, databaseName) {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("Need database %q to do prior backup but it does not exist", checkCtx.PreUpdateBackupDetail.Database),
-			Code:    advisor.DatabaseNotExists.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 0,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("Need database %q to do prior backup but it does not exist", databaseName),
+			Code:          advisor.DatabaseNotExists.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
 	if len(updateStatements)+len(deleteStatements) > maxMixedDMLCount && !updateForOneTableWithUnique(checkCtx.DBSchema, updateStatements, deleteStatements) {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("Prior backup is feasible only with up to %d statements that are either UPDATE or DELETE, or if all UPDATEs target the same table with a PRIMARY or UNIQUE KEY in the WHERE clause", maxMixedDMLCount),
-			Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 0,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("Prior backup is feasible only with up to %d statements that are either UPDATE or DELETE, or if all UPDATEs target the same table with a PRIMARY or UNIQUE KEY in the WHERE clause", maxMixedDMLCount),
+			Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
@@ -220,11 +218,6 @@ func equalTable(t1, t2 *table) bool {
 		return false
 	}
 	return t1.database == t2.database && t1.table == t2.table
-}
-
-func extractDatabaseName(databaseUID string) string {
-	segments := strings.Split(databaseUID, "/")
-	return segments[len(segments)-1]
 }
 
 type table struct {

@@ -88,7 +88,7 @@ import {
 } from "@/store";
 import type { Changelist_Change as Change } from "@/types/proto/v1/changelist_service";
 import { Changelist } from "@/types/proto/v1/changelist_service";
-import { ChangelogView } from "@/types/proto/v1/database_service";
+import { ChangelogView } from "@/types/proto-es/v1/database_service_pb";
 import {
   getChangelistChangeSourceType,
   getSheetStatement,
@@ -149,10 +149,9 @@ const doAddChange = async () => {
       if (sourceType === "CHANGELOG") {
         const changelog = await useChangelogStore().getOrFetchChangelogByName(
           change.source,
-          ChangelogView.CHANGELOG_VIEW_FULL
+          ChangelogView.FULL
         );
         setSheetStatement(sheet, changelog?.statement || "");
-        change.version = changelog?.version || "";
       }
       const created = await localSheetStore.saveLocalSheetToRemote(sheet);
       change.sheet = created.name;
@@ -160,10 +159,7 @@ const doAddChange = async () => {
 
     const sourceType = getChangelistChangeSourceType(change);
     if (sourceType === "CHANGELOG") {
-      const changelog = await useChangelogStore().getOrFetchChangelogByName(
-        change.source
-      );
-      change.version = changelog?.version || "";
+      await useChangelogStore().getOrFetchChangelogByName(change.source);
     }
     return change;
   };

@@ -7,7 +7,7 @@
         </p>
         <EnvironmentSelect
           class="mt-1 max-w-md"
-          :environment-name="environment?.name"
+          :environment-name="`${environmentNamePrefix}${environment.id}`"
           :disabled="!allowUpdateDatabase"
           :render-suffix="
             (env: string) =>
@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import { cloneDeep } from "lodash-es";
 import { computed } from "vue";
+import { create } from "@bufbuild/protobuf";
 import { useI18n } from "vue-i18n";
 import { useDatabaseDetailContext } from "@/components/Database/context";
 import { EnvironmentSelect } from "@/components/v2";
@@ -47,9 +48,12 @@ import {
   useEnvironmentV1Store,
   pushNotification,
   useAppFeature,
+  environmentNamePrefix,
 } from "@/store";
 import { type ComposedDatabase } from "@/types";
-import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
+import { DatabaseChangeMode } from "@/types/proto-es/v1/setting_service_pb";
+import { UpdateDatabaseRequestSchema } from "@/types/proto-es/v1/database_service_pb";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import Labels from "./components/Labels.vue";
 import Secrets from "./components/Secrets.vue";
 
@@ -79,10 +83,11 @@ const handleSelectEnvironment = async (name: string | undefined) => {
   }
   const databasePatch = cloneDeep(props.database);
   databasePatch.environment = name;
-  await databaseStore.updateDatabase({
+  
+  await databaseStore.updateDatabase(create(UpdateDatabaseRequestSchema, {
     database: databasePatch,
-    updateMask: ["environment"],
-  });
+    updateMask: create(FieldMaskSchema, { paths: ["environment"] }),
+  }));
   pushNotification({
     module: "bytebase",
     style: "SUCCESS",

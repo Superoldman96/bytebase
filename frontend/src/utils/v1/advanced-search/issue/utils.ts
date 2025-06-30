@@ -4,9 +4,17 @@ import { unknownDatabase } from "@/types";
 import { IssueStatus } from "@/types/proto/v1/issue_service";
 import type { SearchParams, SemanticIssueStatus } from "../common";
 import {
+  type SearchScopeId,
   getTsRangeFromSearchParams,
   getValueFromSearchParams,
 } from "../common";
+
+const getValuesFromSearchParams = (
+  params: SearchParams,
+  scopeId: SearchScopeId
+) => {
+  return params.scopes.filter((s) => s.id === scopeId).map((s) => s.value);
+};
 
 export const buildIssueFilterBySearchParams = (
   params: SearchParams,
@@ -27,7 +35,7 @@ export const buildIssueFilterBySearchParams = (
 
   const createdTsRange = getTsRangeFromSearchParams(params, "created");
   const status = getSemanticIssueStatusFromSearchParams(params);
-  const label = getValueFromSearchParams(params, "label");
+  const labels = getValuesFromSearchParams(params, "issue-label");
 
   const filter: IssueFilter = {
     ...defaultFilter,
@@ -39,14 +47,13 @@ export const buildIssueFilterBySearchParams = (
     createdTsBefore: createdTsRange?.[1],
     taskType: taskTypeScope?.value,
     creator: getValueFromSearchParams(params, "creator", "users/"),
-    subscriber: getValueFromSearchParams(params, "subscriber", "users/"),
     statusList:
       status === "OPEN"
         ? [IssueStatus.OPEN]
         : status === "CLOSED"
           ? [IssueStatus.DONE, IssueStatus.CANCELED]
           : undefined,
-    labels: label ? [label] : [],
+    labels,
   };
   return filter;
 };

@@ -7,8 +7,12 @@ import type {
   SQLEditorConnection,
   CoreSQLEditorTab,
   SQLEditorTab,
+  SQLEditorDatabaseQueryContext,
+  BatchQueryContext,
 } from "@/types";
 import { DEFAULT_SQL_EDITOR_TAB_MODE, isValidDatabaseName } from "@/types";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
+import { DataSourceType } from "@/types/proto-es/v1/instance_service_pb";
 import {
   WebStorageHelper,
   defaultSQLEditorTab,
@@ -17,13 +21,14 @@ import {
   isSimilarSQLEditorTab,
   useDynamicLocalStorage,
 } from "@/utils";
-import { useCurrentUserV1 } from "../auth";
 import {
   useDatabaseV1Store,
   useDatabaseV1ByName,
   useEnvironmentV1Store,
   extractUserId,
+  hasFeature,
 } from "../v1";
+import { useCurrentUserV1 } from "../v1/auth";
 import { useSQLEditorStore } from "./editor";
 import {
   EXTENDED_TAB_FIELDS,
@@ -55,12 +60,8 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
   const { project } = storeToRefs(useSQLEditorStore());
 
   // states
-  const {
-    fetchExtendedTab,
-    saveExtendedTab,
-    deleteExtendedTab,
-    cleanupExtendedTabs,
-  } = useExtendedTabStore();
+  const { fetchExtendedTab, saveExtendedTab, deleteExtendedTab } =
+    useExtendedTabStore();
   const tabViewStateStore = useTabViewStateStore();
 
   const me = useCurrentUserV1();
@@ -129,6 +130,9 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
 
   const initializedProjects = new Set<string>();
   const maybeInitProject = (project: string) => {
+    if (!project) {
+      return;
+    }
     if (initializedProjects.has(project)) {
       return;
     }
@@ -197,6 +201,24 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     return tabById(currId);
   });
 
+  const isInBatchMode = computed(() => {
+    if (!currentTab.value) {
+      return false;
+    }
+    if (!hasFeature(PlanFeature.FEATURE_BATCH_QUERY)) {
+      return false;
+    }
+    const { batchQueryContext } = currentTab.value;
+    if (!batchQueryContext) {
+      return false;
+    }
+    const { databaseGroups = [], databases = [] } = batchQueryContext;
+    if (!hasFeature(PlanFeature.FEATURE_DATABASE_GROUPS)) {
+      return databases.length > 1;
+    }
+    return databaseGroups.length > 0 || databases.length > 1;
+  });
+
   // actions
   /**
    *
@@ -246,6 +268,72 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     if (!id) return;
     updateTab(id, payload);
   };
+  const updateBatchQueryContext = (payload: Partial<BatchQueryContext>) => {
+    const tab = currentTab.value;
+    if (!tab) {
+      return;
+    }
+    updateTab(tab.id, {
+      batchQueryContext: {
+        databases: tab.batchQueryContext?.databases ?? [],
+        dataSourceType:
+          tab.batchQueryContext?.dataSourceType ?? DataSourceType.READ_ONLY,
+        ...tab.batchQueryContext,
+        ...payload,
+      },
+    });
+  };
+
+  // removeDatabaseQueryContext remove the context by id, and returns the next context.
+  const removeDatabaseQueryContext = ({
+    database,
+    contextId,
+  }: {
+    database: string;
+    contextId: string;
+  }): SQLEditorDatabaseQueryContext | undefined => {
+    const tab = tabById(currentTabId.value);
+    if (!tab || !tab.databaseQueryContexts) {
+      return;
+    }
+    if (!tab.databaseQueryContexts.has(database)) {
+      return;
+    }
+    const contexts = tab.databaseQueryContexts.get(database)!;
+    const index = contexts.findIndex((context) => context.id === contextId);
+    if (index < 0) {
+      return;
+    }
+    contexts.splice(index, 1);
+    return contexts[index] || contexts[index - 1];
+  };
+
+  const updateDatabaseQueryContext = ({
+    database,
+    contextId,
+    context,
+  }: {
+    database: string;
+    contextId: string;
+    context: Partial<SQLEditorDatabaseQueryContext>;
+  }) => {
+    const tab = tabById(currentTabId.value);
+    if (!tab || !tab.databaseQueryContexts) {
+      return;
+    }
+    if (!tab.databaseQueryContexts.has(database)) {
+      return;
+    }
+    const target = tab.databaseQueryContexts
+      .get(database)
+      ?.find((c) => c.id === contextId);
+    if (!target) {
+      return;
+    }
+    Object.assign(target, context);
+    return target;
+  };
+
   const setCurrentTabId = (id: string) => {
     currentTabId.value = id;
   };
@@ -288,25 +376,6 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
       );
     }
   };
-  // clean persistent tabs that are not in the `tabIdList` anymore
-  const _cleanup = () => {
-    const prefix = `${keyNamespace.value}.tab.`;
-    const keys = getStorage()
-      .keys()
-      .filter((key) => key.startsWith(prefix));
-    const flattenTabIdSet = new Set(
-      Object.keys(tabIdListMapByProject.value).flatMap(
-        (project) => tabIdListMapByProject.value[project]
-      )
-    );
-    keys.forEach((key) => {
-      const id = key.substring(prefix.length);
-      if (!flattenTabIdSet.has(id)) {
-        getStorage().remove(keyForTab(id));
-      }
-    });
-    cleanupExtendedTabs(userUID.value, Array.from(flattenTabIdSet));
-  };
   // watch the field changes of a tab, store it to localStorage
   // when needed, but not to frequently (for performance consideration)
   const watchTab = (tab: SQLEditorTab, immediate: boolean) => {
@@ -339,16 +408,8 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     });
     // initialize current project if needed (when it's not stored)
     maybeInitProject(project.value);
-
-    _cleanup();
   };
   initAll();
-
-  const reset = () => {
-    tabIdListMapByProject.value = {};
-    currentTabIdMapByProject.value = {};
-    initAll();
-  };
 
   // some shortcuts
   const isDisconnected = computed(() => {
@@ -381,12 +442,15 @@ export const useSQLEditorTabStore = defineStore("sqlEditorTab", () => {
     removeTab,
     updateTab,
     updateCurrentTab,
+    updateBatchQueryContext,
+    updateDatabaseQueryContext,
+    removeDatabaseQueryContext,
     setCurrentTabId,
     selectOrAddSimilarNewTab,
     maybeInitProject,
-    reset,
     isDisconnected,
     isSwitchingTab,
+    isInBatchMode,
   };
 });
 

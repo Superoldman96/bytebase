@@ -69,8 +69,8 @@ import {
   getColumnDefaultDisplayString,
   getColumnDefaultValuePlaceholder,
 } from "@/components/SchemaEditorLite/utils";
-import type { Engine } from "@/types/proto/v1/common";
-import type { ColumnMetadata } from "@/types/proto/v1/database_service";
+import type { Engine } from "@/types/proto-es/v1/common_pb";
+import type { ColumnMetadata } from "@/types/proto-es/v1/database_service_pb";
 
 type DefaultValueSelectOption = SelectOption & {
   value: string;

@@ -8,23 +8,20 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/pkg/errors"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/bytebase/bytebase/backend/api/auth"
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	"github.com/bytebase/bytebase/backend/component/state"
-	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
+	"github.com/bytebase/bytebase/backend/enterprise"
 	metricapi "github.com/bytebase/bytebase/backend/metric"
 	"github.com/bytebase/bytebase/backend/plugin/idp/ldap"
 	"github.com/bytebase/bytebase/backend/plugin/idp/oauth2"
@@ -34,29 +31,27 @@ import (
 	"github.com/bytebase/bytebase/backend/store"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/proto/generated-go/v1/v1connect"
 )
 
-type CreateUserFunc func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error
-
 var (
-	invalidUserOrPasswordError = status.Errorf(codes.Unauthenticated, "The email or password is not valid.")
+	invalidUserOrPasswordError = connect.NewError(connect.CodeUnauthenticated, errors.Errorf("the email or password is not valid"))
 )
 
 // AuthService implements the auth service.
 type AuthService struct {
-	v1pb.UnimplementedAuthServiceServer
+	v1connect.UnimplementedAuthServiceHandler
 	store          *store.Store
 	secret         string
-	licenseService enterprise.LicenseService
+	licenseService *enterprise.LicenseService
 	metricReporter *metricreport.Reporter
 	profile        *config.Profile
 	stateCfg       *state.State
 	iamManager     *iam.Manager
-	postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error
 }
 
 // NewAuthService creates a new AuthService.
-func NewAuthService(store *store.Store, secret string, licenseService enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager, postCreateUser func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error) *AuthService {
+func NewAuthService(store *store.Store, secret string, licenseService *enterprise.LicenseService, metricReporter *metricreport.Reporter, profile *config.Profile, stateCfg *state.State, iamManager *iam.Manager) *AuthService {
 	return &AuthService{
 		store:          store,
 		secret:         secret,
@@ -65,17 +60,18 @@ func NewAuthService(store *store.Store, secret string, licenseService enterprise
 		profile:        profile,
 		stateCfg:       stateCfg,
 		iamManager:     iamManager,
-		postCreateUser: postCreateUser,
 	}
 }
 
 // Login is the auth login method including SSO.
-func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v1pb.LoginResponse, error) {
+func (s *AuthService) Login(ctx context.Context, req *connect.Request[v1pb.LoginRequest]) (*connect.Response[v1pb.LoginResponse], error) {
+	request := req.Msg
 	var loginUser *store.UserMessage
 	mfaSecondLogin := request.MfaTempToken != nil && *request.MfaTempToken != ""
 	loginViaIDP := request.GetIdpName() != ""
 
 	response := &v1pb.LoginResponse{}
+	resp := connect.NewResponse(response)
 	if !mfaSecondLogin {
 		var err error
 		if loginViaIDP {
@@ -98,7 +94,7 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 		}
 		user, err := s.store.GetUserByID(ctx, userID)
 		if err != nil {
-			return nil, err
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to find user, error"))
 		}
 		if user == nil {
 			return nil, invalidUserOrPasswordError
@@ -113,81 +109,75 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 				return nil, err
 			}
 		} else {
-			return nil, status.Errorf(codes.Unauthenticated, "OTP or recovery code is required for MFA")
+			return nil, connect.NewError(connect.CodeUnauthenticated, errors.Errorf("OTP or recovery code is required for MFA"))
 		}
 		loginUser = user
 	}
 
 	if loginUser.MemberDeleted {
-		return nil, status.Errorf(codes.Unauthenticated, "user has been deactivated by administrators")
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.Errorf("user has been deactivated by administrators"))
 	}
 
 	setting, err := s.store.GetWorkspaceGeneralSetting(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to find workspace setting, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to find workspace setting, error"))
 	}
 	isWorkspaceAdmin, err := isUserWorkspaceAdmin(ctx, s.store, loginUser)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check user roles, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to check user roles, error"))
 	}
-	if !isWorkspaceAdmin && loginUser.Type == base.EndUser && !mfaSecondLogin {
+	if !isWorkspaceAdmin && loginUser.Type == storepb.PrincipalType_END_USER && !mfaSecondLogin {
 		// Disallow password signin for end users.
-		if setting.DisallowPasswordSignin && !loginViaIDP {
-			return nil, status.Errorf(codes.PermissionDenied, "password signin is disallowed")
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_DISALLOW_PASSWORD_SIGNIN); err == nil {
+			if setting.DisallowPasswordSignin && !loginViaIDP {
+				return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("password signin is disallowed"))
+			}
 		}
+
 		// Check domain restriction for end users.
 		if err := validateEmailWithDomains(ctx, s.licenseService, s.store, loginUser.Email, false, false); err != nil {
 			return nil, err
 		}
 	}
 
-	tokenDuration := auth.GetTokenDuration(ctx, s.store)
+	tokenDuration := auth.GetTokenDuration(ctx, s.store, s.licenseService)
 	userMFAEnabled := loginUser.MFAConfig != nil && loginUser.MFAConfig.OtpSecret != ""
 	// We only allow MFA login (2-step) when the feature is enabled and user has enabled MFA.
-	if s.licenseService.IsFeatureEnabled(base.Feature2FA) == nil && !mfaSecondLogin && userMFAEnabled {
+	if s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_TWO_FA) == nil && !mfaSecondLogin && userMFAEnabled {
 		mfaTempToken, err := auth.GenerateMFATempToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret, tokenDuration)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to generate MFA temp token")
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to generate MFA temp token"))
 		}
-		return &v1pb.LoginResponse{
+		return connect.NewResponse(&v1pb.LoginResponse{
 			MfaTempToken: &mfaTempToken,
-		}, nil
+		}), nil
 	}
 
 	switch loginUser.Type {
-	case base.EndUser:
+	case storepb.PrincipalType_END_USER:
 		token, err := auth.GenerateAccessToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret, tokenDuration)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to generate API access token")
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to generate API access token"))
 		}
 		response.Token = token
-	case base.ServiceAccount:
+	case storepb.PrincipalType_SERVICE_ACCOUNT:
 		token, err := auth.GenerateAPIToken(loginUser.Name, loginUser.ID, s.profile.Mode, s.secret)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to generate API access token")
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to generate API access token"))
 		}
 		response.Token = token
 	default:
-		return nil, status.Errorf(codes.Unauthenticated, "user type %s cannot login", loginUser.Type)
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.Errorf("user type %s cannot login", loginUser.Type))
 	}
 
 	if request.Web {
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Errorf(codes.Unauthenticated, "failed to parse metadata from incoming context")
+		origin := req.Header().Get("Origin")
+		if origin == "" {
+			origin = req.Header().Get("grpcgateway-origin")
 		}
-		// Pass the request origin header to response.
-		var origin string
-		for _, v := range md.Get("grpcgateway-origin") {
-			origin = v
-		}
-		if err := grpc.SetHeader(ctx, metadata.New(map[string]string{
-			auth.GatewayMetadataAccessTokenKey:   response.Token,
-			auth.GatewayMetadataUserIDKey:        fmt.Sprintf("%d", loginUser.ID),
-			auth.GatewayMetadataRequestOriginKey: origin,
-		})); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to set grpc header, error: %v", err)
-		}
+
+		cookie := auth.GetTokenCookie(ctx, s.store, s.licenseService, origin, response.Token)
+		resp.Header().Add("Set-Cookie", cookie.String())
 	}
 
 	if _, err := s.store.UpdateUser(ctx, loginUser, &store.UpdateUserMessage{
@@ -208,15 +198,16 @@ func (s *AuthService) Login(ctx context.Context, request *v1pb.LoginRequest) (*v
 			"email": loginUser.Email,
 		},
 	})
-	return response, nil
+
+	return resp, nil
 }
 
 func (s *AuthService) needResetPassword(ctx context.Context, user *store.UserMessage) bool {
 	// Reset password restriction only works for end user with email & password login.
-	if user.Type != base.EndUser {
+	if user.Type != storepb.PrincipalType_END_USER {
 		return false
 	}
-	if err := s.licenseService.IsFeatureEnabled(base.FeaturePasswordRestriction); err != nil {
+	if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_PASSWORD_RESTRICTIONS); err != nil {
 		return false
 	}
 
@@ -230,7 +221,7 @@ func (s *AuthService) needResetPassword(ctx context.Context, user *store.UserMes
 		if !passwordRestriction.RequireResetPasswordForFirstLogin {
 			return false
 		}
-		count, err := s.store.CountUsers(ctx, base.EndUser)
+		count, err := s.store.CountUsers(ctx, storepb.PrincipalType_END_USER)
 		if err != nil {
 			slog.Error("failed to count end users", log.BBError(err))
 			return false
@@ -253,30 +244,28 @@ func (s *AuthService) needResetPassword(ctx context.Context, user *store.UserMes
 }
 
 // Logout is the auth logout method.
-func (s *AuthService) Logout(ctx context.Context, _ *v1pb.LogoutRequest) (*emptypb.Empty, error) {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "failed to parse metadata from incoming context")
-	}
-	accessTokenStr, err := auth.GetTokenFromMetadata(md)
+func (s *AuthService) Logout(ctx context.Context, req *connect.Request[v1pb.LogoutRequest]) (*connect.Response[emptypb.Empty], error) {
+	accessTokenStr, err := auth.GetTokenFromHeaders(req.Header())
 	if err != nil {
-		return nil, status.Error(codes.Unauthenticated, err.Error())
+		return nil, connect.NewError(connect.CodeUnauthenticated, err)
 	}
 	s.stateCfg.ExpireCache.Add(accessTokenStr, true)
 
-	if err := grpc.SetHeader(ctx, metadata.New(map[string]string{
-		auth.GatewayMetadataAccessTokenKey: "",
-		auth.GatewayMetadataUserIDKey:      "",
-	})); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to set grpc header, error: %v", err)
+	resp := connect.NewResponse(&emptypb.Empty{})
+
+	origin := req.Header().Get("Origin")
+	if origin == "" {
+		origin = req.Header().Get("grpcgateway-origin")
 	}
-	return &emptypb.Empty{}, nil
+	cookie := auth.GetTokenCookie(ctx, s.store, s.licenseService, origin, "")
+	resp.Header().Add("Set-Cookie", cookie.String())
+	return resp, nil
 }
 
 func (s *AuthService) getAndVerifyUser(ctx context.Context, request *v1pb.LoginRequest) (*store.UserMessage, error) {
 	user, err := s.store.GetUserByEmail(ctx, request.Email)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get user by email %q: %v", request.Email, err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get user by email %q", request.Email))
 	}
 	if user == nil {
 		return nil, invalidUserOrPasswordError
@@ -292,21 +281,21 @@ func (s *AuthService) getAndVerifyUser(ctx context.Context, request *v1pb.LoginR
 func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.LoginRequest) (*store.UserMessage, error) {
 	idpID, err := common.GetIdentityProviderID(request.IdpName)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to get identity provider ID: %v", err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Wrapf(err, "failed to get identity provider ID"))
 	}
 	idp, err := s.store.GetIdentityProvider(ctx, &store.FindIdentityProviderMessage{
 		ResourceID: &idpID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get identity provider: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get identity provider"))
 	}
 	if idp == nil {
-		return nil, status.Errorf(codes.NotFound, "identity provider not found")
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("identity provider not found"))
 	}
 
 	setting, err := s.store.GetWorkspaceGeneralSetting(ctx)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get workspace setting: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get workspace setting"))
 	}
 
 	var userInfo *storepb.IdentityProviderUserInfo
@@ -314,41 +303,41 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 	case storepb.IdentityProviderType_OAUTH2:
 		oauth2Context := request.IdpContext.GetOauth2Context()
 		if oauth2Context == nil {
-			return nil, status.Errorf(codes.InvalidArgument, "missing OAuth2 context")
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("missing OAuth2 context"))
 		}
 		oauth2IdentityProvider, err := oauth2.NewIdentityProvider(idp.Config.GetOauth2Config())
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create new OAuth2 identity provider: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to create new OAuth2 identity provider"))
 		}
 		redirectURL := fmt.Sprintf("%s/oauth/callback", setting.ExternalUrl)
 		token, err := oauth2IdentityProvider.ExchangeToken(ctx, redirectURL, oauth2Context.Code)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to exchange token: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to exchange token"))
 		}
-		userInfo, err = oauth2IdentityProvider.UserInfo(token)
+		userInfo, _, err = oauth2IdentityProvider.UserInfo(token)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get user info: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get user info"))
 		}
 	case storepb.IdentityProviderType_OIDC:
 		oauth2Context := request.IdpContext.GetOauth2Context()
 		if oauth2Context == nil {
-			return nil, status.Errorf(codes.InvalidArgument, "missing OAuth2 context")
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("missing OAuth2 context"))
 		}
 
 		oidcIDP, err := oidc.NewIdentityProvider(ctx, idp.Config.GetOidcConfig())
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create new OIDC identity provider: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to create new OIDC identity provider"))
 		}
 
 		redirectURL := fmt.Sprintf("%s/oidc/callback", setting.ExternalUrl)
 		token, err := oidcIDP.ExchangeToken(ctx, redirectURL, oauth2Context.Code)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to exchange token: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to exchange token"))
 		}
 
-		userInfo, err = oidcIDP.UserInfo(ctx, token, "")
+		userInfo, _, err = oidcIDP.UserInfo(ctx, token, "")
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get user info: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get user info"))
 		}
 	case storepb.IdentityProviderType_LDAP:
 		idpConfig := idp.Config.GetLdapConfig()
@@ -361,25 +350,27 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 				BindPassword:     idpConfig.BindPassword,
 				BaseDN:           idpConfig.BaseDn,
 				UserFilter:       idpConfig.UserFilter,
-				SecurityProtocol: ldap.SecurityProtocol(idpConfig.SecurityProtocol),
+				SecurityProtocol: idpConfig.SecurityProtocol,
 				FieldMapping:     idpConfig.FieldMapping,
 			},
 		)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create new LDAP identity provider: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to create new LDAP identity provider"))
 		}
 
 		userInfo, err = ldapIDP.Authenticate(request.Email, request.Password)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get user info: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to get user info"))
 		}
 	default:
-		return nil, status.Errorf(codes.InvalidArgument, "identity provider type %s not supported", idp.Type.String())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("identity provider type %s not supported", idp.Type.String()))
 	}
 	if userInfo == nil {
-		return nil, status.Errorf(codes.NotFound, "identity provider user info not found")
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("failed to get user info from identity provider %q", idp.Title))
 	}
-
+	if userInfo.Identifier == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("missing identifier in user info from identity provider %q", idp.Title))
+	}
 	// The userinfo's email comes from identity provider, it has to be converted to lower-case.
 	email := strings.ToLower(userInfo.Identifier)
 	if err := validateEmail(email); err != nil {
@@ -388,7 +379,7 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 		if domain != "" {
 			email = strings.ToLower(fmt.Sprintf("%s@%s", email, domain))
 		} else {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid email %q, error: %v", userInfo.Identifier, err)
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Wrapf(err, "invalid email %q", userInfo.Identifier))
 		}
 	}
 	// If the email is still invalid, we will return an error.
@@ -398,61 +389,85 @@ func (s *AuthService) getOrCreateUserWithIDP(ctx context.Context, request *v1pb.
 
 	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list users by email %s: %v", email, err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to list users by email %s", email))
 	}
 	if user != nil {
 		if user.MemberDeleted {
+			if err := s.userCountGuard(ctx); err != nil {
+				return nil, err
+			}
 			// Undelete the user when login via SSO.
 			user, err = s.store.UpdateUser(ctx, user, &store.UpdateUserMessage{Delete: &undeletePatch})
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to undelete user: %v", err)
+				return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to undelete user"))
 			}
 		}
 		if userInfo.HasGroups {
 			// Sync user groups with the identity provider.
 			// The userInfo.Groups is the groups that the user belongs to in the identity provider.
 			if err := s.syncUserGroups(ctx, user, userInfo.Groups); err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to sync user groups: %v", err)
+				return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to sync user groups"))
 			}
 		}
 		return user, nil
 	}
 
-	if err := s.licenseService.IsFeatureEnabled(base.FeatureSSO); err != nil {
-		return nil, status.Error(codes.PermissionDenied, err.Error())
+	// For expired license, we will only block new create creation and still allow SSO login from existing users.
+	featurePlan := v1pb.PlanFeature_FEATURE_ENTERPRISE_SSO
+	if idp.Type == storepb.IdentityProviderType_OAUTH2 && googleGitHubDomains[idp.Domain] {
+		featurePlan = v1pb.PlanFeature_FEATURE_GOOGLE_AND_GITHUB_SSO
+	}
+	if err := s.licenseService.IsFeatureEnabled(featurePlan); err != nil {
+		return nil, connect.NewError(connect.CodePermissionDenied, err)
 	}
 	// Create new user from identity provider.
 	password, err := common.RandomString(20)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to generate random password")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to generate random password"))
 	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to generate password hash")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to generate password hash"))
+	}
+	if err := s.userCountGuard(ctx); err != nil {
+		return nil, err
 	}
 	newUser, err := s.store.CreateUser(ctx, &store.UserMessage{
 		Name:         userInfo.DisplayName,
 		Email:        email,
 		Phone:        userInfo.Phone,
-		Type:         base.EndUser,
+		Type:         storepb.PrincipalType_END_USER,
 		PasswordHash: string(passwordHash),
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create user, error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to create user, error"))
 	}
 	if userInfo.HasGroups {
 		// Sync user groups with the identity provider.
 		// The userInfo.Groups is the groups that the user belongs to in the identity provider.
-		if err := s.syncUserGroups(ctx, user, userInfo.Groups); err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to sync user groups: %v", err)
+		if err := s.syncUserGroups(ctx, newUser, userInfo.Groups); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to sync user groups"))
 		}
 	}
 	return newUser, nil
 }
 
+func (s *AuthService) userCountGuard(ctx context.Context) error {
+	userLimit := s.licenseService.GetUserLimit(ctx)
+
+	count, err := s.store.CountActiveUsers(ctx)
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, err)
+	}
+	if count >= userLimit {
+		return connect.NewError(connect.CodeResourceExhausted, errors.Errorf("reached the maximum user count %d", userLimit))
+	}
+	return nil
+}
+
 func challengeMFACode(user *store.UserMessage, mfaCode string) error {
 	if !validateWithCodeAndSecret(mfaCode, user.MFAConfig.OtpSecret) {
-		return status.Errorf(codes.Unauthenticated, "invalid MFA code")
+		return connect.NewError(connect.CodeUnauthenticated, errors.Errorf("invalid MFA code"))
 	}
 	return nil
 }
@@ -469,12 +484,12 @@ func (s *AuthService) challengeRecoveryCode(ctx context.Context, user *store.Use
 				},
 			})
 			if err != nil {
-				return status.Errorf(codes.Internal, "failed to update user: %v", err)
+				return connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to update user"))
 			}
 			return nil
 		}
 	}
-	return status.Errorf(codes.Unauthenticated, "invalid recovery code")
+	return connect.NewError(connect.CodeUnauthenticated, errors.Errorf("invalid recovery code"))
 }
 
 // validateWithCodeAndSecret validates the given code against the given secret.
@@ -488,9 +503,10 @@ func validateWithCodeAndSecret(code, secret string) bool {
 func (s *AuthService) syncUserGroups(ctx context.Context, user *store.UserMessage, groups []string) error {
 	bbGroups, err := s.store.ListGroups(ctx, &store.FindGroupMessage{})
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to list groups: %v", err)
+		return connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to list groups"))
 	}
 
+	groupChanged := false
 	for _, bbGroup := range bbGroups {
 		var isMember bool
 		for _, group := range groups {
@@ -522,8 +538,16 @@ func (s *AuthService) syncUserGroups(ctx context.Context, user *store.UserMessag
 			if _, err := s.store.UpdateGroup(ctx, bbGroup.Email, &store.UpdateGroupMessage{
 				Payload: bbGroup.Payload,
 			}); err != nil {
-				return status.Errorf(codes.Internal, "failed to update group %q: %v", bbGroup.Email, err)
+				return connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to update group %q", bbGroup.Email))
 			}
+			groupChanged = true
+		}
+	}
+
+	// Reload IAM cache if group membership changed.
+	if groupChanged {
+		if err := s.iamManager.ReloadCache(ctx); err != nil {
+			return connect.NewError(connect.CodeInternal, errors.Wrapf(err, "failed to reload IAM cache"))
 		}
 	}
 

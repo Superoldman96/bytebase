@@ -1,3 +1,5 @@
+import { create } from "@bufbuild/protobuf";
+import { type Duration, DurationSchema } from "@bufbuild/protobuf/wkt";
 import Emittery from "emittery";
 import { uniqueId } from "lodash-es";
 import { ClientError, Status } from "nice-grpc-common";
@@ -6,6 +8,7 @@ import type { Subscription } from "rxjs";
 import { fromEventPattern, map, Observable } from "rxjs";
 import { markRaw, ref, shallowRef } from "vue";
 import { useCancelableTimeout } from "@/composables/useCancelableTimeout";
+import { pushNotification, useDatabaseV1Store } from "@/store";
 import type {
   SQLResultSetV1,
   StreamingQueryController,
@@ -14,7 +17,6 @@ import type {
   WebTerminalQueryState,
   SQLEditorQueryParams,
 } from "@/types";
-import { Duration } from "@/types/proto/google/protobuf/duration";
 import {
   AdminExecuteRequest,
   AdminExecuteResponse,
@@ -24,7 +26,6 @@ import {
   extractGrpcErrorMessage,
   getErrorCode as extractGrpcStatusCode,
 } from "@/utils/grpcweb";
-import { useDatabaseV1Store } from "../v1";
 
 const ENDPOINT = "/v1:adminExecute";
 const SIG_ABORT = 3000 + Status.ABORTED;
@@ -56,7 +57,7 @@ const createQueryState = (tab: SQLEditorTab): WebTerminalQueryState => {
     tab,
     queryItemList: ref([createInitialQueryItemByTab(tab)]),
     timer: markRaw(useCancelableTimeout(QUERY_TIMEOUT_MS)),
-    controller: createStreamingQueryController(tab),
+    controller: createStreamingQueryController(),
   };
 };
 
@@ -67,15 +68,15 @@ const createInitialQueryItemByTab = (
 };
 
 export const createQueryItemV1 = (
-  sql = "",
+  statement = "",
   status: WebTerminalQueryItemV1["status"] = "IDLE"
 ): WebTerminalQueryItemV1 => ({
   id: uniqueId(),
-  sql,
+  statement,
   status,
 });
 
-const createStreamingQueryController = (tab: SQLEditorTab) => {
+const createStreamingQueryController = () => {
   const status: StreamingQueryController["status"] = ref("DISCONNECTED");
   const events: StreamingQueryController["events"] = markRaw(new Emittery());
   const input$ = fromEventPattern<SQLEditorQueryParams>(
@@ -94,7 +95,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
   };
 
   events.on("query", (params) => {
-    const request = mapRequest(tab, params);
+    const request = mapRequest(params);
     console.debug("query", request);
 
     if (status.value === "DISCONNECTED") {
@@ -105,7 +106,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
   const connect = (
     initialRequest: AdminExecuteRequest | undefined = undefined
   ) => {
-    const request$ = input$.pipe(map((params) => mapRequest(tab, params)));
+    const request$ = input$.pipe(map((params) => mapRequest(params)));
     const abortController = new AbortController();
 
     const url = new URL(`${window.location.origin}${ENDPOINT}`);
@@ -184,7 +185,9 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
 
       return () => {
         console.debug("teardown");
-        requestSubscription.unsubscribe();
+        if (requestSubscription) {
+          requestSubscription.unsubscribe();
+        }
       };
     });
 
@@ -261,6 +264,16 @@ const useQueryStateLogic = (qs: WebTerminalQueryState) => {
   qs.controller.events.on("result", (resultSet) => {
     console.debug("event resultSet", resultSet);
     activeQuery().resultSet = resultSet;
+    for (const result of resultSet.results) {
+      for (const message of result.messages) {
+        pushNotification({
+          module: "bytebase",
+          style: "INFO",
+          title: message.level,
+          description: message.content,
+        });
+      }
+    }
     cleanup();
   });
 };
@@ -284,10 +297,7 @@ export const mockAffectedV1Rows0 = (): QueryResult => {
   });
 };
 
-const mapRequest = (
-  tab: SQLEditorTab,
-  params: SQLEditorQueryParams
-): AdminExecuteRequest => {
+const mapRequest = (params: SQLEditorQueryParams): AdminExecuteRequest => {
   const { connection, statement, explain } = params;
 
   const database = useDatabaseV1Store().getDatabaseByName(connection.database);
@@ -308,8 +318,8 @@ export const parseDuration = (str: string): Duration | undefined => {
   if (Number.isNaN(totalSeconds) || totalSeconds < 0) return undefined;
   const seconds = Math.floor(totalSeconds);
   const nanos = (totalSeconds - seconds) * 1e9;
-  return Duration.fromPartial({
-    seconds,
+  return create(DurationSchema, {
+    seconds: BigInt(seconds),
     nanos,
   });
 };

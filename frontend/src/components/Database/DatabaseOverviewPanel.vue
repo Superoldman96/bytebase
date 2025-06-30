@@ -159,8 +159,7 @@ import ViewDataTable from "@/components/ViewDataTable.vue";
 import { SQL_EDITOR_SETTING_DATABASES_MODULE } from "@/router/sqlEditor";
 import { useDBSchemaV1Store } from "@/store";
 import type { ComposedDatabase } from "@/types";
-import type { Anomaly } from "@/types/proto/v1/anomaly_service";
-import { Engine } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import {
   hasSchemaProperty,
   instanceV1SupportsPackage,
@@ -179,7 +178,6 @@ interface LocalState {
 
 const props = defineProps<{
   database: ComposedDatabase;
-  anomalyList: Anomaly[];
 }>();
 
 const { t } = useI18n();
@@ -284,7 +282,7 @@ const streamList = computed(() => {
   }
   return dbSchemaStore
     .getDatabaseMetadata(props.database.name)
-    .schemas.map((schema) => schema.streams)
+    .schemas.map((schema: any) => schema.streams)
     .flat();
 });
 
@@ -298,7 +296,7 @@ const taskList = computed(() => {
   }
   return dbSchemaStore
     .getDatabaseMetadata(props.database.name)
-    .schemas.map((schema) => schema.tasks)
+    .schemas.map((schema: any) => schema.tasks)
     .flat();
 });
 
@@ -312,7 +310,7 @@ const packageList = computed(() => {
   }
   return dbSchemaStore
     .getDatabaseMetadata(props.database.name)
-    .schemas.map((schema) => schema.packages)
+    .schemas.map((schema: any) => schema.packages)
     .flat();
 });
 
@@ -326,7 +324,7 @@ const sequenceList = computed(() => {
   }
   return dbSchemaStore
     .getDatabaseMetadata(props.database.name)
-    .schemas.map((schema) => schema.sequences)
+    .schemas.map((schema: any) => schema.sequences)
     .flat();
 });
 

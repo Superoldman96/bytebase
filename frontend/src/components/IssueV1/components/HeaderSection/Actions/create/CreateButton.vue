@@ -27,14 +27,17 @@
   />
 
   <SQLCheckPanel
-    v-if="showSQLCheckResultPanel && databaseForTask(issue, selectedTask)"
-    :database="databaseForTask(issue, selectedTask)"
-    :advices="checkResultMap[databaseForTask(issue, selectedTask).name].advices"
+    v-if="showSQLCheckResultPanel && databaseForTask(project, selectedTask)"
+    :project="issue.project"
+    :database="databaseForTask(project, selectedTask)"
+    :advices="
+      checkResultMap[databaseForTask(project, selectedTask).name].advices
+    "
     :affected-rows="
-      checkResultMap[databaseForTask(issue, selectedTask).name].affectedRows
+      checkResultMap[databaseForTask(project, selectedTask).name].affectedRows
     "
     :risk-level="
-      checkResultMap[databaseForTask(issue, selectedTask).name].riskLevel
+      checkResultMap[databaseForTask(project, selectedTask).name].riskLevel
     "
     :confirm="sqlCheckConfirmDialog"
     :override-title="$t('issue.sql-check.sql-review-violations')"
@@ -42,41 +45,51 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import { NTooltip, NButton } from "naive-ui";
-import { v4 as uuidv4 } from "uuid";
 import { zindexable as vZindexable } from "vdirs";
-import { computed, nextTick, ref, toRaw } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { getValidIssueLabels } from "@/components/IssueV1/components/IssueLabelSelector.vue";
 import { ErrorList } from "@/components/IssueV1/components/common";
 import {
-  databaseEngineForSpec,
-  databaseForTask,
-  getLocalSheetByName,
-  isValidSpec,
   isValidStage,
   specForTask,
   useIssueContext,
 } from "@/components/IssueV1/logic";
 import formatSQL from "@/components/MonacoEditor/sqlFormatter";
+import {
+  databaseEngineForSpec,
+  getLocalSheetByName,
+  isValidSpec,
+} from "@/components/Plan";
+import { getSpecChangeType } from "@/components/Plan/components/SQLCheckSection/common";
+import { usePlanSQLCheckContext } from "@/components/Plan/components/SQLCheckSection/context";
+import { databaseForTask } from "@/components/Rollout/RolloutDetail";
 import { SQLCheckPanel } from "@/components/SQLCheck";
 import { STATEMENT_SKIP_CHECK_THRESHOLD } from "@/components/SQLCheck/common";
 import {
-  issueServiceClient,
-  planServiceClient,
-  releaseServiceClient,
-  rolloutServiceClient,
+  issueServiceClientConnect,
+  planServiceClientConnect,
+  releaseServiceClientConnect,
+  rolloutServiceClientConnect,
 } from "@/grpcweb";
 import { emitWindowEvent } from "@/plugins";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
-import { useDatabaseV1Store, useSheetV1Store } from "@/store";
-import type { ComposedIssue } from "@/types";
+import { useSheetV1Store, useCurrentProjectV1 } from "@/store";
 import { dialectOfEngineV1, languageOfEngineV1 } from "@/types";
-import { Issue } from "@/types/proto/v1/issue_service";
+import { CreateIssueRequestSchema } from "@/types/proto-es/v1/issue_service_pb";
+import { CreatePlanRequestSchema } from "@/types/proto-es/v1/plan_service_pb";
+import {
+  CheckReleaseRequestSchema,
+  ReleaseFileType,
+} from "@/types/proto-es/v1/release_service_pb";
+import { CreateRolloutRequestSchema } from "@/types/proto-es/v1/rollout_service_pb";
+import type { Engine } from "@/types/proto-es/v1/common_pb";
+import { Issue, Issue_Type } from "@/types/proto/v1/issue_service";
 import type { Plan_ExportDataConfig } from "@/types/proto/v1/plan_service";
 import { type Plan_ChangeDatabaseConfig } from "@/types/proto/v1/plan_service";
-import { ReleaseFileType } from "@/types/proto/v1/release_service";
 import type { Sheet } from "@/types/proto/v1/sheet_service";
 import { Advice_Status } from "@/types/proto/v1/sql_service";
 import {
@@ -92,19 +105,29 @@ import {
   sheetNameOfTaskV1,
   type Defer,
 } from "@/utils";
-import { getTaskChangeType } from "../../../SQLCheckSection/common";
-import { useIssueSQLCheckContext } from "../../../SQLCheckSection/context";
+import {
+  convertOldIssueToNew,
+  convertNewIssueToOld,
+} from "@/utils/v1/issue-conversions";
+import {
+  convertOldPlanToNew,
+  convertNewPlanToOld,
+} from "@/utils/v1/plan-conversions";
+import { convertEngineToOld } from "@/utils/v1/common-conversions";
+import {
+  convertNewCheckReleaseResponseToOld,
+  convertOldChangeTypeToNew,
+} from "@/utils/v1/release-conversions";
 
 const MAX_FORMATTABLE_STATEMENT_SIZE = 10000; // 10K characters
 
 const { t } = useI18n();
 const router = useRouter();
-const { issue, formatOnSave, events, selectedTask } = useIssueContext();
-const {
-  enabled: shouldRunSQLCheck,
-  resultMap: checkResultMap,
-  upsertResult: upsertCheckResult,
-} = useIssueSQLCheckContext();
+const { isCreating, issue, formatOnSave, events, selectedTask } =
+  useIssueContext();
+const { project } = useCurrentProjectV1();
+const { resultMap: checkResultMap, upsertResult: upsertCheckResult } =
+  usePlanSQLCheckContext();
 const sheetStore = useSheetV1Store();
 const loading = ref(false);
 const showSQLCheckResultPanel = ref(false);
@@ -112,11 +135,7 @@ const sqlCheckConfirmDialog = ref<Defer<boolean>>();
 
 const issueCreateErrorList = computed(() => {
   const errorList: string[] = [];
-  if (
-    !hasPermissionToCreateChangeDatabaseIssueInProject(
-      issue.value.projectEntity
-    )
-  ) {
+  if (!hasPermissionToCreateChangeDatabaseIssueInProject(project.value)) {
     errorList.push(t("common.missing-required-permission"));
   }
   if (!issue.value.title.trim()) {
@@ -130,31 +149,31 @@ const issueCreateErrorList = computed(() => {
     }
   } else {
     if (issue.value.planEntity) {
-      if (
-        !issue.value.planEntity.steps.every((step) =>
-          step.specs.every((spec) => isValidSpec(spec))
-        )
-      ) {
+      if (!issue.value.planEntity.specs.every((spec) => isValidSpec(spec))) {
         errorList.push("Missing SQL statement in some specs");
       }
     }
   }
   if (
-    issue.value.projectEntity.forceIssueLabels &&
-    getValidIssueLabels(
-      issue.value.labels,
-      issue.value.projectEntity.issueLabels
-    ).length === 0
+    project.value.forceIssueLabels &&
+    getValidIssueLabels(issue.value.labels, project.value.issueLabels)
+      .length === 0
   ) {
-    errorList.push(t("project.settings.labels.force-issue-labels"));
+    errorList.push(
+      t("project.settings.issue-related.labels.force-issue-labels.warning")
+    );
   }
   return errorList;
 });
 
 const doCreateIssue = async () => {
   loading.value = true;
-  // Run SQL check for issue creation.
-  if (!(await runSQLCheckForIssue())) {
+
+  // Run SQL check for database change issues.
+  if (
+    issue.value.type === Issue_Type.DATABASE_CHANGE &&
+    !(await runSQLCheckForIssue())
+  ) {
     loading.value = false;
     return;
   }
@@ -171,38 +190,29 @@ const doCreateIssue = async () => {
       ...Issue.fromPartial(issue.value),
       rollout: "",
     };
-    const createdIssue = await issueServiceClient.createIssue({
+    const request = create(CreateIssueRequestSchema, {
       parent: issue.value.project,
-      issue: issueCreate,
+      issue: convertOldIssueToNew(issueCreate),
     });
-    const composedIssue: ComposedIssue = {
-      ...issue.value,
-      ...createdIssue,
-      planEntity: createdPlan,
-    };
+    const response = await issueServiceClientConnect.createIssue(request);
+    const createdIssue = convertNewIssueToOld(response);
 
-    const createdRollout = await rolloutServiceClient.createRollout({
+    const rolloutRequest = create(CreateRolloutRequestSchema, {
       parent: issue.value.project,
       rollout: {
         plan: createdPlan.name,
       },
     });
+    await rolloutServiceClientConnect.createRollout(rolloutRequest);
 
-    composedIssue.rollout = createdRollout.name;
-    composedIssue.rolloutEntity = createdRollout;
-
-    await emitIssueCreateWindowEvent(composedIssue);
-    nextTick(() => {
-      router.replace({
-        name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
-        params: {
-          projectId: extractProjectResourceName(composedIssue.project),
-          issueSlug: issueV1Slug(composedIssue),
-        },
-      });
+    emitIssueCreateWindowEvent(createdIssue);
+    router.replace({
+      name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
+      params: {
+        projectId: extractProjectResourceName(issue.value.project),
+        issueSlug: issueV1Slug(createdIssue.name, createdIssue.title),
+      },
     });
-
-    return composedIssue;
   } catch {
     loading.value = false;
   }
@@ -210,19 +220,14 @@ const doCreateIssue = async () => {
 
 // Create sheets for spec configs and update their resource names.
 const createSheets = async () => {
-  const steps = issue.value.planEntity?.steps ?? [];
-  const flattenSpecList = steps.flatMap((step) => {
-    return step.specs;
-  });
-
   const configWithSheetList: (
     | Plan_ChangeDatabaseConfig
     | Plan_ExportDataConfig
   )[] = [];
   const pendingCreateSheetMap = new Map<string, Sheet>();
 
-  for (let i = 0; i < flattenSpecList.length; i++) {
-    const spec = flattenSpecList[i];
+  const specList = issue.value.planEntity?.specs ?? [];
+  for (const spec of specList) {
     const config = spec.changeDatabaseConfig || spec.exportDataConfig;
     if (!config) continue;
     configWithSheetList.push(config);
@@ -232,10 +237,9 @@ const createSheets = async () => {
       // The sheet is pending create
       const sheet = getLocalSheetByName(config.sheet);
       const engine = await databaseEngineForSpec(spec);
-      sheet.engine = engine;
+      sheet.engine = convertEngineToOld(engine as Engine);
       pendingCreateSheetMap.set(sheet.name, sheet);
-
-      await maybeFormatSQL(sheet, config.target);
+      await maybeFormatSQL(sheet, engine as Engine);
     }
   }
   const pendingCreateSheetList = Array.from(pendingCreateSheetMap.values());
@@ -260,26 +264,24 @@ const createSheets = async () => {
 const createPlan = async () => {
   const plan = issue.value.planEntity;
   if (!plan) return;
-  const createdPlan = await planServiceClient.createPlan({
+  const newPlan = convertOldPlanToNew(plan);
+  const request = create(CreatePlanRequestSchema, {
     parent: issue.value.project,
-    plan,
+    plan: newPlan,
   });
-  return createdPlan;
+  const response = await planServiceClientConnect.createPlan(request);
+  return convertNewPlanToOld(response);
 };
 
-const maybeFormatSQL = async (sheet: Sheet, target: string) => {
+const maybeFormatSQL = async (sheet: Sheet, engine: Engine) => {
   if (!formatOnSave.value) {
     return;
   }
-  const db = await useDatabaseV1Store().getOrFetchDatabaseByName(target);
-  if (!db) {
-    return;
-  }
-  const language = languageOfEngineV1(db.instanceResource.engine);
+  const language = languageOfEngineV1(engine);
   if (language !== "sql") {
     return;
   }
-  const dialect = dialectOfEngineV1(db.instanceResource.engine);
+  const dialect = dialectOfEngineV1(engine);
 
   const statement = getSheetStatement(sheet);
   if (statement.length > MAX_FORMATTABLE_STATEMENT_SIZE) {
@@ -293,32 +295,23 @@ const maybeFormatSQL = async (sheet: Sheet, target: string) => {
   setSheetStatement(sheet, formatted);
 };
 
-const emitIssueCreateWindowEvent = async (issue: ComposedIssue) => {
+const emitIssueCreateWindowEvent = (issue: Issue) => {
   const eventParams = {
     uid: extractIssueUID(issue.name),
+    name: issue.name,
     description: issue.description,
-    project: toRaw(issue.projectEntity),
-    tasks: [],
   };
-  const tasks = flattenTaskV1List(issue.rolloutEntity);
-  for (const task of tasks) {
-    const spec = specForTask(issue.planEntity, task);
-    const database = databaseForTask(issue, task);
-    const sheetName = sheetNameOfTaskV1(task);
-    const sheet = await sheetStore.getOrFetchSheetByName(sheetName, "FULL");
-    const statement = sheet ? getSheetStatement(sheet) : "";
-    eventParams.tasks.push({
-      database: toRaw(database),
-      earliestAllowedTime: spec?.earliestAllowedTime,
-      statement,
-    } as never);
-  }
   emitWindowEvent("bb.issue-create", eventParams);
 };
 
 const runSQLCheckForIssue = async () => {
-  if (!shouldRunSQLCheck.value) {
-    return true;
+  if (
+    !isCreating.value ||
+    ![Issue_Type.DATABASE_CHANGE, Issue_Type.DATABASE_EXPORT].includes(
+      issue.value.type
+    )
+  ) {
+    return;
   }
 
   const flattenTasks = flattenTaskV1List(issue.value.rolloutEntity);
@@ -333,7 +326,7 @@ const runSQLCheckForIssue = async () => {
     }
     if (!sheet) continue;
     const statement = getSheetStatement(sheet);
-    const database = databaseForTask(issue.value, task);
+    const database = databaseForTask(project.value, task);
     if (!statement) {
       continue;
     }
@@ -348,21 +341,27 @@ const runSQLCheckForIssue = async () => {
     );
   }
   for (const [statement, targets] of statementTargetsMap.entries()) {
-    const result = await releaseServiceClient.checkRelease({
+    const request = create(CheckReleaseRequestSchema, {
       parent: issue.value.project,
       release: {
         files: [
           {
-            // Use a random uuid to avoid duplication.
-            version: uuidv4(),
+            // Use "0" for dummy version.
+            version: "0",
             type: ReleaseFileType.VERSIONED,
             statement: new TextEncoder().encode(statement),
-            changeType: getTaskChangeType(issue.value, flattenTasks[0]),
+            changeType: convertOldChangeTypeToNew(
+              getSpecChangeType(
+                specForTask(issue.value.planEntity, selectedTask.value)
+              )
+            ),
           },
         ],
       },
       targets: targets,
     });
+    const response = await releaseServiceClientConnect.checkRelease(request);
+    const result = convertNewCheckReleaseResponseToOld(response);
     // Upsert check result for each target.
     for (const r of result?.results || []) {
       upsertCheckResult(r.target, r);

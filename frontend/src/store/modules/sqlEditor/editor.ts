@@ -1,14 +1,11 @@
-import { useLocalStorage, useDebounceFn } from "@vueuse/core";
+import { useLocalStorage } from "@vueuse/core";
 import { defineStore } from "pinia";
-import { computed, ref, watch, watchEffect } from "vue";
-import { useDatabaseV1Store } from "@/store";
+import { computed, ref, watch } from "vue";
 import { type ComposedDatabase, isValidProjectName } from "@/types";
 import { QueryOption_RedisRunCommandsOn } from "@/types/proto/v1/sql_service";
-import { hasWorkspacePermissionV2, getDefaultPagination } from "@/utils";
+import { hasWorkspacePermissionV2 } from "@/utils";
 
 export const useSQLEditorStore = defineStore("sqlEditor", () => {
-  const databaseStore = useDatabaseV1Store();
-
   const resultRowsLimit = useLocalStorage(
     "bb.sql-editor.result-rows-limit",
     1000
@@ -34,53 +31,6 @@ export const useSQLEditorStore = defineStore("sqlEditor", () => {
     return hasWorkspacePermissionV2("bb.projects.list");
   });
 
-  // `databaseList` is query-able databases scoped by `project`
-  const databaseList = ref<ComposedDatabase[]>([]);
-  const fetchDataState = ref<{
-    nextPageToken?: string;
-    loading: boolean;
-  }>({
-    loading: false,
-  });
-
-  const fetchDatabases = useDebounceFn(async (name?: string) => {
-    fetchDataState.value.loading = true;
-    const pageToken = fetchDataState.value.nextPageToken;
-
-    try {
-      const { databases, nextPageToken } = await databaseStore.fetchDatabases({
-        parent: project.value,
-        pageToken,
-        pageSize: getDefaultPagination(),
-        filter: {
-          query: name,
-        },
-      });
-
-      if (pageToken) {
-        databaseList.value.push(...databases);
-      } else {
-        databaseList.value = [...databases];
-      }
-      fetchDataState.value.nextPageToken = nextPageToken;
-    } catch {
-      databaseList.value = [];
-    } finally {
-      fetchDataState.value.loading = false;
-    }
-  }, 500);
-
-  const prepareDatabases = async (name?: string) => {
-    fetchDataState.value.nextPageToken = "";
-    await fetchDatabases(name);
-  };
-
-  watchEffect(async () => {
-    if (isValidProjectName(project.value)) {
-      await prepareDatabases();
-    }
-  });
-
   watch(project, (project) => {
     if (isValidProjectName(project)) {
       storedLastViewedProject.value = project;
@@ -97,13 +47,8 @@ export const useSQLEditorStore = defineStore("sqlEditor", () => {
     projectContextReady,
     storedLastViewedProject,
     allowViewALLProjects,
-    databaseList,
     isShowExecutingHint,
     executingHintDatabase,
     redisCommandOption,
-    prepareDatabases,
-    fetchDatabases,
-    loading: computed(() => fetchDataState.value.loading),
-    canLoadMore: computed(() => !!fetchDataState.value.nextPageToken),
   };
 });

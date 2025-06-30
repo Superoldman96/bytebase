@@ -1,7 +1,7 @@
 import { computed } from "vue";
 import { useAppFeature } from "@/store";
 import { Risk_Source } from "./proto/v1/risk_service";
-import { DatabaseChangeMode } from "./proto/v1/setting_service";
+import { DatabaseChangeMode } from "./proto-es/v1/setting_service_pb";
 
 export const PresetRiskLevel = {
   HIGH: 300,
@@ -25,15 +25,13 @@ export const useSupportedSourceList = () => {
         Risk_Source.DML,
         Risk_Source.CREATE_DATABASE,
         Risk_Source.DATA_EXPORT,
-        Risk_Source.REQUEST_QUERY,
-        Risk_Source.REQUEST_EXPORT,
+        Risk_Source.REQUEST_ROLE,
       ];
     }
 
     return [
       Risk_Source.DATA_EXPORT,
-      Risk_Source.REQUEST_QUERY,
-      Risk_Source.REQUEST_EXPORT,
+      Risk_Source.REQUEST_ROLE,
     ];
   });
 };

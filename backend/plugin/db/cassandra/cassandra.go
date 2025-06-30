@@ -11,11 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"connectrpc.com/connect"
 	"github.com/cockroachdb/cockroachdb-parser/pkg/util/timeofday"
 	"github.com/gocql/gocql"
 	"github.com/pkg/errors"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -41,7 +40,7 @@ type Driver struct {
 	session *gocql.Session
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -100,8 +99,19 @@ func (*Driver) GetDB() *sql.DB {
 	return nil
 }
 
-func (*Driver) Execute(context.Context, string, db.ExecuteOptions) (int64, error) {
-	return 0, status.Errorf(codes.Unimplemented, "Execute unimplemented")
+func (d *Driver) Execute(ctx context.Context, rawStatement string, _ db.ExecuteOptions) (int64, error) {
+	stmts, err := util.SanitizeSQL(rawStatement)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to split sql")
+	}
+
+	for _, stmt := range stmts {
+		if err := d.session.Query(stmt).WithContext(ctx).Exec(); err != nil {
+			return 0, errors.Wrapf(err, "failed to execute")
+		}
+	}
+
+	return 0, nil
 }
 func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, rawStatement string, queryContext db.QueryContext) ([]*v1pb.QueryResult, error) {
 	stmts, err := util.SanitizeSQL(rawStatement)
@@ -114,7 +124,7 @@ func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, rawStatement string
 		startTime := time.Now()
 		queryResult, err := func() (*v1pb.QueryResult, error) {
 			if _, _, err := base.ValidateSQLForEditor(storepb.Engine_CASSANDRA, stmt); err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "support Cassandra SELECT statement only, err: %s", err.Error())
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("support Cassandra SELECT statement only, err: %s", err.Error()))
 			}
 			result := &v1pb.QueryResult{}
 			pageSize := 0

@@ -6,32 +6,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"net/http"
-	"os"
 	"path"
 	"sync"
 	"time"
 
-	grpcruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
-	"github.com/soheilhy/cmux"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/reflection"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
+	"golang.org/x/net/http2"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
-
-	"github.com/bytebase/bytebase/backend/api/auth"
 	directorysync "github.com/bytebase/bytebase/backend/api/directory-sync"
 	"github.com/bytebase/bytebase/backend/api/lsp"
-	apiv1 "github.com/bytebase/bytebase/backend/api/v1"
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
-	"github.com/bytebase/bytebase/backend/common/stacktrace"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/component/iam"
@@ -39,17 +25,18 @@ import (
 	"github.com/bytebase/bytebase/backend/component/state"
 	"github.com/bytebase/bytebase/backend/component/webhook"
 	"github.com/bytebase/bytebase/backend/demo"
-	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
-	enterprisesvc "github.com/bytebase/bytebase/backend/enterprise/service"
+	"github.com/bytebase/bytebase/backend/enterprise"
 	"github.com/bytebase/bytebase/backend/migrator"
-	"github.com/bytebase/bytebase/backend/resources/mongoutil"
 	"github.com/bytebase/bytebase/backend/resources/postgres"
 	"github.com/bytebase/bytebase/backend/runner/approval"
 	"github.com/bytebase/bytebase/backend/runner/metricreport"
+	runnermigrator "github.com/bytebase/bytebase/backend/runner/migrator"
+	"github.com/bytebase/bytebase/backend/runner/monitor"
 	"github.com/bytebase/bytebase/backend/runner/plancheck"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/runner/taskrun"
 	"github.com/bytebase/bytebase/backend/store"
+	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
@@ -65,22 +52,21 @@ const (
 // Server is the Bytebase server.
 type Server struct {
 	// Asynchronous runners.
-	taskSchedulerV2    *taskrun.SchedulerV2
-	planCheckScheduler *plancheck.Scheduler
-	metricReporter     *metricreport.Reporter
-	schemaSyncer       *schemasync.Syncer
-	approvalRunner     *approval.Runner
-	runnerWG           sync.WaitGroup
+	taskSchedulerV2       *taskrun.SchedulerV2
+	planCheckScheduler    *plancheck.Scheduler
+	metricReporter        *metricreport.Reporter
+	schemaSyncer          *schemasync.Syncer
+	approvalRunner        *approval.Runner
+	columnDefaultMigrator *runnermigrator.ColumnDefaultMigrator
+	runnerWG              sync.WaitGroup
 
 	webhookManager *webhook.Manager
 	iamManager     *iam.Manager
 
-	licenseService enterprise.LicenseService
+	licenseService *enterprise.LicenseService
 
 	profile    *config.Profile
 	echoServer *echo.Echo
-	grpcServer *grpc.Server
-	muxServer  cmux.CMux
 	lspServer  *lsp.Server
 	store      *store.Store
 	dbFactory  *dbfactory.DBFactory
@@ -107,7 +93,6 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	slog.Info("-----Config BEGIN-----")
 	slog.Info(fmt.Sprintf("mode=%s", profile.Mode))
 	slog.Info(fmt.Sprintf("dataDir=%s", profile.DataDir))
-	slog.Info(fmt.Sprintf("resourceDir=%s", profile.ResourceDir))
 	slog.Info(fmt.Sprintf("demo=%v", profile.Demo))
 	slog.Info(fmt.Sprintf("instanceRunUUID=%s", profile.DeployID))
 	slog.Info("-----Config END-------")
@@ -119,24 +104,6 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 		}
 	}()
 
-	var err error
-	if err = os.MkdirAll(profile.ResourceDir, os.ModePerm); err != nil {
-		return nil, errors.Wrapf(err, "failed to create directory: %q", profile.ResourceDir)
-	}
-
-	// Install mongoutil.
-	mongoBinDir, err := mongoutil.Install(profile.ResourceDir)
-	if err != nil {
-		return nil, errors.Wrap(err, "cannot install mongo utility binaries")
-	}
-
-	// Installs the Postgres and utility binaries and creates the 'activeProfile.pgUser' user/database
-	// to store Bytebase's own metadata.
-	pgBinDir, err := postgres.Install(profile.ResourceDir)
-	if err != nil {
-		return nil, err
-	}
-
 	var pgURL string
 	if profile.UseEmbedDB() {
 		pgDataDir := path.Join(profile.DataDir, "pgdata")
@@ -144,7 +111,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 			pgDataDir = path.Join(profile.DataDir, "pgdata-demo")
 		}
 
-		stopper, err := postgres.StartMetadataInstance(ctx, pgBinDir, pgDataDir, profile.DatastorePort, profile.Mode)
+		stopper, err := postgres.StartMetadataInstance(ctx, pgDataDir, profile.DatastorePort, profile.Mode)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +126,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	if profile.SampleDatabasePort != 0 {
 		// Only create batch sample databases in demo mode. For normal mode, user starts from the free version
 		// and batch databases are useless because batch requires enterprise license.
-		stopper := postgres.StartAllSampleInstances(ctx, pgBinDir, profile.DataDir, profile.SampleDatabasePort)
+		stopper := postgres.StartAllSampleInstances(ctx, profile.DataDir, profile.SampleDatabasePort)
 		s.stopper = append(s.stopper, stopper...)
 	}
 
@@ -169,7 +136,7 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 		}
 	}
 	if err := migrator.MigrateSchema(ctx, pgURL); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to migrate schema")
 	}
 
 	// Connect to the instance that stores bytebase's own metadata.
@@ -182,76 +149,50 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 
 	s.stateCfg, err = state.New()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to create state config")
 	}
 
 	if err := s.store.BackfillIssueTSVector(ctx); err != nil {
 		slog.Warn("failed to backfill issue ts vector", log.BBError(err))
 	}
 
-	s.licenseService, err = enterprisesvc.NewLicenseService(profile.Mode, stores)
+	s.licenseService, err = enterprise.NewLicenseService(profile.Mode, stores)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create license service")
 	}
 	// Cache the license.
 	s.licenseService.LoadSubscription(ctx)
 
-	if err := s.getInitSetting(ctx); err != nil {
+	if err := s.initializeSetting(ctx); err != nil {
 		return nil, errors.Wrap(err, "failed to init config")
 	}
 	secret, err := s.store.GetSecret(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to get secret")
 	}
 	s.iamManager, err = iam.NewManager(stores, s.licenseService)
 	if err := s.iamManager.ReloadCache(ctx); err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "failed to reload iam cache")
 	}
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create iam manager")
 	}
 	s.webhookManager = webhook.NewManager(stores, s.iamManager)
-	s.dbFactory = dbfactory.New(s.store, mongoBinDir)
+	s.dbFactory = dbfactory.New(s.store, s.licenseService)
 
 	// Configure echo server.
 	s.echoServer = echo.New()
 
-	// Note: the gateway response modifier takes the token duration on server startup. If the value is changed,
-	// the user has to restart the server to take the latest value.
-	gatewayModifier := auth.GatewayResponseModifier{Store: s.store}
-	mux := grpcruntime.NewServeMux(
-		grpcruntime.WithMarshalerOption(grpcruntime.MIMEWildcard, &grpcruntime.JSONPb{
-			MarshalOptions: protojson.MarshalOptions{},
-			//nolint:forbidigo
-			UnmarshalOptions: protojson.UnmarshalOptions{},
-		}),
-		grpcruntime.WithForwardResponseOption(gatewayModifier.Modify),
-		grpcruntime.WithRoutingErrorHandler(func(ctx context.Context, sm *grpcruntime.ServeMux, m grpcruntime.Marshaler, w http.ResponseWriter, r *http.Request, httpStatus int) {
-			if httpStatus != http.StatusNotFound {
-				grpcruntime.DefaultRoutingErrorHandler(ctx, sm, m, w, r, httpStatus)
-				return
-			}
-
-			err := &grpcruntime.HTTPStatusError{
-				HTTPStatus: httpStatus,
-				Err:        status.Errorf(codes.NotFound, "Routing error. Please check the request URI %v", r.RequestURI),
-			}
-
-			grpcruntime.DefaultHTTPErrorHandler(ctx, sm, m, w, r, err)
-		}),
-	)
-
 	s.metricReporter = metricreport.NewReporter(s.store, s.licenseService, s.profile)
-	s.schemaSyncer = schemasync.NewSyncer(stores, s.dbFactory, s.stateCfg)
+	s.schemaSyncer = schemasync.NewSyncer(stores, s.dbFactory, s.profile, s.stateCfg, s.licenseService)
 	s.approvalRunner = approval.NewRunner(stores, sheetManager, s.dbFactory, s.stateCfg, s.webhookManager, s.licenseService)
 
 	s.taskSchedulerV2 = taskrun.NewSchedulerV2(stores, s.stateCfg, s.webhookManager, profile, s.licenseService)
-	s.taskSchedulerV2.Register(base.TaskDatabaseCreate, taskrun.NewDatabaseCreateExecutor(stores, s.dbFactory, s.schemaSyncer, s.stateCfg, profile))
-	s.taskSchedulerV2.Register(base.TaskDatabaseSchemaBaseline, taskrun.NewSchemaBaselineExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
-	s.taskSchedulerV2.Register(base.TaskDatabaseSchemaUpdate, taskrun.NewSchemaUpdateExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
-	s.taskSchedulerV2.Register(base.TaskDatabaseDataUpdate, taskrun.NewDataUpdateExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
-	s.taskSchedulerV2.Register(base.TaskDatabaseDataExport, taskrun.NewDataExportExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
-	s.taskSchedulerV2.Register(base.TaskDatabaseSchemaUpdateGhost, taskrun.NewSchemaUpdateGhostExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, s.profile))
+	s.taskSchedulerV2.Register(storepb.Task_DATABASE_CREATE, taskrun.NewDatabaseCreateExecutor(stores, s.dbFactory, s.schemaSyncer, s.stateCfg, profile))
+	s.taskSchedulerV2.Register(storepb.Task_DATABASE_SCHEMA_UPDATE, taskrun.NewSchemaUpdateExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
+	s.taskSchedulerV2.Register(storepb.Task_DATABASE_DATA_UPDATE, taskrun.NewDataUpdateExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
+	s.taskSchedulerV2.Register(storepb.Task_DATABASE_EXPORT, taskrun.NewDataExportExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, profile))
+	s.taskSchedulerV2.Register(storepb.Task_DATABASE_SCHEMA_UPDATE_GHOST, taskrun.NewSchemaUpdateGhostExecutor(stores, s.dbFactory, s.licenseService, s.stateCfg, s.schemaSyncer, s.profile))
 
 	s.planCheckScheduler = plancheck.NewScheduler(stores, s.licenseService, s.stateCfg)
 	databaseConnectExecutor := plancheck.NewDatabaseConnectExecutor(stores, s.dbFactory)
@@ -263,69 +204,21 @@ func NewServer(ctx context.Context, profile *config.Profile) (*Server, error) {
 	statementReportExecutor := plancheck.NewStatementReportExecutor(stores, sheetManager, s.dbFactory)
 	s.planCheckScheduler.Register(store.PlanCheckDatabaseStatementSummaryReport, statementReportExecutor)
 
+	// Column default value migrator
+	s.columnDefaultMigrator = runnermigrator.NewColumnDefaultMigrator(stores, []storepb.Engine{})
+
 	// Metric reporter
 	s.initMetricReporter()
-
-	// Setup the gRPC and grpc-gateway.
-	authProvider := auth.New(s.store, secret, s.licenseService, s.stateCfg, s.profile)
-	auditProvider := apiv1.NewAuditInterceptor(s.store)
-	aclProvider := apiv1.NewACLInterceptor(s.store, secret, s.iamManager, s.profile)
-	debugProvider := apiv1.NewDebugInterceptor(s.metricReporter)
-	onPanic := func(p any) error {
-		stack := stacktrace.TakeStacktrace(20 /* n */, 5 /* skip */)
-		// keep a multiline stack
-		slog.Error("v1 server panic error", log.BBError(errors.Errorf("error: %v\n%s", p, stack)))
-		return status.Errorf(codes.Internal, "error: %v\n%s", p, stack)
-	}
-	recoveryUnaryInterceptor := recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(onPanic))
-	recoveryStreamInterceptor := recovery.StreamServerInterceptor(recovery.WithRecoveryHandler(onPanic))
-	grpc.EnableTracing = true
-	s.grpcServer = grpc.NewServer(
-		// Override the maximum receiving message size to 100M for uploading large sheets.
-		grpc.MaxRecvMsgSize(100*1024*1024),
-		grpc.InitialWindowSize(100000000),
-		grpc.InitialConnWindowSize(100000000),
-		grpc.ChainUnaryInterceptor(
-			debugProvider.DebugInterceptor,
-			authProvider.AuthenticationInterceptor,
-			aclProvider.ACLInterceptor,
-			auditProvider.AuditInterceptor,
-			recoveryUnaryInterceptor,
-		),
-		grpc.ChainStreamInterceptor(
-			debugProvider.DebugStreamInterceptor,
-			authProvider.AuthenticationStreamInterceptor,
-			aclProvider.ACLStreamInterceptor,
-			auditProvider.AuditStreamInterceptor,
-			recoveryStreamInterceptor,
-		),
-	)
-	reflection.Register(s.grpcServer)
 
 	// LSP server.
 	s.lspServer = lsp.NewServer(s.store, profile)
 
-	postCreateUser := func(ctx context.Context, user *store.UserMessage, firstEndUser bool) error {
-		// Only generate onboarding data after the first enduser signup.
-		if firstEndUser {
-			if profile.SampleDatabasePort != 0 {
-				if err := s.generateOnboardingData(ctx, user); err != nil {
-					// When running inside docker on mac, we sometimes get database does not exist error.
-					// This is due to the docker overlay storage incompatibility with mac OS file system.
-					// Onboarding error is not critical, so we just emit an error log.
-					slog.Error("failed to prepare onboarding data", log.BBError(err))
-				}
-			}
-		}
-		return nil
-	}
-	if err := configureGrpcRouters(ctx, mux, s.grpcServer, s.store, sheetManager, s.dbFactory, s.licenseService, s.profile, s.metricReporter, s.stateCfg, s.schemaSyncer, s.webhookManager, s.iamManager, postCreateUser, secret); err != nil {
-		return nil, err
-	}
 	directorySyncServer := directorysync.NewService(s.store, s.licenseService, s.iamManager)
 
-	// Configure echo server routes.
-	configureEchoRouters(s.echoServer, s.grpcServer, s.lspServer, directorySyncServer, mux, profile)
+	if err := configureGrpcRouters(ctx, s.echoServer, s.store, sheetManager, s.dbFactory, s.licenseService, s.profile, s.metricReporter, s.stateCfg, s.schemaSyncer, s.webhookManager, s.iamManager, secret); err != nil {
+		return nil, errors.Wrapf(err, "failed to configure gRPC routers")
+	}
+	configureEchoRouters(s.echoServer, s.lspServer, directorySyncServer, profile)
 
 	serverStarted = true
 	return s, nil
@@ -349,30 +242,24 @@ func (s *Server) Run(ctx context.Context, port int) error {
 	s.runnerWG.Add(1)
 	go s.planCheckScheduler.Run(ctx, &s.runnerWG)
 
+	s.runnerWG.Add(1)
+	go s.columnDefaultMigrator.Run(ctx, &s.runnerWG)
+
+	s.runnerWG.Add(1)
+	mmm := monitor.NewMemoryMonitor(s.profile)
+	go mmm.Run(ctx, &s.runnerWG)
+
 	address := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return err
 	}
 
-	s.muxServer = cmux.New(listener)
-	grpcListener := s.muxServer.MatchWithWriters(cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
-	httpListener := s.muxServer.Match(cmux.HTTP1Fast(), cmux.Any())
-	s.echoServer.Listener = httpListener
+	s.echoServer.Listener = listener
 
 	go func() {
-		if err := s.grpcServer.Serve(grpcListener); err != nil {
-			slog.Error("grpc server listen error", log.BBError(err))
-		}
-	}()
-	go func() {
-		if err := s.echoServer.Start(address); err != nil {
+		if err := s.echoServer.StartH2CServer(address, &http2.Server{}); err != nil {
 			slog.Error("http server listen error", log.BBError(err))
-		}
-	}()
-	go func() {
-		if err := s.muxServer.Serve(); err != nil {
-			slog.Error("mux server listen error", log.BBError(err))
 		}
 	}()
 
@@ -398,28 +285,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	// Shutdown echo
-	if s.grpcServer != nil {
-		stopped := make(chan struct{})
-		go func() {
-			s.grpcServer.GracefulStop()
-			close(stopped)
-		}()
-
-		t := time.NewTimer(gracefulShutdownPeriod)
-		select {
-		case <-t.C:
-			s.grpcServer.Stop()
-		case <-stopped:
-			t.Stop()
-		}
-	}
 	if s.echoServer != nil {
 		if err := s.echoServer.Shutdown(ctx); err != nil {
 			s.echoServer.Logger.Fatal(err)
 		}
-	}
-	if s.muxServer != nil {
-		s.muxServer.Close()
 	}
 
 	// Wait for all runners to exit.

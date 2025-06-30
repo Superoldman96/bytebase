@@ -20,25 +20,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	IdentityProviderService_GetIdentityProvider_FullMethodName      = "/bytebase.v1.IdentityProviderService/GetIdentityProvider"
-	IdentityProviderService_ListIdentityProviders_FullMethodName    = "/bytebase.v1.IdentityProviderService/ListIdentityProviders"
-	IdentityProviderService_CreateIdentityProvider_FullMethodName   = "/bytebase.v1.IdentityProviderService/CreateIdentityProvider"
-	IdentityProviderService_UpdateIdentityProvider_FullMethodName   = "/bytebase.v1.IdentityProviderService/UpdateIdentityProvider"
-	IdentityProviderService_DeleteIdentityProvider_FullMethodName   = "/bytebase.v1.IdentityProviderService/DeleteIdentityProvider"
-	IdentityProviderService_UndeleteIdentityProvider_FullMethodName = "/bytebase.v1.IdentityProviderService/UndeleteIdentityProvider"
-	IdentityProviderService_TestIdentityProvider_FullMethodName     = "/bytebase.v1.IdentityProviderService/TestIdentityProvider"
+	IdentityProviderService_GetIdentityProvider_FullMethodName    = "/bytebase.v1.IdentityProviderService/GetIdentityProvider"
+	IdentityProviderService_ListIdentityProviders_FullMethodName  = "/bytebase.v1.IdentityProviderService/ListIdentityProviders"
+	IdentityProviderService_CreateIdentityProvider_FullMethodName = "/bytebase.v1.IdentityProviderService/CreateIdentityProvider"
+	IdentityProviderService_UpdateIdentityProvider_FullMethodName = "/bytebase.v1.IdentityProviderService/UpdateIdentityProvider"
+	IdentityProviderService_DeleteIdentityProvider_FullMethodName = "/bytebase.v1.IdentityProviderService/DeleteIdentityProvider"
+	IdentityProviderService_TestIdentityProvider_FullMethodName   = "/bytebase.v1.IdentityProviderService/TestIdentityProvider"
 )
 
 // IdentityProviderServiceClient is the client API for IdentityProviderService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type IdentityProviderServiceClient interface {
+	// Permissions required: bb.identityProviders.get
 	GetIdentityProvider(ctx context.Context, in *GetIdentityProviderRequest, opts ...grpc.CallOption) (*IdentityProvider, error)
+	// Permissions required: None
 	ListIdentityProviders(ctx context.Context, in *ListIdentityProvidersRequest, opts ...grpc.CallOption) (*ListIdentityProvidersResponse, error)
+	// Permissions required: bb.identityProviders.create
 	CreateIdentityProvider(ctx context.Context, in *CreateIdentityProviderRequest, opts ...grpc.CallOption) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.update
 	UpdateIdentityProvider(ctx context.Context, in *UpdateIdentityProviderRequest, opts ...grpc.CallOption) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.delete
 	DeleteIdentityProvider(ctx context.Context, in *DeleteIdentityProviderRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	UndeleteIdentityProvider(ctx context.Context, in *UndeleteIdentityProviderRequest, opts ...grpc.CallOption) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.update
 	TestIdentityProvider(ctx context.Context, in *TestIdentityProviderRequest, opts ...grpc.CallOption) (*TestIdentityProviderResponse, error)
 }
 
@@ -100,16 +104,6 @@ func (c *identityProviderServiceClient) DeleteIdentityProvider(ctx context.Conte
 	return out, nil
 }
 
-func (c *identityProviderServiceClient) UndeleteIdentityProvider(ctx context.Context, in *UndeleteIdentityProviderRequest, opts ...grpc.CallOption) (*IdentityProvider, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(IdentityProvider)
-	err := c.cc.Invoke(ctx, IdentityProviderService_UndeleteIdentityProvider_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *identityProviderServiceClient) TestIdentityProvider(ctx context.Context, in *TestIdentityProviderRequest, opts ...grpc.CallOption) (*TestIdentityProviderResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TestIdentityProviderResponse)
@@ -124,12 +118,17 @@ func (c *identityProviderServiceClient) TestIdentityProvider(ctx context.Context
 // All implementations must embed UnimplementedIdentityProviderServiceServer
 // for forward compatibility.
 type IdentityProviderServiceServer interface {
+	// Permissions required: bb.identityProviders.get
 	GetIdentityProvider(context.Context, *GetIdentityProviderRequest) (*IdentityProvider, error)
+	// Permissions required: None
 	ListIdentityProviders(context.Context, *ListIdentityProvidersRequest) (*ListIdentityProvidersResponse, error)
+	// Permissions required: bb.identityProviders.create
 	CreateIdentityProvider(context.Context, *CreateIdentityProviderRequest) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.update
 	UpdateIdentityProvider(context.Context, *UpdateIdentityProviderRequest) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.delete
 	DeleteIdentityProvider(context.Context, *DeleteIdentityProviderRequest) (*emptypb.Empty, error)
-	UndeleteIdentityProvider(context.Context, *UndeleteIdentityProviderRequest) (*IdentityProvider, error)
+	// Permissions required: bb.identityProviders.update
 	TestIdentityProvider(context.Context, *TestIdentityProviderRequest) (*TestIdentityProviderResponse, error)
 	mustEmbedUnimplementedIdentityProviderServiceServer()
 }
@@ -155,9 +154,6 @@ func (UnimplementedIdentityProviderServiceServer) UpdateIdentityProvider(context
 }
 func (UnimplementedIdentityProviderServiceServer) DeleteIdentityProvider(context.Context, *DeleteIdentityProviderRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteIdentityProvider not implemented")
-}
-func (UnimplementedIdentityProviderServiceServer) UndeleteIdentityProvider(context.Context, *UndeleteIdentityProviderRequest) (*IdentityProvider, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method UndeleteIdentityProvider not implemented")
 }
 func (UnimplementedIdentityProviderServiceServer) TestIdentityProvider(context.Context, *TestIdentityProviderRequest) (*TestIdentityProviderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TestIdentityProvider not implemented")
@@ -274,24 +270,6 @@ func _IdentityProviderService_DeleteIdentityProvider_Handler(srv interface{}, ct
 	return interceptor(ctx, in, info, handler)
 }
 
-func _IdentityProviderService_UndeleteIdentityProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UndeleteIdentityProviderRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(IdentityProviderServiceServer).UndeleteIdentityProvider(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: IdentityProviderService_UndeleteIdentityProvider_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(IdentityProviderServiceServer).UndeleteIdentityProvider(ctx, req.(*UndeleteIdentityProviderRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _IdentityProviderService_TestIdentityProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TestIdentityProviderRequest)
 	if err := dec(in); err != nil {
@@ -336,10 +314,6 @@ var IdentityProviderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteIdentityProvider",
 			Handler:    _IdentityProviderService_DeleteIdentityProvider_Handler,
-		},
-		{
-			MethodName: "UndeleteIdentityProvider",
-			Handler:    _IdentityProviderService_UndeleteIdentityProvider_Handler,
 		},
 		{
 			MethodName: "TestIdentityProvider",

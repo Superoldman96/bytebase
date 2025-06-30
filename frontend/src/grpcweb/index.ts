@@ -1,237 +1,156 @@
-import { errorDetailsClientMiddleware } from "nice-grpc-error-details";
-import {
-  createChannel,
-  createClientFactory,
-  FetchTransport,
-  WebsocketTransport,
-} from "nice-grpc-web";
-import { ActuatorServiceDefinition } from "@/types/proto/v1/actuator_service";
-import { AnomalyServiceDefinition } from "@/types/proto/v1/anomaly_service";
-import { AuditLogServiceDefinition } from "@/types/proto/v1/audit_log_service";
-import { AuthServiceDefinition } from "@/types/proto/v1/auth_service";
-import { UserServiceDefinition } from "@/types/proto/v1/user_service";
-import { CelServiceDefinition } from "@/types/proto/v1/cel_service";
-import { ChangelistServiceDefinition } from "@/types/proto/v1/changelist_service";
-import { DatabaseGroupServiceDefinition } from "@/types/proto/v1/database_group_service";
-import { DatabaseServiceDefinition } from "@/types/proto/v1/database_service";
-import { DatabaseCatalogServiceDefinition } from "@/types/proto/v1/database_catalog_service";
-import { EnvironmentServiceDefinition } from "@/types/proto/v1/environment_service";
-import { GroupServiceDefinition } from "@/types/proto/v1/group_service";
-import { IdentityProviderServiceDefinition } from "@/types/proto/v1/idp_service";
-import { InstanceRoleServiceDefinition } from "@/types/proto/v1/instance_role_service";
-import { InstanceServiceDefinition } from "@/types/proto/v1/instance_service";
-import { IssueServiceDefinition } from "@/types/proto/v1/issue_service";
-import { OrgPolicyServiceDefinition } from "@/types/proto/v1/org_policy_service";
-import { PlanServiceDefinition } from "@/types/proto/v1/plan_service";
-import { ProjectServiceDefinition } from "@/types/proto/v1/project_service";
-import { ReleaseServiceDefinition } from "@/types/proto/v1/release_service";
-import { ReviewConfigServiceDefinition } from "@/types/proto/v1/review_config_service";
-import { RiskServiceDefinition } from "@/types/proto/v1/risk_service";
-import { RoleServiceDefinition } from "@/types/proto/v1/role_service";
-import { RolloutServiceDefinition } from "@/types/proto/v1/rollout_service";
-import { SettingServiceDefinition } from "@/types/proto/v1/setting_service";
-import { SheetServiceDefinition } from "@/types/proto/v1/sheet_service";
-import { SQLServiceDefinition } from "@/types/proto/v1/sql_service";
-import { SubscriptionServiceDefinition } from "@/types/proto/v1/subscription_service";
-import { WorksheetServiceDefinition } from "@/types/proto/v1/worksheet_service";
-import { WorkspaceServiceDefinition } from "@/types/proto/v1/workspace_service";
-import {
-  authInterceptorMiddleware,
-  errorNotificationMiddleware,
-  simulateLatencyMiddleware,
-} from "./middlewares";
-
-// Create each grpc service client.
-// Reference: https://github.com/deeplay-io/nice-grpc/blob/master/packages/nice-grpc-web/README.md
+import { createClient } from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
+import { ActuatorService } from "@/types/proto-es/v1/actuator_service_pb";
+import { AuditLogService } from "@/types/proto-es/v1/audit_log_service_pb";
+import { AuthService } from "@/types/proto-es/v1/auth_service_pb";
+import { CelService } from "@/types/proto-es/v1/cel_service_pb";
+import { ChangelistService } from "@/types/proto-es/v1/changelist_service_pb";
+import { DatabaseCatalogService } from "@/types/proto-es/v1/database_catalog_service_pb";
+import { DatabaseGroupService } from "@/types/proto-es/v1/database_group_service_pb";
+import { DatabaseService } from "@/types/proto-es/v1/database_service_pb";
+import { GroupService } from "@/types/proto-es/v1/group_service_pb";
+import { IdentityProviderService } from "@/types/proto-es/v1/idp_service_pb";
+import { InstanceRoleService } from "@/types/proto-es/v1/instance_role_service_pb";
+import { InstanceService } from "@/types/proto-es/v1/instance_service_pb";
+import { IssueService } from "@/types/proto-es/v1/issue_service_pb";
+import { OrgPolicyService } from "@/types/proto-es/v1/org_policy_service_pb";
+import { PlanService } from "@/types/proto-es/v1/plan_service_pb";
+import { ProjectService } from "@/types/proto-es/v1/project_service_pb";
+import { ReleaseService } from "@/types/proto-es/v1/release_service_pb";
+import { ReviewConfigService } from "@/types/proto-es/v1/review_config_service_pb";
+import { RevisionService } from "@/types/proto-es/v1/revision_service_pb";
+import { RiskService } from "@/types/proto-es/v1/risk_service_pb";
+import { RoleService } from "@/types/proto-es/v1/role_service_pb";
+import { RolloutService } from "@/types/proto-es/v1/rollout_service_pb";
+import { SettingService } from "@/types/proto-es/v1/setting_service_pb";
+import { SheetService } from "@/types/proto-es/v1/sheet_service_pb";
+import { SQLService } from "@/types/proto-es/v1/sql_service_pb";
+import { SubscriptionService } from "@/types/proto-es/v1/subscription_service_pb";
+import { UserService } from "@/types/proto-es/v1/user_service_pb";
+import { WorksheetService } from "@/types/proto-es/v1/worksheet_service_pb";
+import { WorkspaceService } from "@/types/proto-es/v1/workspace_service_pb";
+import { authInterceptor, errorNotificationInterceptor } from "./middlewares";
 
 const address = import.meta.env.BB_GRPC_LOCAL || window.location.origin;
 
-const channel = createChannel(
-  address,
-  FetchTransport({
-    credentials: "include",
-  })
-);
-const websocketChannel = createChannel(
-  window.location.origin,
-  WebsocketTransport()
-);
+const transport = createConnectTransport({
+  baseUrl: address,
+  useBinaryFormat: true,
+  interceptors: [authInterceptor, errorNotificationInterceptor],
+  fetch: (input, init) => fetch(input, { ...init, credentials: "include" }),
+});
 
-const clientFactory = createClientFactory()
-  // A middleware that is attached first, will be invoked last.
-  .use(authInterceptorMiddleware)
-  .use(errorDetailsClientMiddleware)
-  .use(errorNotificationMiddleware)
-  .use(simulateLatencyMiddleware);
-/**
- * Example to use error notification middleware.
- * Errors occurs during all requests will cause UI notifications automatically.
- * abcServiceClient.foo(requestParams, {
- *   // true if you want to suppress error notifications for this call
- *   silent: true,
- * })
- */
-
-export const authServiceClient = clientFactory.create(
-  AuthServiceDefinition,
-  channel
+export const actuatorServiceClientConnect = createClient(
+  ActuatorService,
+  transport
 );
 
-export const userServiceClient = clientFactory.create(
-  UserServiceDefinition,
-  channel
+export const authServiceClientConnect = createClient(AuthService, transport);
+
+export const auditLogServiceClientConnect = createClient(
+  AuditLogService,
+  transport
 );
 
-export const roleServiceClient = clientFactory.create(
-  RoleServiceDefinition,
-  channel
+export const subscriptionServiceClientConnect = createClient(
+  SubscriptionService,
+  transport
 );
 
-export const environmentServiceClient = clientFactory.create(
-  EnvironmentServiceDefinition,
-  channel
+export const workspaceServiceClientConnect = createClient(
+  WorkspaceService,
+  transport
 );
 
-export const instanceServiceClient = clientFactory.create(
-  InstanceServiceDefinition,
-  channel
+export const settingServiceClientConnect = createClient(
+  SettingService,
+  transport
 );
 
-export const policyServiceClient = clientFactory.create(
-  OrgPolicyServiceDefinition,
-  channel
+export const celServiceClientConnect = createClient(CelService, transport);
+
+export const databaseCatalogServiceClientConnect = createClient(
+  DatabaseCatalogService,
+  transport
 );
 
-export const projectServiceClient = clientFactory.create(
-  ProjectServiceDefinition,
-  channel
+export const instanceRoleServiceClientConnect = createClient(
+  InstanceRoleService,
+  transport
 );
 
-export const databaseServiceClient = clientFactory.create(
-  DatabaseServiceDefinition,
-  channel
+export const instanceServiceClientConnect = createClient(
+  InstanceService,
+  transport
 );
 
-export const databaseCatalogServiceClient = clientFactory.create(
-  DatabaseCatalogServiceDefinition,
-  channel
+export const roleServiceClientConnect = createClient(RoleService, transport);
+
+export const groupServiceClientConnect = createClient(GroupService, transport);
+
+export const databaseGroupServiceClientConnect = createClient(
+  DatabaseGroupService,
+  transport
 );
 
-export const databaseGroupServiceClient = clientFactory.create(
-  DatabaseGroupServiceDefinition,
-  channel
+export const riskServiceClientConnect = createClient(RiskService, transport);
+
+export const orgPolicyServiceClientConnect = createClient(
+  OrgPolicyService,
+  transport
 );
 
-export const identityProviderClient = clientFactory.create(
-  IdentityProviderServiceDefinition,
-  channel
+export const changelistServiceClientConnect = createClient(
+  ChangelistService,
+  transport
 );
 
-export const riskServiceClient = clientFactory.create(
-  RiskServiceDefinition,
-  channel
+export const reviewConfigServiceClientConnect = createClient(
+  ReviewConfigService,
+  transport
 );
 
-export const settingServiceClient = clientFactory.create(
-  SettingServiceDefinition,
-  channel
+export const revisionServiceClientConnect = createClient(
+  RevisionService,
+  transport
 );
 
-export const sheetServiceClient = clientFactory.create(
-  SheetServiceDefinition,
-  channel
+export const identityProviderServiceClientConnect = createClient(
+  IdentityProviderService,
+  transport
 );
 
-export const worksheetServiceClient = clientFactory.create(
-  WorksheetServiceDefinition,
-  channel
+export const issueServiceClientConnect = createClient(IssueService, transport);
+
+export const sheetServiceClientConnect = createClient(SheetService, transport);
+
+export const userServiceClientConnect = createClient(UserService, transport);
+
+export const releaseServiceClientConnect = createClient(
+  ReleaseService,
+  transport
 );
 
-export const issueServiceClient = clientFactory.create(
-  IssueServiceDefinition,
-  channel
+export const worksheetServiceClientConnect = createClient(
+  WorksheetService,
+  transport
 );
 
-export const rolloutServiceClient = clientFactory.create(
-  RolloutServiceDefinition,
-  channel
+export const sqlServiceClientConnect = createClient(SQLService, transport);
+
+export const planServiceClientConnect = createClient(PlanService, transport);
+
+export const projectServiceClientConnect = createClient(
+  ProjectService,
+  transport
 );
 
-export const planServiceClient = clientFactory.create(
-  PlanServiceDefinition,
-  channel
+export const rolloutServiceClientConnect = createClient(
+  RolloutService,
+  transport
 );
 
-export const sqlServiceClient = clientFactory.create(
-  SQLServiceDefinition,
-  channel
+export const databaseServiceClientConnect = createClient(
+  DatabaseService,
+  transport
 );
-
-export const sqlStreamingServiceClient = clientFactory.create(
-  SQLServiceDefinition,
-  websocketChannel
-);
-
-export const celServiceClient = clientFactory.create(
-  CelServiceDefinition,
-  channel
-);
-
-export const subscriptionServiceClient = clientFactory.create(
-  SubscriptionServiceDefinition,
-  channel
-);
-
-export const actuatorServiceClient = clientFactory.create(
-  ActuatorServiceDefinition,
-  channel
-);
-
-export const anomalyServiceClient = clientFactory.create(
-  AnomalyServiceDefinition,
-  channel
-);
-
-export const changelistServiceClient = clientFactory.create(
-  ChangelistServiceDefinition,
-  channel
-);
-
-export const auditLogServiceClient = clientFactory.create(
-  AuditLogServiceDefinition,
-  channel
-);
-
-export const groupServiceClient = clientFactory.create(
-  GroupServiceDefinition,
-  channel
-);
-
-export const reviewConfigServiceClient = clientFactory.create(
-  ReviewConfigServiceDefinition,
-  channel
-);
-
-export const workspaceServiceClient = clientFactory.create(
-  WorkspaceServiceDefinition,
-  channel
-);
-
-export const releaseServiceClient = clientFactory.create(
-  ReleaseServiceDefinition,
-  channel
-);
-
-export const instanceRoleServiceClient = clientFactory.create(
-  InstanceRoleServiceDefinition,
-  channel
-);
-
-// e.g. How to use `authServiceClient`?
-//
-// await authServiceClient.login({
-//   email: "bb@bytebase.com",
-//   password: "bb",
-//   web: true,
-// });
-// const { users } = await authServiceClient.listUsers({});

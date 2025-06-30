@@ -67,10 +67,7 @@
       </div>
 
       <!-- Description list -->
-      <div
-        v-if="user.userType === UserType.USER"
-        class="mt-6 mb-2 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8"
-      >
+      <div class="mt-6 mb-2 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         <dl class="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-3">
           <div class="sm:col-span-1">
             <dt class="text-sm font-medium text-control-light">
@@ -89,7 +86,7 @@
                 </NTag>
               </div>
               <router-link
-                v-if="!hasRBACFeature"
+                v-if="!hasFeature(PlanFeature.FEATURE_IAM)"
                 :to="'/setting/subscription'"
                 class="normal-link"
               >
@@ -106,7 +103,6 @@
               <EmailInput
                 v-if="state.editing"
                 v-model:value="state.editingUser!.email"
-                :domain="workspaceDomain"
               />
               <template v-else>
                 {{ user.email }}
@@ -114,7 +110,7 @@
             </dd>
           </div>
 
-          <div class="sm:col-span-1">
+          <div v-if="user.userType === UserType.USER" class="sm:col-span-1">
             <dt class="text-sm font-medium text-control-light">
               {{ $t("settings.profile.phone") }}
             </dt>
@@ -154,13 +150,10 @@
             class="text-lg font-medium flex flex-row justify-start items-center"
           >
             {{ $t("two-factor.self") }}
-            <FeatureBadge :feature="'bb.feature.2fa'" custom-class="ml-2" />
+            <FeatureBadge :feature="PlanFeature.FEATURE_TWO_FA" class="ml-2" />
           </span>
           <div class="space-x-2">
-            <NButton
-              v-if="user.email === currentUserV1.email"
-              @click="enable2FA"
-            >
+            <NButton v-if="user.email === currentUser.email" @click="enable2FA">
               {{ isMFAEnabled ? $t("common.edit") : $t("common.enable") }}
             </NButton>
             <NButton v-if="isMFAEnabled" @click="disable2FA">
@@ -172,7 +165,7 @@
           {{ $t("two-factor.description") }}
           <LearnMoreLink
             class="ml-1"
-            url="https://www.bytebase.com/docs/administration/2fa?source=console"
+            url="https://docs.bytebase.com/administration/2fa?source=console"
           />
         </p>
         <template v-if="showRegenerateRecoveryCodes">
@@ -197,7 +190,7 @@
           </p>
           <RegenerateRecoveryCodesView
             v-if="state.showRegenerateRecoveryCodesView"
-            :recovery-codes="authStore.currentUser.recoveryCodes"
+            :recovery-codes="currentUser.recoveryCodes"
             @close="state.showRegenerateRecoveryCodesView = false"
           />
         </template>
@@ -206,7 +199,7 @@
   </main>
 
   <FeatureModal
-    feature="bb.feature.2fa"
+    :feature="PlanFeature.FEATURE_TWO_FA"
     :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
@@ -225,10 +218,10 @@
 
 <script lang="ts" setup>
 import { computedAsync, useTitle } from "@vueuse/core";
-import { cloneDeep, head, isEqual } from "lodash-es";
+import { cloneDeep, isEqual } from "lodash-es";
 import type { DropdownOption } from "naive-ui";
-import { NButton, NInput, NDropdown, NTag } from "naive-ui";
-import { nextTick, computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { NButton, NDropdown, NInput, NTag } from "naive-ui";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import EmailInput from "@/components/EmailInput.vue";
@@ -245,27 +238,29 @@ import { WORKSPACE_ROUTE_USER_PROFILE } from "@/router/dashboard/workspaceRoutes
 import { SETTING_ROUTE_PROFILE_TWO_FACTOR } from "@/router/dashboard/workspaceSetting";
 import {
   featureToRef,
+  hasFeature,
   pushNotification,
   useActuatorV1Store,
-  useAuthStore,
   useCurrentUserV1,
+  usePermissionStore,
   useSettingV1Store,
   useUserStore,
   useWorkspaceV1Store,
-  usePermissionStore,
 } from "@/store";
 import {
-  unknownUser,
-  SYSTEM_BOT_USER_NAME,
   ALL_USERS_USER_EMAIL,
+  SYSTEM_BOT_USER_NAME,
+  unknownUser,
 } from "@/types";
-import { State } from "@/types/proto/v1/common";
+import { State } from "@/types/proto-es/v1/common_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import {
   UpdateUserRequest,
   UserType,
   type User,
 } from "@/types/proto/v1/user_service";
 import { displayRoleTitle, hasWorkspacePermissionV2, sortRoles } from "@/utils";
+import { convertStateToOld } from "@/utils/v1/common-conversions";
 
 interface LocalState {
   editing: boolean;
@@ -284,8 +279,7 @@ const { t } = useI18n();
 const router = useRouter();
 const actuatorStore = useActuatorV1Store();
 const settingV1Store = useSettingV1Store();
-const authStore = useAuthStore();
-const currentUserV1 = useCurrentUserV1();
+const currentUser = useCurrentUserV1();
 const userStore = useUserStore();
 const workspaceStore = useWorkspaceV1Store();
 const permissionStore = usePermissionStore();
@@ -300,10 +294,6 @@ const state = reactive<LocalState>({
 
 const editNameTextField = ref<InstanceType<typeof NInput>>();
 const userPasswordRef = ref<InstanceType<typeof UserPassword>>();
-
-const workspaceDomain = computed(() =>
-  head(settingV1Store.workspaceProfileSetting?.domains)
-);
 
 const passwordRestrictionSetting = computed(
   () => settingV1Store.passwordRestriction
@@ -329,8 +319,7 @@ onUnmounted(() => {
   document.removeEventListener("keydown", keyboardHandler);
 });
 
-const hasRBACFeature = featureToRef("bb.feature.rbac");
-const has2FAFeature = featureToRef("bb.feature.2fa");
+const has2FAFeature = featureToRef(PlanFeature.FEATURE_TWO_FA);
 
 const isMFAEnabled = computed(() => {
   return user.value.mfaEnabled;
@@ -338,32 +327,33 @@ const isMFAEnabled = computed(() => {
 
 // only user can regenerate their recovery-codes.
 const showRegenerateRecoveryCodes = computed(() => {
-  return user.value.mfaEnabled && user.value.name === currentUserV1.value.name;
+  return user.value.mfaEnabled && user.value.name === currentUser.value.name;
 });
 
 const user = computedAsync(() => {
   if (props.principalEmail) {
     return userStore.getOrFetchUserByIdentifier(props.principalEmail);
   }
-  return currentUserV1.value;
+  return currentUser.value;
 }, unknownUser());
 
 const userRoles = computed(() => {
   return [...workspaceStore.getWorkspaceRolesByEmail(user.value.email)];
 });
 
-const isSelf = computed(() => currentUserV1.value.name === user.value.name);
+const isSelf = computed(() => currentUser.value.name === user.value.name);
 
 // User can change her own info.
 // Besides, owner can also change anyone's info. This is for resetting password in case user forgets.
 const allowEdit = computed(() => {
   if (
     user.value.name === SYSTEM_BOT_USER_NAME ||
-    user.value.email === ALL_USERS_USER_EMAIL
+    user.value.email === ALL_USERS_USER_EMAIL ||
+    user.value.userType !== UserType.USER
   ) {
     return false;
   }
-  if (user.value.state !== State.ACTIVE) {
+  if (user.value.state !== convertStateToOld(State.ACTIVE)) {
     return false;
   }
   return isSelf.value || hasWorkspacePermissionV2("bb.policies.update");

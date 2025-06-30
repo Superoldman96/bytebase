@@ -42,7 +42,13 @@
                 v-model:value="resourceId"
                 resource-type="changelist"
                 :resource-title="title"
-                :validate="validateResourceId"
+                :fetch-resource="
+                  (resourceId: ResourceId) =>
+                    changelistStore.getOrFetchChangelistByName(
+                      `${projectName}/changelists/${resourceId}`,
+                      true /* silent */
+                    )
+                "
               />
             </div>
           </div>
@@ -144,7 +150,6 @@ import {
   type UploadFileInfo,
   NSelect,
 } from "naive-ui";
-import { Status } from "nice-grpc-common";
 import { zindexable as vZindexable } from "vdirs";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -158,21 +163,21 @@ import {
   ResourceIdField,
 } from "@/components/v2";
 import { pushNotification, useChangelistStore, useSheetV1Store } from "@/store";
-import type { ResourceId, ValidatedMessage } from "@/types";
+import type { ResourceId } from "@/types";
 import type { ComposedProject } from "@/types";
 import {
   Changelist,
   Changelist_Change as Change,
 } from "@/types/proto/v1/changelist_service";
-import { Engine } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import { Sheet } from "@/types/proto/v1/sheet_service";
+import { convertEngineToOld } from "@/utils/v1/common-conversions";
 import {
   ENCODINGS,
   extractChangelistResourceName,
   setSheetStatement,
   type Encoding,
 } from "@/utils";
-import { getErrorCode } from "@/utils/grpcweb";
 import { readUpload, type ParsedFile } from "../import";
 import { useChangelistDashboardContext } from "./context";
 
@@ -197,6 +202,7 @@ const projectName = ref<string>(props.project.name);
 const isLoading = ref(false);
 const resourceId = ref("");
 const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
+const changelistStore = useChangelistStore();
 
 const encodingOptions = computed(() =>
   ENCODINGS.map((encoding) => ({
@@ -216,38 +222,6 @@ const errors = asyncComputed(() => {
 
   return errors;
 }, []);
-
-const validateResourceId = async (
-  resourceId: ResourceId
-): Promise<ValidatedMessage[]> => {
-  if (!resourceId) {
-    return [];
-  }
-
-  try {
-    const name = `${projectName.value}/changelists/${resourceId}`;
-    const maybeExistedChangelist =
-      await useChangelistStore().getOrFetchChangelistByName(
-        name,
-        true /* silent */
-      );
-    if (maybeExistedChangelist) {
-      return [
-        {
-          type: "error",
-          message: t("resource-id.validation.duplicated", {
-            resource: t("resource.changelist"),
-          }),
-        },
-      ];
-    }
-  } catch (error) {
-    if (getErrorCode(error) !== Status.NOT_FOUND) {
-      throw error;
-    }
-  }
-  return [];
-};
 
 const uploadFileList = ref<UploadFileInfo[]>([]);
 const files = ref<ParsedFile[]>([]);
@@ -296,7 +270,7 @@ const doCreate = async () => {
         const { name, arrayBuffer } = f;
         const sheet = Sheet.fromPartial({
           title: name,
-          engine: Engine.ENGINE_UNSPECIFIED, // TODO(jim)
+          engine: convertEngineToOld(Engine.ENGINE_UNSPECIFIED), // TODO(jim)
         });
         const content = new TextDecoder(state.encoding).decode(arrayBuffer);
         setSheetStatement(sheet, content);

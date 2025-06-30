@@ -76,14 +76,19 @@ import FieldTemplateView from "@/components/SchemaTemplate/FieldTemplateView.vue
 import { engineList } from "@/components/SchemaTemplate/utils";
 import { Drawer, SearchBox } from "@/components/v2";
 import { useSettingV1Store } from "@/store";
-import { Engine } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import {
-  ColumnMetadata,
-} from "@/types/proto/v1/database_service";
+  ColumnMetadataSchema,
+} from "@/types/proto-es/v1/database_service_pb";
 import {
-  ColumnCatalog,
-} from "@/types/proto/v1/database_catalog_service";
-import type { SchemaTemplateSetting_FieldTemplate } from "@/types/proto/v1/setting_service";
+  ColumnCatalogSchema,
+} from "@/types/proto-es/v1/database_catalog_service_pb";
+import { create } from "@bufbuild/protobuf";
+import type { SchemaTemplateSetting_FieldTemplate } from "@/types/proto-es/v1/setting_service_pb";
+import { 
+  Setting_SettingName,
+  SchemaTemplateSetting_FieldTemplateSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
 
 interface LocalState {
   template: SchemaTemplateSetting_FieldTemplate;
@@ -102,11 +107,11 @@ defineEmits<{
   (event: "apply", item: SchemaTemplateSetting_FieldTemplate): void;
 }>();
 
-const initialTemplate = () => ({
+const initialTemplate = (): SchemaTemplateSetting_FieldTemplate => create(SchemaTemplateSetting_FieldTemplateSchema, {
   id: uuidv1(),
   engine: props.engine ?? Engine.MYSQL,
   category: "",
-  column: ColumnMetadata.fromPartial({
+  column: create(ColumnMetadataSchema, {
     name: "",
     type: "",
     nullable: false,
@@ -115,7 +120,7 @@ const initialTemplate = () => ({
     characterSet: "",
     collation: "",
   }),
-  catalog: ColumnCatalog.fromPartial({}),
+  catalog: create(ColumnCatalogSchema, {}),
 });
 
 const state = reactive<LocalState>({
@@ -124,6 +129,7 @@ const state = reactive<LocalState>({
   searchText: "",
   selectedEngine: new Set<Engine>(),
 });
+
 
 onMounted(() => {
   if (props.engine) {
@@ -152,8 +158,10 @@ const toggleEngineCheck = (engine: Engine) => {
 const settingStore = useSettingV1Store();
 
 const schemaTemplateList = computed(() => {
-  const setting = settingStore.getSettingByName("bb.workspace.schema-template");
-  return setting?.value?.schemaTemplateSettingValue?.fieldTemplates ?? [];
+  const setting = settingStore.getSettingByName(Setting_SettingName.SCHEMA_TEMPLATE);
+  return setting?.value?.value?.case === "schemaTemplateSettingValue" 
+    ? setting.value.value.value.fieldTemplates ?? []
+    : [];
 });
 
 const countTemplateByEngine = (engine: Engine) => {

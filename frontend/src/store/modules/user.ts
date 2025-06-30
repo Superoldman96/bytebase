@@ -1,18 +1,33 @@
+import { create } from "@bufbuild/protobuf";
+import { createContextValues } from "@connectrpc/connect";
 import { computedAsync } from "@vueuse/core";
 import { isEqual, isUndefined, uniq } from "lodash-es";
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { userServiceClient } from "@/grpcweb";
+import { userServiceClientConnect } from "@/grpcweb";
+import { silentContextKey } from "@/grpcweb/context-key";
 import {
   isValidProjectName,
   allUsersUser,
   SYSTEM_BOT_USER_NAME,
   isValidUserName,
   unknownUser,
+  userBindingPrefix,
 } from "@/types";
-import { State, stateToJSON } from "@/types/proto/v1/common";
+import { State } from "@/types/proto-es/v1/common_pb";
+import { convertStateToOld } from "@/utils/v1/common-conversions";
 import type { UpdateUserRequest, User } from "@/types/proto/v1/user_service";
 import { UserType, userTypeToJSON } from "@/types/proto/v1/user_service";
+import {
+  GetUserRequestSchema,
+  ListUsersRequestSchema,
+  CreateUserRequestSchema,
+  UpdateUserRequestSchema,
+  DeleteUserRequestSchema,
+  UndeleteUserRequestSchema,
+  BatchGetUsersRequestSchema,
+} from "@/types/proto-es/v1/user_service_pb";
+import { convertNewUserToOld, convertOldUserToNew } from "@/utils/v1/user-conversions";
 import { ensureUserFullName } from "@/utils";
 import { useActuatorV1Store } from "./v1/actuator";
 import { userNamePrefix, extractUserId } from "./v1/common";
@@ -40,7 +55,9 @@ const getListUserFilter = (params: UserFilter) => {
     filter.push(`project == "${params.project}"`);
   }
   if (params.state === State.DELETED) {
-    filter.push(`state == "${stateToJSON(params.state)}"`);
+    // Convert proto-es State to old proto State for JSON serialization
+    const oldState = convertStateToOld(params.state);
+    filter.push(`state == "${oldState}"`);
   }
 
   return filter.join(" && ");
@@ -65,6 +82,13 @@ export const useUserStore = defineStore("user", () => {
     return getOrFetchUserByIdentifier(SYSTEM_BOT_USER_NAME);
   });
 
+  const fetchCurrentUser = async () => {
+    const response = await userServiceClientConnect.getCurrentUser({});
+    const user = convertNewUserToOld(response);
+    setUser(user);
+    return user;
+  };
+
   const fetchUserList = async (params: {
     pageSize: number;
     pageToken?: string;
@@ -73,33 +97,41 @@ export const useUserStore = defineStore("user", () => {
     users: User[];
     nextPageToken: string;
   }> => {
-    const response = await userServiceClient.listUsers({
-      ...params,
+    const request = create(ListUsersRequestSchema, {
+      pageSize: params.pageSize,
+      pageToken: params.pageToken,
       filter: getListUserFilter(params.filter ?? {}),
       showDeleted: params.filter?.state === State.DELETED ? true : false,
     });
-    for (const user of response.users) {
+    const response = await userServiceClientConnect.listUsers(request);
+    const users = response.users.map(convertNewUserToOld);
+    for (const user of users) {
       setUser(user);
     }
-    return response;
+    return {
+      users,
+      nextPageToken: response.nextPageToken,
+    };
   };
 
   const fetchUser = async (name: string, silent = false) => {
-    const user = await userServiceClient.getUser(
-      {
-        name,
-      },
-      {
-        silent,
-      }
-    );
+    const request = create(GetUserRequestSchema, {
+      name,
+    });
+    const response = await userServiceClientConnect.getUser(request, {
+      contextValues: createContextValues().set(silentContextKey, silent),
+    });
+    const user = convertNewUserToOld(response);
     return setUser(user);
   };
 
   const createUser = async (user: User) => {
-    const createdUser = await userServiceClient.createUser({
-      user,
+    const newUser = convertOldUserToNew(user);
+    const request = create(CreateUserRequestSchema, {
+      user: newUser,
     });
+    const response = await userServiceClientConnect.createUser(request);
+    const createdUser = convertNewUserToOld(response);
     await actuatorStore.fetchServerInfo();
     return setUser(createdUser);
   };
@@ -110,25 +142,64 @@ export const useUserStore = defineStore("user", () => {
     if (!originData) {
       throw new Error(`user with name ${name} not found`);
     }
-    const user = await userServiceClient.updateUser(updateUserRequest);
+    const newUser = convertOldUserToNew(updateUserRequest.user!);
+    const request = create(UpdateUserRequestSchema, {
+      user: newUser,
+      updateMask: updateUserRequest.updateMask ? { paths: updateUserRequest.updateMask } : undefined,
+      otpCode: updateUserRequest.otpCode,
+      regenerateTempMfaSecret: updateUserRequest.regenerateTempMfaSecret,
+      regenerateRecoveryCodes: updateUserRequest.regenerateRecoveryCodes,
+    });
+    const response = await userServiceClientConnect.updateUser(request);
+    const user = convertNewUserToOld(response);
     return setUser(user);
   };
 
   const archiveUser = async (user: User) => {
-    await userServiceClient.deleteUser({
+    const request = create(DeleteUserRequestSchema, {
       name: user.name,
     });
-    user.state = State.DELETED;
+    await userServiceClientConnect.deleteUser(request);
+    user.state = convertStateToOld(State.DELETED);
     await actuatorStore.fetchServerInfo();
     return user;
   };
 
   const restoreUser = async (user: User) => {
-    const restoredUser = await userServiceClient.undeleteUser({
+    const request = create(UndeleteUserRequestSchema, {
       name: user.name,
     });
+    const response = await userServiceClientConnect.undeleteUser(request);
+    const restoredUser = convertNewUserToOld(response);
     await actuatorStore.fetchServerInfo();
     return setUser(restoredUser);
+  };
+
+  const batchGetUsers = async (userNameList: string[]) => {
+    const distinctList = uniq(userNameList)
+      .filter(
+        (name) =>
+          Boolean(name) &&
+          (name.startsWith(userNamePrefix) ||
+            name.startsWith(userBindingPrefix))
+      )
+      .map((name) => ensureUserFullName(name))
+      .filter(
+        (name) =>
+          isValidUserName(name) && getUserByIdentifier(name) === undefined
+      );
+    if (distinctList.length === 0) {
+      return [];
+    }
+    const request = create(BatchGetUsersRequestSchema, {
+      names: distinctList,
+    });
+    const response = await userServiceClientConnect.batchGetUsers(request);
+    const users = response.users.map(convertNewUserToOld);
+    for (const user of users) {
+      setUser(user);
+    }
+    return users;
   };
 
   const getOrFetchUserByIdentifier = async (
@@ -167,28 +238,17 @@ export const useUserStore = defineStore("user", () => {
   return {
     allUser,
     systemBotUser,
+    fetchCurrentUser,
     fetchUserList,
     createUser,
     updateUser,
+    batchGetUsers,
     getOrFetchUserByIdentifier,
     getUserByIdentifier,
     archiveUser,
     restoreUser,
   };
 });
-
-export const batchGetOrFetchUsers = async (userNameList: string[]) => {
-  const userStore = useUserStore();
-  const distinctList = uniq(userNameList);
-  await Promise.all(
-    distinctList.map((userName) => {
-      if (!isValidUserName(userName)) {
-        return;
-      }
-      return userStore.getOrFetchUserByIdentifier(userName, true /* silent */);
-    })
-  );
-};
 
 export const getUpdateMaskFromUsers = (
   origin: User,

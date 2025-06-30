@@ -1,6 +1,6 @@
 import { last } from "lodash-es";
 import { stringify } from "qs";
-import slug from "slug";
+import { useI18n } from "vue-i18n";
 import type { ComposedIssue } from "@/types";
 import {
   EMPTY_TASK_NAME,
@@ -61,11 +61,12 @@ export const extractTaskRunUID = (name: string) => {
 };
 
 export const stageV1Slug = (stage: Stage): string => {
-  return [slug(stage.environment), extractStageUID(stage.name)].join("-");
+  // Stage UID is now the environment ID
+  return extractStageUID(stage.name);
 };
 
 export const taskV1Slug = (task: Task): string => {
-  return extractTaskUID(task.name)
+  return extractTaskUID(task.name);
 };
 
 export const activeTaskInTaskList = (tasks: Task[]): Task => {
@@ -146,7 +147,6 @@ export const extractSchemaVersionFromTask = (task: Task): string => {
   // fallback to empty if we can't read the field.
   return (
     task.databaseDataUpdate?.schemaVersion ??
-    task.databaseSchemaBaseline?.schemaVersion ??
     task.databaseSchemaUpdate?.schemaVersion ??
     ""
   );
@@ -183,11 +183,14 @@ export const buildIssueV1LinkWithTask = (
     (s) => s.tasks.findIndex((t) => t.name === task.name) >= 0
   );
 
-  const projectId = extractProjectResourceName(issue.project);
-  const issueSlug = simple ? extractIssueUID(issue.name) : issueV1Slug(issue);
+  const projectId = extractProjectResourceName(issue.name);
+  const issueSlug = simple
+    ? extractIssueUID(issue.name)
+    : issueV1Slug(issue.name, issue.title);
   const query: Record<string, string> = {};
   if (stage) {
-    query.stage = simple ? extractStageUID(stage.name) : stageV1Slug(stage);
+    // Stage UID is now always the environment ID
+    query.stage = extractStageUID(stage.name);
   }
   query.task = simple ? extractTaskUID(task.name) : taskV1Slug(task);
 
@@ -195,4 +198,26 @@ export const buildIssueV1LinkWithTask = (
   const url = `/projects/${projectId}/issues/${issueSlug}?${querystring}`;
 
   return url;
+};
+
+export const stringifyTaskStatus = (status: Task_Status): string => {
+  const { t } = useI18n();
+  switch (status) {
+    case Task_Status.NOT_STARTED:
+      return t("task.status.not-started");
+    case Task_Status.PENDING:
+      return t("task.status.pending");
+    case Task_Status.RUNNING:
+      return t("task.status.running");
+    case Task_Status.DONE:
+      return t("task.status.done");
+    case Task_Status.FAILED:
+      return t("task.status.failed");
+    case Task_Status.CANCELED:
+      return t("task.status.canceled");
+    case Task_Status.SKIPPED:
+      return t("task.status.skipped");
+    default:
+      return status;
+  }
 };

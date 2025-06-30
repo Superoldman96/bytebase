@@ -231,16 +231,6 @@ export const useIssueSearchScopeOptions = (
         ]),
       },
       {
-        id: "subscriber",
-        title: t("issue.advanced-search.scope.subscriber.title"),
-        description: t("issue.advanced-search.scope.subscriber.description"),
-        search: searchPrincipalSearchValueOptions([
-          UserType.USER,
-          UserType.SERVICE_ACCOUNT,
-          UserType.SYSTEM_BOT,
-        ]),
-      },
-      {
         id: "taskType",
         title: t("issue.advanced-search.scope.type.title"),
         description: t("issue.advanced-search.scope.type.description"),
@@ -258,7 +248,7 @@ export const useIssueSearchScopeOptions = (
         ],
       },
       {
-        id: "label",
+        id: "issue-label",
         title: t("issue.advanced-search.scope.label.title"),
         description: t("issue.advanced-search.scope.label.description"),
         options: projectLabels.value.map((label) => {
@@ -275,6 +265,7 @@ export const useIssueSearchScopeOptions = (
               ]),
           };
         }),
+        allowMultiple: true,
       },
     ];
     const supportOptionIdSet = new Set(supportOptionIdList.value);

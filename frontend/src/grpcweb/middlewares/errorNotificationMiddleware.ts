@@ -1,7 +1,9 @@
+import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 import { ClientError, ServerError, Status } from "nice-grpc-common";
 import type { ClientMiddleware } from "nice-grpc-web";
 import { t } from "@/plugins/i18n";
 import { pushNotification } from "@/store";
+import { ignoredCodesContextKey, silentContextKey } from "../context-key";
 
 export type SilentRequestOptions = {
   /**
@@ -44,9 +46,6 @@ export const errorNotificationMiddleware: ClientMiddleware<SilentRequestOptions>
           // ignored
         } else {
           const details = [error.message];
-          if (error.code === Status.UNKNOWN) {
-            details.push("The backend server may be unavailable");
-          }
           maybePushNotification(
             `Code ${error.code}: ${Status[error.code]}`,
             details.join("\n")
@@ -82,5 +81,51 @@ export const errorNotificationMiddleware: ClientMiddleware<SilentRequestOptions>
       }
 
       return;
+    }
+  };
+
+export const errorNotificationInterceptor: Interceptor =
+  (next) => async (req) => {
+    try {
+      const resp = await next(req);
+      return resp;
+    } catch (error) {
+      const maybePushNotification = (title: string, description?: string) => {
+        const silent = req.contextValues.get(silentContextKey);
+        if (silent) return;
+        pushNotification({
+          module: "bytebase",
+          style: "CRITICAL",
+          title,
+          description,
+        });
+      };
+      if (error instanceof ConnectError) {
+        const ignoredCodes = req.contextValues.get(ignoredCodesContextKey);
+        if (
+          (ignoredCodes.length === 0
+            ? [Code.NotFound, Code.Unauthenticated]
+            : ignoredCodes
+          ).includes(error.code)
+        ) {
+          // ignored
+        } else {
+          const details = [error.message];
+          maybePushNotification(
+            `Code ${error.code}: ${Status[error.code]}`,
+            details.join("\n")
+          );
+        }
+      } else {
+        // Other non-grpc errors.
+        // E.g,. failed to encode protobuf for request data.
+        // or other frontend exception.
+        // Expect not to be here.
+        maybePushNotification(
+          `${t("common.error")}: ${req.service.name}/${req.method.name}`,
+          String(error)
+        );
+      }
+      throw error;
     }
   };

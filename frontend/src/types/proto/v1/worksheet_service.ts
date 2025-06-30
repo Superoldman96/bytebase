@@ -89,11 +89,20 @@ export interface DeleteWorksheetRequest {
 export interface SearchWorksheetsRequest {
   /**
    * To filter the search result.
-   * Format: only support the following spec for now:
-   * - `creator = users/{email}`, `creator != users/{email}`
-   * - `starred = true`, `starred = false`.
-   * - `visibility = "VISIBILITY_PRIVATE"`, `visibility = "VISIBILITY_PROJECT_READ | VISIBILITY_PROJECT_WRITE"`, etc.
-   * Not support empty filter for now.
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
+   * Supported filter:
+   * - creator: the worksheet creator in "users/{email}" format, support "==" and "!=" operator.
+   * - starred: should be "true" or "false", filter starred/unstarred sheets, support "==" operator.
+   * - visibility: check Visibility enum in the Worksheet message for values, support "==" and "in [xx]" operator.
+   *
+   * For example:
+   * creator == "users/{email}"
+   * creator != "users/{email}"
+   * starred == true
+   * starred == false
+   * visibility in ["VISIBILITY_PRIVATE", "VISIBILITY_PROJECT_READ", "VISIBILITY_PROJECT_WRITE"]
+   * visibility == "VISIBILITY_PRIVATE"
    */
   filter: string;
   /**
@@ -1058,7 +1067,10 @@ export const WorksheetServiceDefinition = {
   name: "WorksheetService",
   fullName: "bytebase.v1.WorksheetService",
   methods: {
-    /** Create a personal worksheet used in SQL Editor. */
+    /**
+     * Create a personal worksheet used in SQL Editor.
+     * Permissions required: None
+     */
     createWorksheet: {
       name: "CreateWorksheet",
       requestType: CreateWorksheetRequest,
@@ -1110,6 +1122,7 @@ export const WorksheetServiceDefinition = {
      * - they are the creator of the worksheet;
      * - they have bb.worksheets.get permission on the workspace;
      * - the sheet is shared with them with PROJECT_READ and PROJECT_WRITE visibility, and they have bb.projects.get permission on the project.
+     * Permissions required: None
      */
     getWorksheet: {
       name: "GetWorksheet",
@@ -1158,6 +1171,7 @@ export const WorksheetServiceDefinition = {
      * Search for worksheets.
      * This is used for finding my worksheets or worksheets shared by other people.
      * The sheet accessibility is the same as GetWorksheet().
+     * Permissions required: None
      */
     searchWorksheets: {
       name: "SearchWorksheets",
@@ -1208,6 +1222,7 @@ export const WorksheetServiceDefinition = {
      * - they are the creator of the worksheet;
      * - they have bb.worksheets.manage permission on the workspace;
      * - the sheet is shared with them with PROJECT_WRITE visibility, and they have bb.projects.get permission on the project.
+     * Permissions required: None
      */
     updateWorksheet: {
       name: "UpdateWorksheet",
@@ -1301,6 +1316,7 @@ export const WorksheetServiceDefinition = {
     /**
      * Update the organizer of a worksheet.
      * The access is the same as UpdateWorksheet method.
+     * Permissions required: None
      */
     updateWorksheetOrganizer: {
       name: "UpdateWorksheetOrganizer",
@@ -1409,6 +1425,7 @@ export const WorksheetServiceDefinition = {
     /**
      * Delete a worksheet.
      * The access is the same as UpdateWorksheet method.
+     * Permissions required: None
      */
     deleteWorksheet: {
       name: "DeleteWorksheet",

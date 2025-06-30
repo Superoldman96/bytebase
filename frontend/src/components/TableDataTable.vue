@@ -26,24 +26,25 @@
 </template>
 
 <script lang="ts" setup>
-import type { DataTableColumn } from "naive-ui";
-import { NDataTable } from "naive-ui";
-import type { PropType } from "vue";
-import { computed, reactive, onMounted, h, watch } from "vue";
-import { useI18n } from "vue-i18n";
-import { useRoute, useRouter } from "vue-router";
 import ClassificationCell from "@/components/ColumnDataTable/ClassificationCell.vue";
 import { updateTableCatalog } from "@/components/ColumnDataTable/utils";
 import {
   featureToRef,
-  useSettingV1Store,
-  useDatabaseCatalog,
   getTableCatalog,
+  useDatabaseCatalog,
+  useSettingV1Store,
 } from "@/store/modules";
 import type { ComposedDatabase } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
-import type { TableMetadata } from "@/types/proto/v1/database_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import type { TableMetadata } from "@/types/proto-es/v1/database_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { bytesToString, hasSchemaProperty } from "@/utils";
+import type { DataTableColumn } from "naive-ui";
+import { NDataTable } from "naive-ui";
+import type { PropType } from "vue";
+import { computed, h, onMounted, reactive, watch } from "vue";
+import { useI18n } from "vue-i18n";
+import { useRoute, useRouter } from "vue-router";
 import TableDetailDrawer from "./TableDetailDrawer.vue";
 
 type LocalState = {
@@ -100,7 +101,7 @@ const classificationConfig = computed(() => {
   );
 });
 
-const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
+const hasSensitiveDataFeature = featureToRef(PlanFeature.FEATURE_DATA_MASKING);
 
 const engine = computed(() => props.database.instanceResource.engine);
 
@@ -191,14 +192,14 @@ const columns = computed(() => {
       key: "dataSize",
       title: t("database.data-size"),
       render: (row) => {
-        return bytesToString(row.dataSize.toNumber());
+        return bytesToString(Number(row.dataSize));
       },
     },
     {
       key: "indexSize",
       title: t("database.index-size"),
       render: (row) => {
-        return bytesToString(row.indexSize.toNumber());
+        return bytesToString(Number(row.indexSize));
       },
     },
     {

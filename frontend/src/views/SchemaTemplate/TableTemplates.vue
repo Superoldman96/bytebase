@@ -76,10 +76,15 @@ import TableTemplateView from "@/components/SchemaTemplate/TableTemplateView.vue
 import { engineList } from "@/components/SchemaTemplate/utils";
 import { Drawer, SearchBox } from "@/components/v2";
 import { useSettingV1Store } from "@/store";
-import { Engine } from "@/types/proto/v1/common";
-import { TableMetadata } from "@/types/proto/v1/database_service";
-import { TableCatalog } from "@/types/proto/v1/database_catalog_service";
-import type { SchemaTemplateSetting_TableTemplate } from "@/types/proto/v1/setting_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import { TableMetadataSchema } from "@/types/proto-es/v1/database_service_pb";
+import { TableCatalogSchema } from "@/types/proto-es/v1/database_catalog_service_pb";
+import type { SchemaTemplateSetting_TableTemplate } from "@/types/proto-es/v1/setting_service_pb";
+import { 
+  Setting_SettingName,
+  SchemaTemplateSetting_TableTemplateSchema
+} from "@/types/proto-es/v1/setting_service_pb";
+import { create as createProto } from "@bufbuild/protobuf";
 
 interface LocalState {
   template: SchemaTemplateSetting_TableTemplate;
@@ -98,16 +103,16 @@ defineEmits<{
   (event: "apply", item: SchemaTemplateSetting_TableTemplate): void;
 }>();
 
-const initialTemplate = (): SchemaTemplateSetting_TableTemplate => ({
+const initialTemplate = (): SchemaTemplateSetting_TableTemplate => createProto(SchemaTemplateSetting_TableTemplateSchema, {
   id: uuidv1(),
   engine: props.engine ?? Engine.MYSQL,
   category: "",
-  table: TableMetadata.fromPartial({
+  table: createProto(TableMetadataSchema, {
     name: "",
-    comment: "",
+    userComment: "",
     columns: [],
   }),
-  catalog: TableCatalog.fromPartial({}),
+  catalog: createProto(TableCatalogSchema, {}),
 });
 
 const state = reactive<LocalState>({
@@ -144,8 +149,11 @@ const toggleEngineCheck = (engine: Engine) => {
 const settingStore = useSettingV1Store();
 
 const schemaTemplateList = computed(() => {
-  const setting = settingStore.getSettingByName("bb.workspace.schema-template");
-  return setting?.value?.schemaTemplateSettingValue?.tableTemplates ?? [];
+  const setting = settingStore.getSettingByName(Setting_SettingName.SCHEMA_TEMPLATE);
+  const settingValue = setting?.value?.value?.case === "schemaTemplateSettingValue" 
+    ? setting.value.value.value 
+    : undefined;
+  return settingValue?.tableTemplates ?? [];
 });
 
 const countTemplateByEngine = (engine: Engine) => {

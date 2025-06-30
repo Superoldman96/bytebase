@@ -10,7 +10,6 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	wrapperspb "google.golang.org/protobuf/types/known/wrapperspb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -409,7 +408,9 @@ type DatabaseMetadata struct {
 	Datashare       bool                   `protobuf:"varint,4,opt,name=datashare,proto3" json:"datashare,omitempty"`
 	Secrets         []*Secret              `protobuf:"bytes,5,rep,name=secrets,proto3" json:"secrets,omitempty"`
 	// The schema is drifted from the source of truth.
-	Drifted       bool `protobuf:"varint,6,opt,name=drifted,proto3" json:"drifted,omitempty"`
+	Drifted bool `protobuf:"varint,6,opt,name=drifted,proto3" json:"drifted,omitempty"`
+	// The version of database schema.
+	Version       string `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -486,6 +487,13 @@ func (x *DatabaseMetadata) GetDrifted() bool {
 	return false
 }
 
+func (x *DatabaseMetadata) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 // DatabaseSchemaMetadata is the schema metadata for databases.
 type DatabaseSchemaMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -504,8 +512,10 @@ type DatabaseSchemaMetadata struct {
 	ServiceName     string                    `protobuf:"bytes,7,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
 	LinkedDatabases []*LinkedDatabaseMetadata `protobuf:"bytes,8,rep,name=linked_databases,json=linkedDatabases,proto3" json:"linked_databases,omitempty"`
 	Owner           string                    `protobuf:"bytes,9,opt,name=owner,proto3" json:"owner,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The search_path is the search path of a PostgreSQL database.
+	SearchPath    string `protobuf:"bytes,10,opt,name=search_path,json=searchPath,proto3" json:"search_path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DatabaseSchemaMetadata) Reset() {
@@ -601,6 +611,13 @@ func (x *DatabaseSchemaMetadata) GetOwner() string {
 	return ""
 }
 
+func (x *DatabaseSchemaMetadata) GetSearchPath() string {
+	if x != nil {
+		return x.SearchPath
+	}
+	return ""
+}
+
 type LinkedDatabaseMetadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -691,6 +708,7 @@ type SchemaMetadata struct {
 	// The packages is the list of packages in a schema.
 	Packages      []*PackageMetadata  `protobuf:"bytes,11,rep,name=packages,proto3" json:"packages,omitempty"`
 	Owner         string              `protobuf:"bytes,12,opt,name=owner,proto3" json:"owner,omitempty"`
+	Comment       string              `protobuf:"bytes,13,opt,name=comment,proto3" json:"comment,omitempty"`
 	Events        []*EventMetadata    `protobuf:"bytes,14,rep,name=events,proto3" json:"events,omitempty"`
 	EnumTypes     []*EnumTypeMetadata `protobuf:"bytes,15,rep,name=enum_types,json=enumTypes,proto3" json:"enum_types,omitempty"`
 	SkipDump      bool                `protobuf:"varint,16,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
@@ -812,6 +830,13 @@ func (x *SchemaMetadata) GetOwner() string {
 	return ""
 }
 
+func (x *SchemaMetadata) GetComment() string {
+	if x != nil {
+		return x.Comment
+	}
+	return ""
+}
+
 func (x *SchemaMetadata) GetEvents() []*EventMetadata {
 	if x != nil {
 		return x.Events
@@ -914,6 +939,7 @@ type EventMetadata struct {
 	SqlMode             string `protobuf:"bytes,4,opt,name=sql_mode,json=sqlMode,proto3" json:"sql_mode,omitempty"`
 	CharacterSetClient  string `protobuf:"bytes,5,opt,name=character_set_client,json=characterSetClient,proto3" json:"character_set_client,omitempty"`
 	CollationConnection string `protobuf:"bytes,6,opt,name=collation_connection,json=collationConnection,proto3" json:"collation_connection,omitempty"`
+	Comment             string `protobuf:"bytes,7,opt,name=comment,proto3" json:"comment,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -986,6 +1012,13 @@ func (x *EventMetadata) GetCharacterSetClient() string {
 func (x *EventMetadata) GetCollationConnection() string {
 	if x != nil {
 		return x.CollationConnection
+	}
+	return ""
+}
+
+func (x *EventMetadata) GetComment() string {
+	if x != nil {
+		return x.Comment
 	}
 	return ""
 }
@@ -1528,11 +1561,16 @@ type TableMetadata struct {
 	Owner            string                     `protobuf:"bytes,18,opt,name=owner,proto3" json:"owner,omitempty"`
 	// The sorting_keys is a tuple of column names or arbitrary expressions. ClickHouse specific field.
 	// Reference: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree#order_by
-	SortingKeys   []string           `protobuf:"bytes,19,rep,name=sorting_keys,json=sortingKeys,proto3" json:"sorting_keys,omitempty"`
-	Triggers      []*TriggerMetadata `protobuf:"bytes,20,rep,name=triggers,proto3" json:"triggers,omitempty"`
-	SkipDump      bool               `protobuf:"varint,21,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SortingKeys []string           `protobuf:"bytes,19,rep,name=sorting_keys,json=sortingKeys,proto3" json:"sorting_keys,omitempty"`
+	Triggers    []*TriggerMetadata `protobuf:"bytes,20,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	SkipDump    bool               `protobuf:"varint,21,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
+	// https://docs.pingcap.com/tidb/stable/information-schema-tables/
+	ShardingInfo string `protobuf:"bytes,22,opt,name=sharding_info,json=shardingInfo,proto3" json:"sharding_info,omitempty"`
+	// https://docs.pingcap.com/tidb/stable/clustered-indexes/#clustered-indexes
+	// CLUSTERED or NONCLUSTERED.
+	PrimaryKeyType string `protobuf:"bytes,23,opt,name=primary_key_type,json=primaryKeyType,proto3" json:"primary_key_type,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TableMetadata) Reset() {
@@ -1705,6 +1743,20 @@ func (x *TableMetadata) GetSkipDump() bool {
 	return false
 }
 
+func (x *TableMetadata) GetShardingInfo() string {
+	if x != nil {
+		return x.ShardingInfo
+	}
+	return ""
+}
+
+func (x *TableMetadata) GetPrimaryKeyType() string {
+	if x != nil {
+		return x.PrimaryKeyType
+	}
+	return ""
+}
+
 type CheckConstraintMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The name is the name of a check constraint.
@@ -1865,10 +1917,11 @@ type TablePartitionMetadata struct {
 	// in syntax [SUB]PARTITION {number}.
 	UseDefault string `protobuf:"bytes,5,opt,name=use_default,json=useDefault,proto3" json:"use_default,omitempty"`
 	// The subpartitions is the list of subpartitions in a table partition.
-	Subpartitions []*TablePartitionMetadata `protobuf:"bytes,6,rep,name=subpartitions,proto3" json:"subpartitions,omitempty"`
-	Indexes       []*IndexMetadata          `protobuf:"bytes,7,rep,name=indexes,proto3" json:"indexes,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Subpartitions    []*TablePartitionMetadata  `protobuf:"bytes,6,rep,name=subpartitions,proto3" json:"subpartitions,omitempty"`
+	Indexes          []*IndexMetadata           `protobuf:"bytes,7,rep,name=indexes,proto3" json:"indexes,omitempty"`
+	CheckConstraints []*CheckConstraintMetadata `protobuf:"bytes,8,rep,name=check_constraints,json=checkConstraints,proto3" json:"check_constraints,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TablePartitionMetadata) Reset() {
@@ -1950,6 +2003,13 @@ func (x *TablePartitionMetadata) GetIndexes() []*IndexMetadata {
 	return nil
 }
 
+func (x *TablePartitionMetadata) GetCheckConstraints() []*CheckConstraintMetadata {
+	if x != nil {
+		return x.CheckConstraints
+	}
+	return nil
+}
+
 // ColumnMetadata is the metadata for columns.
 type ColumnMetadata struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -1957,14 +2017,10 @@ type ColumnMetadata struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// The position is the position in columns.
 	Position int32 `protobuf:"varint,2,opt,name=position,proto3" json:"position,omitempty"`
-	// The default_value is the default value of a column.
-	//
-	// Types that are valid to be assigned to DefaultValue:
-	//
-	//	*ColumnMetadata_Default
-	//	*ColumnMetadata_DefaultNull
-	//	*ColumnMetadata_DefaultExpression
-	DefaultValue isColumnMetadata_DefaultValue `protobuf_oneof:"default_value"`
+	// The default value of column.
+	Default           string `protobuf:"bytes,3,opt,name=default,proto3" json:"default,omitempty"`
+	DefaultNull       bool   `protobuf:"varint,4,opt,name=default_null,json=defaultNull,proto3" json:"default_null,omitempty"`
+	DefaultExpression string `protobuf:"bytes,5,opt,name=default_expression,json=defaultExpression,proto3" json:"default_expression,omitempty"`
 	// Oracle specific metadata.
 	// The default_on_null is the default on null of a column.
 	DefaultOnNull bool `protobuf:"varint,16,opt,name=default_on_null,json=defaultOnNull,proto3" json:"default_on_null,omitempty"`
@@ -1994,8 +2050,32 @@ type ColumnMetadata struct {
 	IdentitySeed int64 `protobuf:"varint,18,opt,name=identity_seed,json=identitySeed,proto3" json:"identity_seed,omitempty"`
 	// The identity_increment is for identity columns, MSSQL only.
 	IdentityIncrement int64 `protobuf:"varint,19,opt,name=identity_increment,json=identityIncrement,proto3" json:"identity_increment,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The default_constraint_name is the name of the default constraint, MSSQL only.
+	// In MSSQL, default values are implemented as named constraints. When modifying or
+	// dropping a column's default value, you must reference the constraint by name.
+	// This field stores the actual constraint name from the database.
+	//
+	// Example: A column definition like:
+	//
+	//	CREATE TABLE employees (
+	//	  status NVARCHAR(20) DEFAULT 'active'
+	//	)
+	//
+	// Will create a constraint with an auto-generated name like 'DF__employees__statu__3B75D760'
+	// or a user-defined name if specified:
+	//
+	//	ALTER TABLE employees ADD CONSTRAINT DF_employees_status DEFAULT 'active' FOR status
+	//
+	// To modify the default, you must first drop the existing constraint by name:
+	//
+	//	ALTER TABLE employees DROP CONSTRAINT DF__employees__statu__3B75D760
+	//	ALTER TABLE employees ADD CONSTRAINT DF_employees_status DEFAULT 'inactive' FOR status
+	//
+	// This field is populated when syncing from the database. When empty (e.g., when parsing
+	// from SQL files), the system cannot automatically drop the constraint.
+	DefaultConstraintName string `protobuf:"bytes,20,opt,name=default_constraint_name,json=defaultConstraintName,proto3" json:"default_constraint_name,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ColumnMetadata) Reset() {
@@ -2042,36 +2122,23 @@ func (x *ColumnMetadata) GetPosition() int32 {
 	return 0
 }
 
-func (x *ColumnMetadata) GetDefaultValue() isColumnMetadata_DefaultValue {
+func (x *ColumnMetadata) GetDefault() string {
 	if x != nil {
-		return x.DefaultValue
+		return x.Default
 	}
-	return nil
-}
-
-func (x *ColumnMetadata) GetDefault() *wrapperspb.StringValue {
-	if x != nil {
-		if x, ok := x.DefaultValue.(*ColumnMetadata_Default); ok {
-			return x.Default
-		}
-	}
-	return nil
+	return ""
 }
 
 func (x *ColumnMetadata) GetDefaultNull() bool {
 	if x != nil {
-		if x, ok := x.DefaultValue.(*ColumnMetadata_DefaultNull); ok {
-			return x.DefaultNull
-		}
+		return x.DefaultNull
 	}
 	return false
 }
 
 func (x *ColumnMetadata) GetDefaultExpression() string {
 	if x != nil {
-		if x, ok := x.DefaultValue.(*ColumnMetadata_DefaultExpression); ok {
-			return x.DefaultExpression
-		}
+		return x.DefaultExpression
 	}
 	return ""
 }
@@ -2167,29 +2234,12 @@ func (x *ColumnMetadata) GetIdentityIncrement() int64 {
 	return 0
 }
 
-type isColumnMetadata_DefaultValue interface {
-	isColumnMetadata_DefaultValue()
+func (x *ColumnMetadata) GetDefaultConstraintName() string {
+	if x != nil {
+		return x.DefaultConstraintName
+	}
+	return ""
 }
-
-type ColumnMetadata_Default struct {
-	// The default is the default of a column. Use google.protobuf.StringValue
-	// to distinguish between an empty string default value or no default.
-	Default *wrapperspb.StringValue `protobuf:"bytes,3,opt,name=default,proto3,oneof"`
-}
-
-type ColumnMetadata_DefaultNull struct {
-	DefaultNull bool `protobuf:"varint,4,opt,name=default_null,json=defaultNull,proto3,oneof"`
-}
-
-type ColumnMetadata_DefaultExpression struct {
-	DefaultExpression string `protobuf:"bytes,5,opt,name=default_expression,json=defaultExpression,proto3,oneof"`
-}
-
-func (*ColumnMetadata_Default) isColumnMetadata_DefaultValue() {}
-
-func (*ColumnMetadata_DefaultNull) isColumnMetadata_DefaultValue() {}
-
-func (*ColumnMetadata_DefaultExpression) isColumnMetadata_DefaultValue() {}
 
 type GenerationMetadata struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
@@ -2698,6 +2748,7 @@ type ProcedureMetadata struct {
 	CollationConnection string `protobuf:"bytes,5,opt,name=collation_connection,json=collationConnection,proto3" json:"collation_connection,omitempty"`
 	DatabaseCollation   string `protobuf:"bytes,6,opt,name=database_collation,json=databaseCollation,proto3" json:"database_collation,omitempty"`
 	SqlMode             string `protobuf:"bytes,7,opt,name=sql_mode,json=sqlMode,proto3" json:"sql_mode,omitempty"`
+	Comment             string `protobuf:"bytes,9,opt,name=comment,proto3" json:"comment,omitempty"`
 	SkipDump            bool   `protobuf:"varint,8,opt,name=skip_dump,json=skipDump,proto3" json:"skip_dump,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -2778,6 +2829,13 @@ func (x *ProcedureMetadata) GetDatabaseCollation() string {
 func (x *ProcedureMetadata) GetSqlMode() string {
 	if x != nil {
 		return x.SqlMode
+	}
+	return ""
+}
+
+func (x *ProcedureMetadata) GetComment() string {
+	if x != nil {
+		return x.Comment
 	}
 	return ""
 }
@@ -3788,17 +3846,18 @@ var File_store_database_proto protoreflect.FileDescriptor
 
 const file_store_database_proto_rawDesc = "" +
 	"\n" +
-	"\x14store/database.proto\x12\x0ebytebase.store\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x12store/common.proto\"\xea\x02\n" +
+	"\x14store/database.proto\x12\x0ebytebase.store\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x12store/common.proto\"\x84\x03\n" +
 	"\x10DatabaseMetadata\x12D\n" +
 	"\x06labels\x18\x01 \x03(\v2,.bytebase.store.DatabaseMetadata.LabelsEntryR\x06labels\x12@\n" +
 	"\x0elast_sync_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\flastSyncTime\x12)\n" +
 	"\x10backup_available\x18\x03 \x01(\bR\x0fbackupAvailable\x12\x1c\n" +
 	"\tdatashare\x18\x04 \x01(\bR\tdatashare\x120\n" +
 	"\asecrets\x18\x05 \x03(\v2\x16.bytebase.store.SecretR\asecrets\x12\x18\n" +
-	"\adrifted\x18\x06 \x01(\bR\adrifted\x1a9\n" +
+	"\adrifted\x18\x06 \x01(\bR\adrifted\x12\x18\n" +
+	"\aversion\x18\a \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x96\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb7\x03\n" +
 	"\x16DatabaseSchemaMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x128\n" +
 	"\aschemas\x18\x02 \x03(\v2\x1e.bytebase.store.SchemaMetadataR\aschemas\x12#\n" +
@@ -3810,11 +3869,14 @@ const file_store_database_proto_rawDesc = "" +
 	"\tdatashare\x18\x06 \x01(\bR\tdatashare\x12!\n" +
 	"\fservice_name\x18\a \x01(\tR\vserviceName\x12Q\n" +
 	"\x10linked_databases\x18\b \x03(\v2&.bytebase.store.LinkedDatabaseMetadataR\x0flinkedDatabases\x12\x14\n" +
-	"\x05owner\x18\t \x01(\tR\x05owner\"\\\n" +
+	"\x05owner\x18\t \x01(\tR\x05owner\x12\x1f\n" +
+	"\vsearch_path\x18\n" +
+	" \x01(\tR\n" +
+	"searchPath\"\\\n" +
 	"\x16LinkedDatabaseMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
-	"\x04host\x18\x03 \x01(\tR\x04host\"\xd1\x06\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\"\xeb\x06\n" +
 	"\x0eSchemaMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
 	"\x06tables\x18\x02 \x03(\v2\x1d.bytebase.store.TableMetadataR\x06tables\x12N\n" +
@@ -3830,7 +3892,8 @@ const file_store_database_proto_rawDesc = "" +
 	"\tsequences\x18\n" +
 	" \x03(\v2 .bytebase.store.SequenceMetadataR\tsequences\x12;\n" +
 	"\bpackages\x18\v \x03(\v2\x1f.bytebase.store.PackageMetadataR\bpackages\x12\x14\n" +
-	"\x05owner\x18\f \x01(\tR\x05owner\x125\n" +
+	"\x05owner\x18\f \x01(\tR\x05owner\x12\x18\n" +
+	"\acomment\x18\r \x01(\tR\acomment\x125\n" +
 	"\x06events\x18\x0e \x03(\v2\x1d.bytebase.store.EventMetadataR\x06events\x12?\n" +
 	"\n" +
 	"enum_types\x18\x0f \x03(\v2 .bytebase.store.EnumTypeMetadataR\tenumTypes\x12\x1b\n" +
@@ -3839,7 +3902,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
 	"\x06values\x18\x02 \x03(\tR\x06values\x12\x18\n" +
 	"\acomment\x18\x03 \x01(\tR\acomment\x12\x1b\n" +
-	"\tskip_dump\x18\x04 \x01(\bR\bskipDump\"\xe0\x01\n" +
+	"\tskip_dump\x18\x04 \x01(\bR\bskipDump\"\xfa\x01\n" +
 	"\rEventMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -3848,7 +3911,8 @@ const file_store_database_proto_rawDesc = "" +
 	"\ttime_zone\x18\x03 \x01(\tR\btimeZone\x12\x19\n" +
 	"\bsql_mode\x18\x04 \x01(\tR\asqlMode\x120\n" +
 	"\x14character_set_client\x18\x05 \x01(\tR\x12characterSetClient\x121\n" +
-	"\x14collation_connection\x18\x06 \x01(\tR\x13collationConnection\"\x80\x03\n" +
+	"\x14collation_connection\x18\x06 \x01(\tR\x13collationConnection\x12\x18\n" +
+	"\acomment\x18\a \x01(\tR\acomment\"\x80\x03\n" +
 	"\x10SequenceMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tdata_type\x18\x02 \x01(\tR\bdataType\x12\x14\n" +
@@ -3916,7 +3980,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x10\n" +
 	"\fMODE_DEFAULT\x10\x01\x12\x14\n" +
 	"\x10MODE_APPEND_ONLY\x10\x02\x12\x14\n" +
-	"\x10MODE_INSERT_ONLY\x10\x03\"\xb8\x06\n" +
+	"\x10MODE_INSERT_ONLY\x10\x03\"\x87\a\n" +
 	"\rTableMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x128\n" +
 	"\acolumns\x18\x02 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\x127\n" +
@@ -3941,7 +4005,9 @@ const file_store_database_proto_rawDesc = "" +
 	"\x05owner\x18\x12 \x01(\tR\x05owner\x12!\n" +
 	"\fsorting_keys\x18\x13 \x03(\tR\vsortingKeys\x12;\n" +
 	"\btriggers\x18\x14 \x03(\v2\x1f.bytebase.store.TriggerMetadataR\btriggers\x12\x1b\n" +
-	"\tskip_dump\x18\x15 \x01(\bR\bskipDump\"M\n" +
+	"\tskip_dump\x18\x15 \x01(\bR\bskipDump\x12#\n" +
+	"\rsharding_info\x18\x16 \x01(\tR\fshardingInfo\x12(\n" +
+	"\x10primary_key_type\x18\x17 \x01(\tR\x0eprimaryKeyType\"M\n" +
 	"\x17CheckConstraintMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -3951,7 +4017,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x120\n" +
 	"\x14external_server_name\x18\x02 \x01(\tR\x12externalServerName\x124\n" +
 	"\x16external_database_name\x18\x03 \x01(\tR\x14externalDatabaseName\x128\n" +
-	"\acolumns\x18\x04 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\"\xd8\x03\n" +
+	"\acolumns\x18\x04 \x03(\v2\x1e.bytebase.store.ColumnMetadataR\acolumns\"\xae\x04\n" +
 	"\x16TablePartitionMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12?\n" +
 	"\x04type\x18\x02 \x01(\x0e2+.bytebase.store.TablePartitionMetadata.TypeR\x04type\x12\x1e\n" +
@@ -3962,7 +4028,8 @@ const file_store_database_proto_rawDesc = "" +
 	"\vuse_default\x18\x05 \x01(\tR\n" +
 	"useDefault\x12L\n" +
 	"\rsubpartitions\x18\x06 \x03(\v2&.bytebase.store.TablePartitionMetadataR\rsubpartitions\x127\n" +
-	"\aindexes\x18\a \x03(\v2\x1d.bytebase.store.IndexMetadataR\aindexes\"\x8a\x01\n" +
+	"\aindexes\x18\a \x03(\v2\x1d.bytebase.store.IndexMetadataR\aindexes\x12T\n" +
+	"\x11check_constraints\x18\b \x03(\v2'.bytebase.store.CheckConstraintMetadataR\x10checkConstraints\"\x8a\x01\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\t\n" +
 	"\x05RANGE\x10\x01\x12\x11\n" +
@@ -3973,13 +4040,13 @@ const file_store_database_proto_rawDesc = "" +
 	"\vLINEAR_HASH\x10\x06\x12\a\n" +
 	"\x03KEY\x10\a\x12\x0e\n" +
 	"\n" +
-	"LINEAR_KEY\x10\b\"\xca\x06\n" +
+	"LINEAR_KEY\x10\b\"\xcd\x06\n" +
 	"\x0eColumnMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bposition\x18\x02 \x01(\x05R\bposition\x128\n" +
-	"\adefault\x18\x03 \x01(\v2\x1c.google.protobuf.StringValueH\x00R\adefault\x12#\n" +
-	"\fdefault_null\x18\x04 \x01(\bH\x00R\vdefaultNull\x12/\n" +
-	"\x12default_expression\x18\x05 \x01(\tH\x00R\x11defaultExpression\x12&\n" +
+	"\bposition\x18\x02 \x01(\x05R\bposition\x12\x18\n" +
+	"\adefault\x18\x03 \x01(\tR\adefault\x12!\n" +
+	"\fdefault_null\x18\x04 \x01(\bR\vdefaultNull\x12-\n" +
+	"\x12default_expression\x18\x05 \x01(\tR\x11defaultExpression\x12&\n" +
 	"\x0fdefault_on_null\x18\x10 \x01(\bR\rdefaultOnNull\x12\x1b\n" +
 	"\ton_update\x18\r \x01(\tR\bonUpdate\x12\x1a\n" +
 	"\bnullable\x18\x06 \x01(\bR\bnullable\x12\x12\n" +
@@ -3996,14 +4063,14 @@ const file_store_database_proto_rawDesc = "" +
 	"isIdentity\x12b\n" +
 	"\x13identity_generation\x18\x0f \x01(\x0e21.bytebase.store.ColumnMetadata.IdentityGenerationR\x12identityGeneration\x12#\n" +
 	"\ridentity_seed\x18\x12 \x01(\x03R\fidentitySeed\x12-\n" +
-	"\x12identity_increment\x18\x13 \x01(\x03R\x11identityIncrement\"U\n" +
+	"\x12identity_increment\x18\x13 \x01(\x03R\x11identityIncrement\x126\n" +
+	"\x17default_constraint_name\x18\x14 \x01(\tR\x15defaultConstraintName\"U\n" +
 	"\x12IdentityGeneration\x12#\n" +
 	"\x1fIDENTITY_GENERATION_UNSPECIFIED\x10\x00\x12\n" +
 	"\n" +
 	"\x06ALWAYS\x10\x01\x12\x0e\n" +
 	"\n" +
-	"BY_DEFAULT\x10\x02B\x0f\n" +
-	"\rdefault_value\"\xb2\x01\n" +
+	"BY_DEFAULT\x10\x02\"\xb2\x01\n" +
 	"\x12GenerationMetadata\x12;\n" +
 	"\x04type\x18\x01 \x01(\x0e2'.bytebase.store.GenerationMetadata.TypeR\x04type\x12\x1e\n" +
 	"\n" +
@@ -4053,7 +4120,7 @@ const file_store_database_proto_rawDesc = "" +
 	"\acomment\x18\b \x01(\tR\acomment\x12L\n" +
 	"\x11dependency_tables\x18\t \x03(\v2\x1f.bytebase.store.DependencyTableR\x10dependencyTables\x12\x1b\n" +
 	"\tskip_dump\x18\n" +
-	" \x01(\bR\bskipDump\"\xb1\x02\n" +
+	" \x01(\bR\bskipDump\"\xcb\x02\n" +
 	"\x11ProcedureMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
 	"\n" +
@@ -4063,7 +4130,8 @@ const file_store_database_proto_rawDesc = "" +
 	"\x14character_set_client\x18\x04 \x01(\tR\x12characterSetClient\x121\n" +
 	"\x14collation_connection\x18\x05 \x01(\tR\x13collationConnection\x12-\n" +
 	"\x12database_collation\x18\x06 \x01(\tR\x11databaseCollation\x12\x19\n" +
-	"\bsql_mode\x18\a \x01(\tR\asqlMode\x12\x1b\n" +
+	"\bsql_mode\x18\a \x01(\tR\asqlMode\x12\x18\n" +
+	"\acomment\x18\t \x01(\tR\acomment\x12\x1b\n" +
 	"\tskip_dump\x18\b \x01(\bR\bskipDump\"E\n" +
 	"\x0fPackageMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1e\n" +
@@ -4228,8 +4296,7 @@ var file_store_database_proto_goTypes = []any{
 	(*ObjectSchema_ArrayKind)(nil),         // 43: bytebase.store.ObjectSchema.ArrayKind
 	nil,                                    // 44: bytebase.store.ObjectSchema.StructKind.PropertiesEntry
 	(*timestamppb.Timestamp)(nil),          // 45: google.protobuf.Timestamp
-	(*wrapperspb.StringValue)(nil),         // 46: google.protobuf.StringValue
-	(MaskingLevel)(0),                      // 47: bytebase.store.MaskingLevel
+	(MaskingLevel)(0),                      // 46: bytebase.store.MaskingLevel
 }
 var file_store_database_proto_depIdxs = []int32{
 	40, // 0: bytebase.store.DatabaseMetadata.labels:type_name -> bytebase.store.DatabaseMetadata.LabelsEntry
@@ -4263,7 +4330,7 @@ var file_store_database_proto_depIdxs = []int32{
 	3,  // 28: bytebase.store.TablePartitionMetadata.type:type_name -> bytebase.store.TablePartitionMetadata.Type
 	20, // 29: bytebase.store.TablePartitionMetadata.subpartitions:type_name -> bytebase.store.TablePartitionMetadata
 	30, // 30: bytebase.store.TablePartitionMetadata.indexes:type_name -> bytebase.store.IndexMetadata
-	46, // 31: bytebase.store.ColumnMetadata.default:type_name -> google.protobuf.StringValue
+	18, // 31: bytebase.store.TablePartitionMetadata.check_constraints:type_name -> bytebase.store.CheckConstraintMetadata
 	22, // 32: bytebase.store.ColumnMetadata.generation:type_name -> bytebase.store.GenerationMetadata
 	4,  // 33: bytebase.store.ColumnMetadata.identity_generation:type_name -> bytebase.store.ColumnMetadata.IdentityGeneration
 	5,  // 34: bytebase.store.GenerationMetadata.type:type_name -> bytebase.store.GenerationMetadata.Type
@@ -4280,7 +4347,7 @@ var file_store_database_proto_depIdxs = []int32{
 	39, // 45: bytebase.store.TableCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
 	41, // 46: bytebase.store.ColumnCatalog.labels:type_name -> bytebase.store.ColumnCatalog.LabelsEntry
 	39, // 47: bytebase.store.ColumnCatalog.object_schema:type_name -> bytebase.store.ObjectSchema
-	47, // 48: bytebase.store.ColumnCatalog.masking_level:type_name -> bytebase.store.MaskingLevel
+	46, // 48: bytebase.store.ColumnCatalog.masking_level:type_name -> bytebase.store.MaskingLevel
 	6,  // 49: bytebase.store.ObjectSchema.type:type_name -> bytebase.store.ObjectSchema.Type
 	42, // 50: bytebase.store.ObjectSchema.struct_kind:type_name -> bytebase.store.ObjectSchema.StructKind
 	43, // 51: bytebase.store.ObjectSchema.array_kind:type_name -> bytebase.store.ObjectSchema.ArrayKind
@@ -4300,11 +4367,6 @@ func file_store_database_proto_init() {
 		return
 	}
 	file_store_common_proto_init()
-	file_store_database_proto_msgTypes[14].OneofWrappers = []any{
-		(*ColumnMetadata_Default)(nil),
-		(*ColumnMetadata_DefaultNull)(nil),
-		(*ColumnMetadata_DefaultExpression)(nil),
-	}
 	file_store_database_proto_msgTypes[30].OneofWrappers = []any{}
 	file_store_database_proto_msgTypes[31].OneofWrappers = []any{}
 	file_store_database_proto_msgTypes[32].OneofWrappers = []any{

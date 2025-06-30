@@ -180,6 +180,11 @@ export interface QueryResult {
     | undefined;
   /** The query result is allowed to be exported or not. */
   allowExport: boolean;
+  /**
+   * Informational or debug messages returned by the database engine during query execution.
+   * Examples include PostgreSQL's RAISE NOTICE, MSSQL's PRINT, or Oracle's DBMS_OUTPUT.PUT_LINE.
+   */
+  messages: QueryResult_Message[];
 }
 
 /**
@@ -204,6 +209,97 @@ export interface QueryResult_PostgresError {
   file: string;
   line: number;
   routine: string;
+}
+
+export interface QueryResult_Message {
+  level: QueryResult_Message_Level;
+  content: string;
+}
+
+export enum QueryResult_Message_Level {
+  /** LEVEL_UNSPECIFIED - Unspecified. */
+  LEVEL_UNSPECIFIED = "LEVEL_UNSPECIFIED",
+  INFO = "INFO",
+  WARNING = "WARNING",
+  DEBUG = "DEBUG",
+  LOG = "LOG",
+  NOTICE = "NOTICE",
+  EXCEPTION = "EXCEPTION",
+  UNRECOGNIZED = "UNRECOGNIZED",
+}
+
+export function queryResult_Message_LevelFromJSON(object: any): QueryResult_Message_Level {
+  switch (object) {
+    case 0:
+    case "LEVEL_UNSPECIFIED":
+      return QueryResult_Message_Level.LEVEL_UNSPECIFIED;
+    case 1:
+    case "INFO":
+      return QueryResult_Message_Level.INFO;
+    case 2:
+    case "WARNING":
+      return QueryResult_Message_Level.WARNING;
+    case 3:
+    case "DEBUG":
+      return QueryResult_Message_Level.DEBUG;
+    case 4:
+    case "LOG":
+      return QueryResult_Message_Level.LOG;
+    case 5:
+    case "NOTICE":
+      return QueryResult_Message_Level.NOTICE;
+    case 6:
+    case "EXCEPTION":
+      return QueryResult_Message_Level.EXCEPTION;
+    case -1:
+    case "UNRECOGNIZED":
+    default:
+      return QueryResult_Message_Level.UNRECOGNIZED;
+  }
+}
+
+export function queryResult_Message_LevelToJSON(object: QueryResult_Message_Level): string {
+  switch (object) {
+    case QueryResult_Message_Level.LEVEL_UNSPECIFIED:
+      return "LEVEL_UNSPECIFIED";
+    case QueryResult_Message_Level.INFO:
+      return "INFO";
+    case QueryResult_Message_Level.WARNING:
+      return "WARNING";
+    case QueryResult_Message_Level.DEBUG:
+      return "DEBUG";
+    case QueryResult_Message_Level.LOG:
+      return "LOG";
+    case QueryResult_Message_Level.NOTICE:
+      return "NOTICE";
+    case QueryResult_Message_Level.EXCEPTION:
+      return "EXCEPTION";
+    case QueryResult_Message_Level.UNRECOGNIZED:
+    default:
+      return "UNRECOGNIZED";
+  }
+}
+
+export function queryResult_Message_LevelToNumber(object: QueryResult_Message_Level): number {
+  switch (object) {
+    case QueryResult_Message_Level.LEVEL_UNSPECIFIED:
+      return 0;
+    case QueryResult_Message_Level.INFO:
+      return 1;
+    case QueryResult_Message_Level.WARNING:
+      return 2;
+    case QueryResult_Message_Level.DEBUG:
+      return 3;
+    case QueryResult_Message_Level.LOG:
+      return 4;
+    case QueryResult_Message_Level.NOTICE:
+      return 5;
+    case QueryResult_Message_Level.EXCEPTION:
+      return 6;
+    case QueryResult_Message_Level.UNRECOGNIZED:
+    default:
+      return -1;
+  }
 }
 
 export interface QueryRow {
@@ -279,12 +375,7 @@ export interface Advice {
   title: string;
   /** The advice content. */
   content: string;
-  /** The advice line number in the SQL statement. */
-  line: number;
-  /** The advice column number in the SQL statement. */
-  column: number;
   /**
-   * To supersede `line` and `column` above.
    * The start_position is inclusive and the end_position is exclusive.
    * TODO: use range instead
    */
@@ -542,16 +633,24 @@ export interface SearchQueryHistoriesRequest {
    */
   pageToken: string;
   /**
-   * filter is the filter to apply on the search query history,
-   * follow the
-   * [ebnf](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form)
-   * syntax. Support filter by:
-   * - database, for example:
-   *    database = "instances/{instance}/databases/{database}"
-   * - instance, for example:
-   *    instance = "instances/{instance}"
-   * - type, for example:
-   *    type = "QUERY"
+   * Filter is the filter to apply on the search query history
+   * The syntax and semantics of CEL are documented at https://github.com/google/cel-spec
+   *
+   * Supported filter:
+   * - project: the project full name in "projects/{id}" format, support "==" operator.
+   * - database: the database full name in "instances/{id}/databases/{name}" format, support "==" operator.
+   * - instance: the instance full name in "instances/{id}" format, support "==" operator.
+   * - type: the type, should be "QUERY" or "EXPORT", support "==" operator.
+   * - statement: the SQL statemnt, support ".matches()" operator.
+   *
+   * For example:
+   * project == "projects/{project}"
+   * database == "instances/{instance}/databases/{database}"
+   * instance == "instances/{instance}"
+   * type == "QUERY"
+   * type == "EXPORT"
+   * statement.matches("select")
+   * type == "QUERY" && statement.matches("select")
    */
   filter: string;
 }
@@ -1172,6 +1271,7 @@ function createBaseQueryResult(): QueryResult {
     statement: "",
     postgresError: undefined,
     allowExport: false,
+    messages: [],
   };
 }
 
@@ -1213,6 +1313,9 @@ export const QueryResult: MessageFns<QueryResult> = {
     }
     if (message.allowExport !== false) {
       writer.uint32(88).bool(message.allowExport);
+    }
+    for (const v of message.messages) {
+      QueryResult_Message.encode(v!, writer.uint32(98).fork()).join();
     }
     return writer;
   },
@@ -1332,6 +1435,14 @@ export const QueryResult: MessageFns<QueryResult> = {
           message.allowExport = reader.bool();
           continue;
         }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.messages.push(QueryResult_Message.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1360,6 +1471,9 @@ export const QueryResult: MessageFns<QueryResult> = {
       statement: isSet(object.statement) ? globalThis.String(object.statement) : "",
       postgresError: isSet(object.postgresError) ? QueryResult_PostgresError.fromJSON(object.postgresError) : undefined,
       allowExport: isSet(object.allowExport) ? globalThis.Boolean(object.allowExport) : false,
+      messages: globalThis.Array.isArray(object?.messages)
+        ? object.messages.map((e: any) => QueryResult_Message.fromJSON(e))
+        : [],
     };
   },
 
@@ -1398,6 +1512,9 @@ export const QueryResult: MessageFns<QueryResult> = {
     if (message.allowExport !== false) {
       obj.allowExport = message.allowExport;
     }
+    if (message.messages?.length) {
+      obj.messages = message.messages.map((e) => QueryResult_Message.toJSON(e));
+    }
     return obj;
   },
 
@@ -1423,6 +1540,7 @@ export const QueryResult: MessageFns<QueryResult> = {
       ? QueryResult_PostgresError.fromPartial(object.postgresError)
       : undefined;
     message.allowExport = object.allowExport ?? false;
+    message.messages = object.messages?.map((e) => QueryResult_Message.fromPartial(e)) || [];
     return message;
   },
 };
@@ -1757,6 +1875,84 @@ export const QueryResult_PostgresError: MessageFns<QueryResult_PostgresError> = 
     message.file = object.file ?? "";
     message.line = object.line ?? 0;
     message.routine = object.routine ?? "";
+    return message;
+  },
+};
+
+function createBaseQueryResult_Message(): QueryResult_Message {
+  return { level: QueryResult_Message_Level.LEVEL_UNSPECIFIED, content: "" };
+}
+
+export const QueryResult_Message: MessageFns<QueryResult_Message> = {
+  encode(message: QueryResult_Message, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.level !== QueryResult_Message_Level.LEVEL_UNSPECIFIED) {
+      writer.uint32(8).int32(queryResult_Message_LevelToNumber(message.level));
+    }
+    if (message.content !== "") {
+      writer.uint32(18).string(message.content);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): QueryResult_Message {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    let end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseQueryResult_Message();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.level = queryResult_Message_LevelFromJSON(reader.int32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): QueryResult_Message {
+    return {
+      level: isSet(object.level)
+        ? queryResult_Message_LevelFromJSON(object.level)
+        : QueryResult_Message_Level.LEVEL_UNSPECIFIED,
+      content: isSet(object.content) ? globalThis.String(object.content) : "",
+    };
+  },
+
+  toJSON(message: QueryResult_Message): unknown {
+    const obj: any = {};
+    if (message.level !== QueryResult_Message_Level.LEVEL_UNSPECIFIED) {
+      obj.level = queryResult_Message_LevelToJSON(message.level);
+    }
+    if (message.content !== "") {
+      obj.content = message.content;
+    }
+    return obj;
+  },
+
+  create(base?: DeepPartial<QueryResult_Message>): QueryResult_Message {
+    return QueryResult_Message.fromPartial(base ?? {});
+  },
+  fromPartial(object: DeepPartial<QueryResult_Message>): QueryResult_Message {
+    const message = createBaseQueryResult_Message();
+    message.level = object.level ?? QueryResult_Message_Level.LEVEL_UNSPECIFIED;
+    message.content = object.content ?? "";
     return message;
   },
 };
@@ -2291,8 +2487,6 @@ function createBaseAdvice(): Advice {
     code: 0,
     title: "",
     content: "",
-    line: 0,
-    column: 0,
     startPosition: undefined,
     endPosition: undefined,
   };
@@ -2311,12 +2505,6 @@ export const Advice: MessageFns<Advice> = {
     }
     if (message.content !== "") {
       writer.uint32(34).string(message.content);
-    }
-    if (message.line !== 0) {
-      writer.uint32(40).int32(message.line);
-    }
-    if (message.column !== 0) {
-      writer.uint32(48).int32(message.column);
     }
     if (message.startPosition !== undefined) {
       Position.encode(message.startPosition, writer.uint32(66).fork()).join();
@@ -2366,22 +2554,6 @@ export const Advice: MessageFns<Advice> = {
           message.content = reader.string();
           continue;
         }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.line = reader.int32();
-          continue;
-        }
-        case 6: {
-          if (tag !== 48) {
-            break;
-          }
-
-          message.column = reader.int32();
-          continue;
-        }
         case 8: {
           if (tag !== 66) {
             break;
@@ -2413,8 +2585,6 @@ export const Advice: MessageFns<Advice> = {
       code: isSet(object.code) ? globalThis.Number(object.code) : 0,
       title: isSet(object.title) ? globalThis.String(object.title) : "",
       content: isSet(object.content) ? globalThis.String(object.content) : "",
-      line: isSet(object.line) ? globalThis.Number(object.line) : 0,
-      column: isSet(object.column) ? globalThis.Number(object.column) : 0,
       startPosition: isSet(object.startPosition) ? Position.fromJSON(object.startPosition) : undefined,
       endPosition: isSet(object.endPosition) ? Position.fromJSON(object.endPosition) : undefined,
     };
@@ -2434,12 +2604,6 @@ export const Advice: MessageFns<Advice> = {
     if (message.content !== "") {
       obj.content = message.content;
     }
-    if (message.line !== 0) {
-      obj.line = Math.round(message.line);
-    }
-    if (message.column !== 0) {
-      obj.column = Math.round(message.column);
-    }
     if (message.startPosition !== undefined) {
       obj.startPosition = Position.toJSON(message.startPosition);
     }
@@ -2458,8 +2622,6 @@ export const Advice: MessageFns<Advice> = {
     message.code = object.code ?? 0;
     message.title = object.title ?? "";
     message.content = object.content ?? "";
-    message.line = object.line ?? 0;
-    message.column = object.column ?? 0;
     message.startPosition = (object.startPosition !== undefined && object.startPosition !== null)
       ? Position.fromPartial(object.startPosition)
       : undefined;
@@ -4112,6 +4274,7 @@ export const SQLServiceDefinition = {
   name: "SQLService",
   fullName: "bytebase.v1.SQLService",
   methods: {
+    /** Permissions required: bb.databases.get */
     query: {
       name: "Query",
       requestType: QueryRequest,
@@ -4211,6 +4374,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.sql.admin */
     adminExecute: {
       name: "AdminExecute",
       requestType: AdminExecuteRequest,
@@ -4228,7 +4392,10 @@ export const SQLServiceDefinition = {
         },
       },
     },
-    /** SearchQueryHistories searches query histories for the caller. */
+    /**
+     * SearchQueryHistories searches query histories for the caller.
+     * Permissions required: None
+     */
     searchQueryHistories: {
       name: "SearchQueryHistories",
       requestType: SearchQueryHistoriesRequest,
@@ -4276,6 +4443,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.databases.get */
     export: {
       name: "Export",
       requestType: ExportRequest,
@@ -4289,7 +4457,8 @@ export const SQLServiceDefinition = {
           800024: [new Uint8Array([1])],
           578365826: [
             new Uint8Array([
-              126,
+              183,
+              1,
               58,
               1,
               42,
@@ -4330,12 +4499,12 @@ export const SQLServiceDefinition = {
               114,
               116,
               90,
-              42,
+              44,
               58,
               1,
               42,
               34,
-              37,
+              39,
               47,
               118,
               49,
@@ -4357,10 +4526,67 @@ export const SQLServiceDefinition = {
               47,
               42,
               47,
-              105,
-              115,
-              115,
+              114,
+              111,
+              108,
+              108,
+              111,
               117,
+              116,
+              115,
+              47,
+              42,
+              125,
+              58,
+              101,
+              120,
+              112,
+              111,
+              114,
+              116,
+              90,
+              53,
+              58,
+              1,
+              42,
+              34,
+              48,
+              47,
+              118,
+              49,
+              47,
+              123,
+              110,
+              97,
+              109,
+              101,
+              61,
+              112,
+              114,
+              111,
+              106,
+              101,
+              99,
+              116,
+              115,
+              47,
+              42,
+              47,
+              114,
+              111,
+              108,
+              108,
+              111,
+              117,
+              116,
+              115,
+              47,
+              42,
+              47,
+              115,
+              116,
+              97,
+              103,
               101,
               115,
               47,
@@ -4421,6 +4647,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    /** Permissions required: bb.databases.check */
     check: {
       name: "Check",
       requestType: CheckRequest,
@@ -4439,54 +4666,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
-    parseMyBatisMapper: {
-      name: "ParseMyBatisMapper",
-      requestType: ParseMyBatisMapperRequest,
-      requestStream: false,
-      responseType: ParseMyBatisMapperResponse,
-      responseStream: false,
-      options: {
-        _unknownFields: {
-          800000: [new Uint8Array([1])],
-          578365826: [
-            new Uint8Array([
-              31,
-              58,
-              1,
-              42,
-              34,
-              26,
-              47,
-              118,
-              49,
-              47,
-              115,
-              113,
-              108,
-              47,
-              112,
-              97,
-              114,
-              115,
-              101,
-              77,
-              121,
-              66,
-              97,
-              116,
-              105,
-              115,
-              77,
-              97,
-              112,
-              112,
-              101,
-              114,
-            ]),
-          ],
-        },
-      },
-    },
+    /** Permissions required: None */
     pretty: {
       name: "Pretty",
       requestType: PrettyRequest,
@@ -4502,6 +4682,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    /** Permissions required: None */
     diffMetadata: {
       name: "DiffMetadata",
       requestType: DiffMetadataRequest,
@@ -4553,6 +4734,7 @@ export const SQLServiceDefinition = {
         },
       },
     },
+    /** Permissions required: None */
     aICompletion: {
       name: "AICompletion",
       requestType: AICompletionRequest,

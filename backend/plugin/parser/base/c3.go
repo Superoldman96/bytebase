@@ -1,10 +1,13 @@
 package base
 
 import (
+	"context"
 	"sync"
 
 	"github.com/antlr4-go/antlr/v4"
 )
+
+const maxRecursionDepth = 66
 
 // CodeCompletionCore is the core of code completion.
 // It only relies on the ANTLR runtime and does not depend on any specific language.
@@ -34,6 +37,9 @@ type CodeCompletionCore struct {
 	callStack                  *RuleList
 	lastQueryRuleContext       *RuleContext
 	lastShadowQueryRuleContext *RuleContext
+
+	// Context for cancellation support
+	ctx context.Context
 }
 
 type Token struct {
@@ -43,6 +49,7 @@ type Token struct {
 
 // NewCodeCompletionCore creates a new CodeCompletionCore.
 func NewCodeCompletionCore(
+	ctx context.Context,
 	parser antlr.Parser,
 	ignoredTokens,
 	preferredRules map[int]bool,
@@ -62,6 +69,7 @@ func NewCodeCompletionCore(
 		parser:              parser,
 		atn:                 parser.GetATN(),
 		followSetsByState:   followSets,
+		ctx:                 ctx,
 	}
 }
 
@@ -207,7 +215,7 @@ func (f *FollowSetsByState) Set(state int, holder FollowSetsHolder) {
 }
 
 // CollectFollowSets collects the follow sets if needed.
-func (f *FollowSetsByState) CollectFollowSets(parser antlr.Parser, startState antlr.ATNState, ignoredTokens, preferredRules map[int]bool) {
+func (f *FollowSetsByState) CollectFollowSets(parser antlr.Parser, startState antlr.ATNState, ignoredTokens, _ map[int]bool) {
 	state := startState.GetStateNumber()
 	f.rw.Lock()
 	defer f.rw.Unlock()
@@ -217,7 +225,7 @@ func (f *FollowSetsByState) CollectFollowSets(parser antlr.Parser, startState an
 	}
 
 	stop := parser.GetATN().GetRuleToStopState(startState.GetRuleIndex())
-	followSets := determineFollowSets(parser, startState, stop, ignoredTokens, preferredRules)
+	followSets := determineFollowSets(parser, startState, stop, ignoredTokens)
 
 	combined := antlr.NewIntervalSet()
 	for _, set := range followSets {
@@ -231,11 +239,11 @@ func (f *FollowSetsByState) CollectFollowSets(parser antlr.Parser, startState an
 }
 
 // determineFollowSets collects tokens that can follow the given ATN state.
-func determineFollowSets(parser antlr.Parser, start, stop antlr.ATNState, ignoredTokens, preferredRules map[int]bool) FollowSetsList {
+func determineFollowSets(parser antlr.Parser, start, stop antlr.ATNState, ignoredTokens map[int]bool) FollowSetsList {
 	seen := make(map[antlr.ATNState]bool)
 	ruleStack := NewRuleList()
 	result := FollowSetsList{}
-	collectFollowSets(parser, start, stop, &result, seen, ruleStack, ignoredTokens, preferredRules)
+	collectFollowSets(parser, start, stop, &result, seen, ruleStack, ignoredTokens)
 	return result
 }
 
@@ -247,7 +255,6 @@ func collectFollowSets(
 	seen map[antlr.ATNState]bool,
 	ruleStack *RuleList,
 	ignoredTokens map[int]bool,
-	preferredRules map[int]bool,
 ) {
 	if _, exists := seen[s]; exists {
 		return
@@ -273,14 +280,14 @@ func collectFollowSets(
 			}
 
 			ruleStack.Push(&RuleContext{ID: ruleTransition.GetTarget().GetRuleIndex()})
-			collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens, preferredRules)
+			collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens)
 			ruleStack.Pop()
 		} else if predicateTransition, ok := transition.(*antlr.PredicateTransition); ok {
 			if checkPredicate(parser, predicateTransition) {
-				collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens, preferredRules)
+				collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens)
 			}
 		} else if transition.GetIsEpsilon() {
-			collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens, preferredRules)
+			collectFollowSets(parser, transition.GetTarget(), stopState, followSets, seen, ruleStack, ignoredTokens)
 		} else if _, ok := transition.(*antlr.WildcardTransition); ok {
 			intervals := antlr.NewIntervalSet()
 			intervals.AddRange(antlr.TokenMinUserTokenType, parser.GetATN().GetMaxTokenType())
@@ -392,6 +399,16 @@ func (c *CodeCompletionCore) CollectCandidates(caretTokenIndex int, context antl
 }
 
 func (c *CodeCompletionCore) fetchEndStatus(startState antlr.ATNState, tokenIndex int, indentation string) RuleEndStatus {
+	// Check for context cancellation
+	select {
+	case <-c.ctx.Done():
+		return RuleEndStatus{}
+	default:
+	}
+
+	if len(c.callStack.rules) > maxRecursionDepth {
+		return RuleEndStatus{}
+	}
 	result := make(RuleEndStatus)
 	c.followSetsByState.CollectFollowSets(c.parser, startState, c.IgnoredTokens, c.PreferredRules)
 
@@ -471,6 +488,14 @@ func (c *CodeCompletionCore) fetchEndStatus(startState antlr.ATNState, tokenInde
 	})
 
 	for len(statePipeline) != 0 {
+		// Check for context cancellation in the main loop
+		select {
+		case <-c.ctx.Done():
+			c.callStack.Pop()
+			return RuleEndStatus{}
+		default:
+		}
+
 		currentEntry = statePipeline[len(statePipeline)-1]
 		statePipeline = statePipeline[:len(statePipeline)-1]
 		c.statesProcessed++

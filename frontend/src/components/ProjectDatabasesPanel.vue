@@ -25,9 +25,7 @@
       :project-name="project.name"
       :databases="selectedDatabases"
       @refresh="() => pagedDatabaseTableRef?.refresh()"
-      @update-cache="
-        (databases) => pagedDatabaseTableRef?.updateCache(databases)
-      "
+      @update="(databases) => pagedDatabaseTableRef?.updateCache(databases)"
     />
     <PagedDatabaseTable
       ref="pagedDatabaseTableRef"
@@ -35,7 +33,7 @@
       :show-selection="true"
       :filter="filter"
       :parent="project.name"
-      @update:selected-databases="handleDatabasesSelectionChanged"
+      v-model:selected-database-names="state.selectedDatabaseNames"
     />
   </div>
   <Drawer
@@ -65,7 +63,7 @@ import {
 } from "@/store/modules/v1/common";
 import type { ComposedDatabase, ComposedProject } from "@/types";
 import { isValidDatabaseName } from "@/types";
-import { engineFromJSON } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import type { SearchParams, SearchScope } from "@/utils";
 import {
   CommonFilterScopeIdList,
@@ -78,7 +76,7 @@ import { useCommonSearchScopeOptions } from "./AdvancedSearch/useCommonSearchSco
 import { DatabaseOperations } from "./v2";
 
 interface LocalState {
-  selectedDatabaseNames: Set<string>;
+  selectedDatabaseNames: string[];
   params: SearchParams;
   showCreateDrawer: boolean;
 }
@@ -98,7 +96,7 @@ const readonlyScopes = computed((): SearchScope[] => [
 const databaseStore = useDatabaseV1Store();
 
 const state = reactive<LocalState>({
-  selectedDatabaseNames: new Set(),
+  selectedDatabaseNames: [],
   params: {
     query: "",
     scopes: [...readonlyScopes.value],
@@ -113,6 +111,7 @@ watch(
       query: "",
       scopes: [...readonlyScopes.value],
     };
+    state.selectedDatabaseNames = [];
   }
 );
 
@@ -129,6 +128,7 @@ const scopeOptions = useCommonSearchScopeOptions([
   ...CommonFilterScopeIdList,
   "database-label",
   "engine",
+  "drifted",
 ]);
 
 const selectedInstance = computed(() => {
@@ -160,7 +160,21 @@ const selectedLabels = computed(() => {
 const selectedEngines = computed(() => {
   return state.params.scopes
     .filter((scope) => scope.id === "engine")
-    .map((scope) => engineFromJSON(scope.value));
+    .map((scope) => {
+      // Convert string engine name to Engine enum
+      const engineKey = scope.value.toUpperCase();
+      return Engine[engineKey as keyof typeof Engine] ?? Engine.ENGINE_UNSPECIFIED;
+    });
+});
+
+const selectedDriftedValue = computed(() => {
+  const driftedValue = state.params.scopes.find(
+    (scope) => scope.id === "drifted"
+  )?.value;
+  if (driftedValue === undefined) {
+    return undefined;
+  }
+  return driftedValue === "true" ? true : false;
 });
 
 const filter = computed(() => ({
@@ -169,17 +183,12 @@ const filter = computed(() => ({
   query: state.params.query,
   labels: selectedLabels.value,
   engines: selectedEngines.value,
+  drifted: selectedDriftedValue.value,
 }));
 
 const selectedDatabases = computed((): ComposedDatabase[] => {
-  return [...state.selectedDatabaseNames]
+  return state.selectedDatabaseNames
     .map((databaseName) => databaseStore.getDatabaseByName(databaseName))
     .filter((database) => isValidDatabaseName(database.name));
 });
-
-const handleDatabasesSelectionChanged = (
-  selectedDatabaseNameList: Set<string>
-): void => {
-  state.selectedDatabaseNames = selectedDatabaseNameList;
-};
 </script>

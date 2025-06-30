@@ -1,8 +1,8 @@
 <template>
   <div class="w-full space-y-4">
-    <FeatureAttentionForInstanceLicense
-      v-if="hasSensitiveDataFeature && isMissingLicenseForInstance"
-      feature="bb.feature.sensitive-data"
+    <FeatureAttention
+      :feature="PlanFeature.FEATURE_DATA_MASKING"
+      :instance="database.instanceResource"
     />
     <div
       class="flex flex-col space-x-2 lg:flex-row gap-y-4 justify-between items-end lg:items-center"
@@ -21,9 +21,9 @@
         <template #icon>
           <ShieldCheckIcon v-if="hasSensitiveDataFeature" class="w-4" />
           <FeatureBadge
-            v-else
-            feature="bb.feature.sensitive-data"
-            custom-class="text-white"
+            :feature="PlanFeature.FEATURE_DATA_MASKING"
+            class="text-white"
+            :instance="database.instanceResource"
           />
         </template>
         {{ $t("settings.sensitive-data.grant-access") }}
@@ -43,7 +43,7 @@
   </div>
 
   <FeatureModal
-    feature="bb.feature.sensitive-data"
+    :feature="PlanFeature.FEATURE_DATA_MASKING"
     :open="state.showFeatureModal"
     :instance="database.instanceResource"
     @cancel="state.showFeatureModal = false"
@@ -76,24 +76,20 @@ import { computed, reactive, watch } from "vue";
 import {
   FeatureModal,
   FeatureBadge,
-  FeatureAttentionForInstanceLicense,
+  FeatureAttention,
 } from "@/components/FeatureGuard";
 import GrantAccessDrawer from "@/components/SensitiveData/GrantAccessDrawer.vue";
 import SensitiveColumnTable from "@/components/SensitiveData/components/SensitiveColumnTable.vue";
 import type { MaskData } from "@/components/SensitiveData/types";
 import { isCurrentColumnException } from "@/components/SensitiveData/utils";
 import { SearchBox } from "@/components/v2";
-import {
-  featureToRef,
-  usePolicyV1Store,
-  useSubscriptionV1Store,
-  useDatabaseCatalog,
-} from "@/store";
+import { featureToRef, usePolicyV1Store, useDatabaseCatalog } from "@/store";
 import { type ComposedDatabase } from "@/types";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import {
   ObjectSchema_Type,
   type ObjectSchema,
-} from "@/types/proto/v1/database_catalog_service";
+} from "@/types/proto-es/v1/database_catalog_service_pb";
 import { PolicyType } from "@/types/proto/v1/org_policy_service";
 import { hasProjectPermissionV2, instanceV1MaskingForNoSQL } from "@/utils";
 
@@ -145,16 +141,8 @@ const hasPolicyPermission = computed(() => {
 });
 
 const policyStore = usePolicyV1Store();
-const subscriptionStore = useSubscriptionV1Store();
 
-const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
-
-const isMissingLicenseForInstance = computed(() =>
-  subscriptionStore.instanceMissingLicense(
-    "bb.feature.sensitive-data",
-    props.database.instanceResource
-  )
-);
+const hasSensitiveDataFeature = featureToRef(PlanFeature.FEATURE_DATA_MASKING);
 
 const databaseCatalog = useDatabaseCatalog(props.database.name, false);
 
@@ -169,23 +157,24 @@ const flattenObjectSchema = (
   switch (objectSchema.type) {
     case ObjectSchema_Type.OBJECT:
       const resp = [];
-      for (const [key, schema] of Object.entries(
-        objectSchema.structKind?.properties ?? {}
-      )) {
-        resp.push(
-          ...flattenObjectSchema(
-            [parentPath, key].filter((i) => i).join("."),
-            schema
-          )
-        );
+      if (objectSchema.kind?.case === "structKind") {
+        for (const [key, schema] of Object.entries(
+          objectSchema.kind.value.properties ?? {}
+        )) {
+          resp.push(
+            ...flattenObjectSchema(
+              [parentPath, key].filter((i) => i).join("."),
+              schema
+            )
+          );
+        }
       }
       return resp;
     case ObjectSchema_Type.ARRAY:
-      if (!objectSchema.arrayKind?.kind) {
-        return [];
+      if (objectSchema.kind?.case === "arrayKind" && objectSchema.kind.value.kind) {
+        return flattenObjectSchema(parentPath, objectSchema.kind.value.kind);
       }
-      // TODO(ed): Currently, the object schemas of the element in array are the same.
-      return flattenObjectSchema(parentPath, objectSchema.arrayKind?.kind);
+      return [];
     default:
       return [
         {
@@ -203,22 +192,26 @@ const updateList = async () => {
 
   for (const schema of databaseCatalog.value.schemas) {
     for (const table of schema.tables) {
-      for (const column of table.columns?.columns ?? []) {
-        if (!column.semanticType && !column.classification) {
-          continue;
+      // Handle table with structured columns
+      if (table.kind?.case === "columns") {
+        for (const column of table.kind.value.columns ?? []) {
+          if (!column.semanticType && !column.classification) {
+            continue;
+          }
+          sensitiveList.push({
+            schema: schema.name,
+            table: table.name,
+            column: column.name,
+            semanticTypeId: column.semanticType,
+            classificationId: column.classification,
+            target: column,
+          });
         }
-        sensitiveList.push({
-          schema: schema.name,
-          table: table.name,
-          column: column.name,
-          semanticTypeId: column.semanticType,
-          classificationId: column.classification,
-          target: column,
-        });
       }
 
-      if (table.objectSchema) {
-        const flattenItems = flattenObjectSchema("", table.objectSchema);
+      // Handle table with object schema
+      if (table.kind?.case === "objectSchema") {
+        const flattenItems = flattenObjectSchema("", table.kind.value);
         sensitiveList.push(
           ...flattenItems.map((item) => ({
             ...item,
