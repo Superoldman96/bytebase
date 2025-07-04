@@ -1,12 +1,22 @@
+import { create } from "@bufbuild/protobuf";
 import { extractGroupEmail, useGroupStore, useUserStore } from "@/store";
+import {
+  extractUserId,
+  userNamePrefix,
+  groupNamePrefix,
+} from "@/store/modules/v1/common";
 import {
   getUserEmailInBinding,
   getGroupEmailInBinding,
   groupBindingPrefix,
 } from "@/types";
-import { State } from "@/types/proto/v1/common";
-import { IamPolicy } from "@/types/proto/v1/iam_policy";
-import type { MemberBinding } from "./types";
+import { State } from "@/types/proto-es/v1/common_pb";
+import { GroupSchema } from "@/types/proto-es/v1/group_service_pb";
+import type { IamPolicy } from "@/types/proto-es/v1/iam_policy_pb";
+import { UserSchema } from "@/types/proto-es/v1/user_service_pb";
+import type { User } from "@/types/proto-es/v1/user_service_pb";
+import { UserType } from "@/types/proto-es/v1/user_service_pb";
+import type { MemberBinding, GroupBinding } from "./types";
 
 const getMemberBinding = async (
   member: string,
@@ -17,32 +27,59 @@ const getMemberBinding = async (
 
   let memberBinding: MemberBinding | undefined = undefined;
   if (member.startsWith(groupBindingPrefix)) {
-    const group = await groupStore.getOrFetchGroupByIdentifier(member);
-    if (!group) {
-      return undefined;
+    let group: GroupBinding | undefined;
+    try {
+      const g = await groupStore.getOrFetchGroupByIdentifier(member);
+      if (g) {
+        group = {
+          ...g,
+          deleted: false,
+        };
+      }
+    } catch {
+      // nothing
     }
-    const email = extractGroupEmail(group.name);
+    if (!group) {
+      const email = extractGroupEmail(member);
+      group = {
+        ...create(GroupSchema, {
+          name: `${groupNamePrefix}${email}`,
+          title: email,
+        }),
+        deleted: true,
+      };
+    }
 
     memberBinding = {
       type: "groups",
       title: group.title,
       group,
-      binding: getGroupEmailInBinding(email),
+      binding: getGroupEmailInBinding(extractGroupEmail(group.name)),
       workspaceLevelRoles: new Set<string>(),
       projectRoleBindings: [],
     };
   } else {
-    const user = await userStore.getOrFetchUserByIdentifier(member);
-    if (!user) {
-      return undefined;
+    let user: User | undefined;
+    try {
+      user = await userStore.getOrFetchUserByIdentifier(member);
+    } catch {
+      // nothing
     }
-    if (user.state !== State.ACTIVE) {
-      return undefined;
+
+    if (!user) {
+      const email = extractUserId(member);
+      user = create(UserSchema, {
+        title: member,
+        name: `${userNamePrefix}${email}`,
+        email: email,
+        userType: UserType.USER,
+        state: State.DELETED,
+      });
     }
     memberBinding = {
       type: "users",
       title: user.title,
-      user,
+      user: user,
       binding: getUserEmailInBinding(user.email),
       workspaceLevelRoles: new Set<string>(),
       projectRoleBindings: [],

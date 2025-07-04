@@ -34,6 +34,8 @@
 </template>
 
 <script lang="ts" setup>
+import { create as createProto } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import { NButton } from "naive-ui";
 import { computed, reactive, ref, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
@@ -46,7 +48,9 @@ import {
   useAuthStore,
   useCurrentUserV1,
 } from "@/store";
-import { UpdateUserRequest, User } from "@/types/proto/v1/user_service";
+import { Setting_SettingName } from "@/types/proto-es/v1/setting_service_pb";
+import type { User } from "@/types/proto-es/v1/user_service_pb";
+import { UpdateUserRequestSchema } from "@/types/proto-es/v1/user_service_pb";
 
 interface LocalState {
   password: string;
@@ -81,7 +85,7 @@ onMounted(async () => {
     return;
   }
   await settingV1Store.getOrFetchSettingByName(
-    "bb.workspace.password-restriction"
+    Setting_SettingName.PASSWORD_RESTRICTION
   );
 });
 
@@ -101,9 +105,11 @@ const onConfirm = async () => {
     password: state.password,
   };
   await userStore.updateUser(
-    UpdateUserRequest.fromPartial({
+    createProto(UpdateUserRequestSchema, {
       user: patch,
-      updateMask: ["password"],
+      updateMask: createProto(FieldMaskSchema, {
+        paths: ["password"],
+      }),
     })
   );
   pushNotification({

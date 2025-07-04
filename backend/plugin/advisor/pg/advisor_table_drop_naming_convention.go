@@ -9,6 +9,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
@@ -21,6 +22,7 @@ var (
 
 func init() {
 	advisor.Register(storepb.Engine_POSTGRES, advisor.PostgreSQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
+	advisor.Register(storepb.Engine_REDSHIFT, advisor.PostgreSQLTableDropNamingConvention, &TableDropNamingConventionAdvisor{})
 }
 
 // TableDropNamingConventionAdvisor is the advisor checking for table drop with naming convention.
@@ -73,7 +75,7 @@ func (checker *tableDropNamingConventionChecker) Visit(in ast.Node) ast.Visitor 
 					Code:          advisor.TableDropNamingConventionMismatch.Int32(),
 					Title:         checker.title,
 					Content:       fmt.Sprintf("`%s` mismatches drop table naming convention, naming format should be %q", table.Name, checker.format),
-					StartPosition: advisor.ConvertANTLRLineToPosition(node.LastLine()),
+					StartPosition: common.ConvertPGParserLineToPosition(node.LastLine()),
 				})
 			}
 		}

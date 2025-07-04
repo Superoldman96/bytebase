@@ -28,14 +28,12 @@
         </template>
         <div v-else class="w-full relative">
           <PagedDatabaseTable
-            mode="PROJECT"
+            mode="PROJECT_SHORT"
             :parent="sourceProjectName"
             :filter="filter"
             :show-selection="true"
             :custom-click="true"
-            @update:selected-databases="
-              state.selectedDatabaseNameList = Array.from($event)
-            "
+            v-model:selected-database-names="state.selectedDatabaseNameList"
           />
         </div>
       </div>
@@ -79,6 +77,8 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import { NButton, NTooltip } from "naive-ui";
 import { computed, reactive, watchEffect } from "vue";
 import { toRef } from "vue";
@@ -91,11 +91,16 @@ import type { ComposedDatabase, ComposedProject } from "@/types";
 import {
   DEFAULT_PROJECT_NAME,
   defaultProject,
+  formatEnvironmentName,
   isValidProjectName,
 } from "@/types";
-import { UpdateDatabaseRequest } from "@/types/proto/v1/database_service";
-import type { Environment } from "@/types/proto/v1/environment_service";
-import type { InstanceResource } from "@/types/proto/v1/instance_service";
+import {
+  DatabaseSchema$,
+  UpdateDatabaseRequestSchema,
+  BatchUpdateDatabasesRequestSchema,
+} from "@/types/proto-es/v1/database_service_pb";
+import type { InstanceResource } from "@/types/proto-es/v1/instance_service_pb";
+import type { Environment } from "@/types/v1/environment";
 import { hasProjectPermissionV2 } from "@/utils";
 import { DrawerContent, ProjectSelect } from "../v2";
 import { PagedDatabaseTable } from "../v2/Model/DatabaseV1Table";
@@ -153,8 +158,11 @@ const { project: sourceProject } = useProjectByName(sourceProjectName);
 
 const filter = computed(() => ({
   instance: state.instanceFilter?.name,
-  environment: state.environmentFilter?.name,
+  environment: state.environmentFilter
+    ? formatEnvironmentName(state.environmentFilter.id)
+    : undefined,
   query: state.searchText,
+  excludeUnassigned: state.transferSource !== "DEFAULT",
 }));
 
 const allowTransfer = computed(() => state.selectedDatabaseNameList.length > 0);
@@ -200,18 +208,20 @@ const transferDatabase = async () => {
   try {
     state.loading = true;
 
-    const updated = await useDatabaseV1Store().batchUpdateDatabases({
-      parent: "-",
-      requests: selectedDatabaseList.value.map((database) => {
-        return UpdateDatabaseRequest.fromPartial({
-          database: {
-            name: database.name,
-            project: props.projectName,
-          },
-          updateMask: ["project"],
-        });
-      }),
-    });
+    const updated = await useDatabaseV1Store().batchUpdateDatabases(
+      create(BatchUpdateDatabasesRequestSchema, {
+        parent: "-",
+        requests: selectedDatabaseList.value.map((database) => {
+          return create(UpdateDatabaseRequestSchema, {
+            database: create(DatabaseSchema$, {
+              name: database.name,
+              project: props.projectName,
+            }),
+            updateMask: create(FieldMaskSchema, { paths: ["project"] }),
+          });
+        }),
+      })
+    );
 
     const displayDatabaseName =
       selectedDatabaseList.value.length > 1

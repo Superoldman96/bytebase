@@ -41,7 +41,6 @@
             :loading="loading"
             :issue-list="list"
             :highlight-text="state.params.query"
-            :show-project="!specificProject"
           />
         </template>
       </PagedTable>
@@ -77,7 +76,7 @@ import {
 } from "@/store";
 import { projectNamePrefix } from "@/store/modules/v1/common";
 import type { ComposedIssue } from "@/types";
-import { Issue_Type } from "@/types/proto/v1/issue_service";
+import { Issue_Type } from "@/types/proto-es/v1/issue_service_pb";
 import {
   buildIssueFilterBySearchParams,
   extractProjectResourceName,
@@ -98,7 +97,7 @@ interface LocalState {
 }
 
 const { project: specificProject } = useProjectByName(
-  `${projectNamePrefix}${props.projectId}`
+  computed(() => `${projectNamePrefix}${props.projectId}`)
 );
 
 const readonlyScopes = computed((): SearchScope[] => {
@@ -162,14 +161,14 @@ const overrideSearchScopeIdList = computed(() => {
     "status",
     "instance",
     "database",
-    "label",
+    "issue-label",
   ];
   return defaultScopeIdList;
 });
 
 const mergedIssueFilter = computed(() => {
   return buildIssueFilterBySearchParams(dataExportIssueSearchParams.value, {
-    type: Issue_Type.DATABASE_DATA_EXPORT,
+    type: Issue_Type.DATABASE_EXPORT,
   });
 });
 

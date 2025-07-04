@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -30,8 +31,8 @@ func TestSchemaAndDataUpdate(t *testing.T) {
 	instanceDir, err := ctl.provisionSQLiteInstance(instanceRootDir, instanceName)
 	a.NoError(err)
 
-	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
-		InstanceId: generateRandomString("instance", 10),
+	instanceResp, err := ctl.instanceServiceClient.CreateInstance(ctx, connect.NewRequest(&v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance"),
 		Instance: &v1pb.Instance{
 			Title:       instanceName,
 			Engine:      v1pb.Engine_SQLITE,
@@ -39,56 +40,61 @@ func TestSchemaAndDataUpdate(t *testing.T) {
 			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: instanceDir, Id: "admin"}},
 		},
-	})
+	}))
 	a.NoError(err)
+	instance := instanceResp.Msg
 
 	// Create an issue that creates a database.
 	databaseName := "testSchemaUpdate"
 	err = ctl.createDatabaseV2(ctx, ctl.project, instance, nil /* environment */, databaseName, "")
 	a.NoError(err)
 
-	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+	databaseResp, err := ctl.databaseServiceClient.GetDatabase(ctx, connect.NewRequest(&v1pb.GetDatabaseRequest{
 		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
-	})
+	}))
 	a.NoError(err)
+	database := databaseResp.Msg
 
-	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+	sheetResp, err := ctl.sheetServiceClient.CreateSheet(ctx, connect.NewRequest(&v1pb.CreateSheetRequest{
 		Parent: ctl.project.Name,
 		Sheet: &v1pb.Sheet{
 			Title:   "migration statement sheet",
 			Content: []byte(migrationStatement1),
 		},
-	})
+	}))
 	a.NoError(err)
+	sheet := sheetResp.Msg
 
 	// Create an issue that updates database schema.
 	err = ctl.changeDatabase(ctx, ctl.project, database, sheet, v1pb.Plan_ChangeDatabaseConfig_MIGRATE)
 	a.NoError(err)
 
 	// Query schema.
-	dbMetadata, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, &v1pb.GetDatabaseSchemaRequest{Name: fmt.Sprintf("%s/schema", database.Name)})
+	dbMetadataResp, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, connect.NewRequest(&v1pb.GetDatabaseSchemaRequest{Name: fmt.Sprintf("%s/schema", database.Name)}))
 	a.NoError(err)
+	dbMetadata := dbMetadataResp.Msg
 	a.Equal(wantBookSchema, dbMetadata.Schema)
 
-	sheet, err = ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+	sheetResp, err = ctl.sheetServiceClient.CreateSheet(ctx, connect.NewRequest(&v1pb.CreateSheetRequest{
 		Parent: ctl.project.Name,
 		Sheet: &v1pb.Sheet{
 			Title:   "dataUpdateStatement",
 			Content: []byte(dataUpdateStatement),
 		},
-	})
+	}))
 	a.NoError(err)
+	sheet = sheetResp.Msg
 
 	// Create an issue that updates database data.
 	err = ctl.changeDatabase(ctx, ctl.project, database, sheet, v1pb.Plan_ChangeDatabaseConfig_DATA)
 	a.NoError(err)
 
-	resp, err := ctl.databaseServiceClient.ListChangelogs(ctx, &v1pb.ListChangelogsRequest{
+	resp, err := ctl.databaseServiceClient.ListChangelogs(ctx, connect.NewRequest(&v1pb.ListChangelogsRequest{
 		Parent: database.Name,
 		View:   v1pb.ChangelogView_CHANGELOG_VIEW_FULL,
-	})
+	}))
 	a.NoError(err)
-	changelogs := resp.Changelogs
+	changelogs := resp.Msg.Changelogs
 	wantChangelogs := []*v1pb.Changelog{
 		{
 			Type:       v1pb.Changelog_DATA,
@@ -142,14 +148,14 @@ func TestGetLatestSchema(t *testing.T) {
 				"-- Table structure for `book`\n" +
 				"--\n" +
 				"CREATE TABLE `book` (\n" +
-				"  `id` int NULL DEFAULT NULL,\n" +
-				"  `name` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL\n" +
+				"  `id` int DEFAULT NULL,\n" +
+				"  `name` text DEFAULT NULL\n" +
 				") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;\n\n" +
 				"SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;\n" +
 				"SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;\n",
 			wantSDL: "CREATE TABLE `book` (\n" +
-				"  `id` INT NULL DEFAULT NULL,\n" +
-				"  `name` TEXT CHARACTER SET UTF8MB4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL\n" +
+				"  `id` INT DEFAULT NULL,\n" +
+				"  `name` TEXT DEFAULT NULL\n" +
 				") ENGINE=InnoDB DEFAULT CHARACTER SET=UTF8MB4 DEFAULT COLLATE=UTF8MB4_GENERAL_CI;\n\n",
 			wantDatabaseMetadata: &v1pb.DatabaseMetadata{
 				Name:         "instances/latest-schema-mysql/databases/latestSchema/metadata",
@@ -166,26 +172,22 @@ func TestGetLatestSchema(t *testing.T) {
 								DataSize:  16384,
 								Columns: []*v1pb.ColumnMetadata{
 									{
-										Name:       "id",
-										Position:   1,
-										Nullable:   true,
-										HasDefault: true,
-										Default: &v1pb.ColumnMetadata_DefaultNull{
-											DefaultNull: true,
-										},
-										Type: "int",
+										Name:          "id",
+										Position:      1,
+										Nullable:      true,
+										HasDefault:    true,
+										DefaultString: "NULL",
+										Type:          "int",
 									},
 									{
-										Name:       "name",
-										Position:   2,
-										Nullable:   true,
-										Type:       "text",
-										HasDefault: true,
-										Default: &v1pb.ColumnMetadata_DefaultNull{
-											DefaultNull: true,
-										},
-										CharacterSet: "utf8mb4",
-										Collation:    "utf8mb4_general_ci",
+										Name:          "name",
+										Position:      2,
+										Nullable:      true,
+										Type:          "text",
+										HasDefault:    true,
+										DefaultString: "NULL",
+										CharacterSet:  "utf8mb4",
+										Collation:     "utf8mb4_general_ci",
 									},
 								},
 							},
@@ -228,8 +230,9 @@ CREATE TABLE "public"."book" (
 				Collation:    "en_US.UTF-8",
 				Schemas: []*v1pb.SchemaMetadata{
 					{
-						Name:  "public",
-						Owner: "pg_database_owner",
+						Name:    "public",
+						Owner:   "pg_database_owner",
+						Comment: "standard public schema",
 						Tables: []*v1pb.TableMetadata{
 							{
 								Name:     "book",
@@ -254,12 +257,8 @@ CREATE TABLE "public"."book" (
 	defer func() {
 		_ = ctl.Close(ctx)
 	}()
-	environmentName := t.Name()
-	environment, err := ctl.environmentServiceClient.CreateEnvironment(ctx,
-		&v1pb.CreateEnvironmentRequest{
-			Environment:   &v1pb.Environment{Title: environmentName},
-			EnvironmentId: strings.ToLower(environmentName),
-		})
+	environmentName := strings.ToLower(t.Name())
+	environment, err := ctl.createEnvironment(ctx, environmentName, environmentName)
 	a.NoError(err)
 
 	for _, test := range tests {
@@ -273,7 +272,7 @@ CREATE TABLE "public"."book" (
 					pgContainer.Close(ctx)
 				}()
 				a.NoError(err)
-				instance, err = ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+				instanceResp, err := ctl.instanceServiceClient.CreateInstance(ctx, connect.NewRequest(&v1pb.CreateInstanceRequest{
 					InstanceId: test.instanceID,
 					Instance: &v1pb.Instance{
 						Title:       test.name,
@@ -282,8 +281,9 @@ CREATE TABLE "public"."book" (
 						Activation:  true,
 						DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: pgContainer.host, Port: pgContainer.port, Username: "postgres", Password: "root-password", Id: "admin"}},
 					},
-				})
+				}))
 				a.NoError(err)
+				instance = instanceResp.Msg
 			case storepb.Engine_MYSQL:
 				mysqlContainer, err := getMySQLContainer(ctx)
 				defer func() {
@@ -291,7 +291,7 @@ CREATE TABLE "public"."book" (
 				}()
 				a.NoError(err)
 
-				instance, err = ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
+				instanceResp, err := ctl.instanceServiceClient.CreateInstance(ctx, connect.NewRequest(&v1pb.CreateInstanceRequest{
 					InstanceId: test.instanceID,
 					Instance: &v1pb.Instance{
 						Title:       "mysqlInstance",
@@ -300,8 +300,9 @@ CREATE TABLE "public"."book" (
 						Activation:  true,
 						DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: mysqlContainer.host, Port: mysqlContainer.port, Username: "root", Password: "root-password", Id: "admin"}},
 					},
-				})
+				}))
 				a.NoError(err)
+				instance = instanceResp.Msg
 			default:
 				a.FailNow("unsupported db type")
 			}
@@ -309,41 +310,46 @@ CREATE TABLE "public"."book" (
 			err = ctl.createDatabaseV2(ctx, ctl.project, instance, nil, test.databaseName, "postgres")
 			a.NoError(err)
 
-			database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+			databaseResp, err := ctl.databaseServiceClient.GetDatabase(ctx, connect.NewRequest(&v1pb.GetDatabaseRequest{
 				Name: fmt.Sprintf("%s/databases/%s", instance.Name, test.databaseName),
-			})
+			}))
 			a.NoError(err)
+			database := databaseResp.Msg
 
-			ddlSheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+			ddlSheetResp, err := ctl.sheetServiceClient.CreateSheet(ctx, connect.NewRequest(&v1pb.CreateSheetRequest{
 				Parent: ctl.project.Name,
 				Sheet: &v1pb.Sheet{
 					Title:   "test ddl",
 					Content: []byte(test.ddl),
 				},
-			})
+			}))
 			a.NoError(err)
+			ddlSheet := ddlSheetResp.Msg
 
 			// Create an issue that updates database schema.
 			err = ctl.changeDatabase(ctx, ctl.project, database, ddlSheet, v1pb.Plan_ChangeDatabaseConfig_MIGRATE)
 			a.NoError(err)
 
-			latestSchema, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, &v1pb.GetDatabaseSchemaRequest{
+			latestSchemaResp, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, connect.NewRequest(&v1pb.GetDatabaseSchemaRequest{
 				Name: fmt.Sprintf("%s/schema", database.Name),
-			})
+			}))
 			a.NoError(err)
+			latestSchema := latestSchemaResp.Msg
 			a.Equal(test.wantRawSchema, latestSchema.Schema)
 			if test.dbType == storepb.Engine_MYSQL {
-				latestSchemaSDL, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, &v1pb.GetDatabaseSchemaRequest{
+				latestSchemaSDLResp, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, connect.NewRequest(&v1pb.GetDatabaseSchemaRequest{
 					Name:      fmt.Sprintf("%s/schema", database.Name),
 					SdlFormat: true,
-				})
+				}))
 				a.NoError(err)
+				latestSchemaSDL := latestSchemaSDLResp.Msg
 				a.Equal(test.wantSDL, latestSchemaSDL.Schema)
 			}
-			latestSchemaMetadata, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, &v1pb.GetDatabaseMetadataRequest{
+			latestSchemaMetadataResp, err := ctl.databaseServiceClient.GetDatabaseMetadata(ctx, connect.NewRequest(&v1pb.GetDatabaseMetadataRequest{
 				Name: fmt.Sprintf("%s/metadata", database.Name),
-			})
+			}))
 			a.NoError(err)
+			latestSchemaMetadata := latestSchemaMetadataResp.Msg
 			diff := cmp.Diff(test.wantDatabaseMetadata, latestSchemaMetadata, protocmp.Transform())
 			a.Empty(diff)
 		})
@@ -366,8 +372,8 @@ func TestMarkTaskAsDone(t *testing.T) {
 	a.NoError(err)
 
 	// Add an instance.
-	instance, err := ctl.instanceServiceClient.CreateInstance(ctx, &v1pb.CreateInstanceRequest{
-		InstanceId: generateRandomString("instance", 10),
+	instanceResp, err := ctl.instanceServiceClient.CreateInstance(ctx, connect.NewRequest(&v1pb.CreateInstanceRequest{
+		InstanceId: generateRandomString("instance"),
 		Instance: &v1pb.Instance{
 			Title:       instanceName,
 			Engine:      v1pb.Engine_SQLITE,
@@ -375,52 +381,52 @@ func TestMarkTaskAsDone(t *testing.T) {
 			Activation:  true,
 			DataSources: []*v1pb.DataSource{{Type: v1pb.DataSourceType_ADMIN, Host: instanceDir, Id: "admin"}},
 		},
-	})
+	}))
 	a.NoError(err)
+	instance := instanceResp.Msg
 
 	// Create an issue that creates a database.
 	databaseName := "testSchemaUpdate"
 	err = ctl.createDatabaseV2(ctx, ctl.project, instance, nil, databaseName, "")
 	a.NoError(err)
 
-	database, err := ctl.databaseServiceClient.GetDatabase(ctx, &v1pb.GetDatabaseRequest{
+	databaseResp, err := ctl.databaseServiceClient.GetDatabase(ctx, connect.NewRequest(&v1pb.GetDatabaseRequest{
 		Name: fmt.Sprintf("%s/databases/%s", instance.Name, databaseName),
-	})
+	}))
 	a.NoError(err)
+	database := databaseResp.Msg
 
-	sheet, err := ctl.sheetServiceClient.CreateSheet(ctx, &v1pb.CreateSheetRequest{
+	sheetResp, err := ctl.sheetServiceClient.CreateSheet(ctx, connect.NewRequest(&v1pb.CreateSheetRequest{
 		Parent: ctl.project.Name,
 		Sheet: &v1pb.Sheet{
 			Title:   "migration statement sheet",
 			Content: []byte(migrationStatement1),
 		},
-	})
+	}))
 	a.NoError(err)
+	sheet := sheetResp.Msg
 
 	// Create an issue that updates database schema.
-	plan, err := ctl.planServiceClient.CreatePlan(ctx, &v1pb.CreatePlanRequest{
+	planResp, err := ctl.planServiceClient.CreatePlan(ctx, connect.NewRequest(&v1pb.CreatePlanRequest{
 		Parent: ctl.project.Name,
 		Plan: &v1pb.Plan{
-			Steps: []*v1pb.Plan_Step{
+			Specs: []*v1pb.Plan_Spec{
 				{
-					Specs: []*v1pb.Plan_Spec{
-						{
-							Id: uuid.NewString(),
-							Config: &v1pb.Plan_Spec_ChangeDatabaseConfig{
-								ChangeDatabaseConfig: &v1pb.Plan_ChangeDatabaseConfig{
-									Target: database.Name,
-									Sheet:  sheet.Name,
-									Type:   v1pb.Plan_ChangeDatabaseConfig_MIGRATE,
-								},
-							},
+					Id: uuid.NewString(),
+					Config: &v1pb.Plan_Spec_ChangeDatabaseConfig{
+						ChangeDatabaseConfig: &v1pb.Plan_ChangeDatabaseConfig{
+							Targets: []string{database.Name},
+							Sheet:   sheet.Name,
+							Type:    v1pb.Plan_ChangeDatabaseConfig_MIGRATE,
 						},
 					},
 				},
 			},
 		},
-	})
+	}))
 	a.NoError(err)
-	issue, err := ctl.issueServiceClient.CreateIssue(ctx, &v1pb.CreateIssueRequest{
+	plan := planResp.Msg
+	issueResp, err := ctl.issueServiceClient.CreateIssue(ctx, connect.NewRequest(&v1pb.CreateIssueRequest{
 		Parent: ctl.project.Name,
 		Issue: &v1pb.Issue{
 			Type:        v1pb.Issue_DATABASE_CHANGE,
@@ -428,19 +434,21 @@ func TestMarkTaskAsDone(t *testing.T) {
 			Description: fmt.Sprintf("change database %s", database.Name),
 			Plan:        plan.Name,
 		},
-	})
+	}))
 	a.NoError(err)
-	rollout, err := ctl.rolloutServiceClient.CreateRollout(ctx, &v1pb.CreateRolloutRequest{Parent: ctl.project.Name, Rollout: &v1pb.Rollout{Plan: plan.Name}})
+	issue := issueResp.Msg
+	rolloutResp, err := ctl.rolloutServiceClient.CreateRollout(ctx, connect.NewRequest(&v1pb.CreateRolloutRequest{Parent: ctl.project.Name, Rollout: &v1pb.Rollout{Plan: plan.Name}}))
 	a.NoError(err)
+	rollout := rolloutResp.Msg
 
 	// Skip the task.
 	for _, stage := range rollout.Stages {
 		for _, task := range stage.Tasks {
-			_, err := ctl.rolloutServiceClient.BatchSkipTasks(ctx, &v1pb.BatchSkipTasksRequest{
+			_, err := ctl.rolloutServiceClient.BatchSkipTasks(ctx, connect.NewRequest(&v1pb.BatchSkipTasksRequest{
 				Parent: stage.Name,
 				Tasks:  []string{task.Name},
 				Reason: "skip it!",
-			})
+			}))
 			a.NoError(err)
 		}
 	}
@@ -449,7 +457,8 @@ func TestMarkTaskAsDone(t *testing.T) {
 	a.NoError(err)
 
 	// Query schema.
-	dbMetadata, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, &v1pb.GetDatabaseSchemaRequest{Name: fmt.Sprintf("%s/schema", database.Name)})
+	dbMetadataResp, err := ctl.databaseServiceClient.GetDatabaseSchema(ctx, connect.NewRequest(&v1pb.GetDatabaseSchemaRequest{Name: fmt.Sprintf("%s/schema", database.Name)}))
 	a.NoError(err)
+	dbMetadata := dbMetadataResp.Msg
 	a.Equal("", dbMetadata.Schema)
 }

@@ -1,7 +1,5 @@
-import type { RouteLocationNormalized, RouteRecordRaw } from "vue-router";
-import { useEnvironmentV1Store } from "@/store";
-import { environmentNamePrefix } from "@/store/modules/v1/common";
-import { unknownEnvironment } from "@/types";
+import type { RouteRecordRaw } from "vue-router";
+import { t } from "@/plugins/i18n";
 import DashboardSidebar from "@/views/DashboardSidebar.vue";
 import { ENVIRONMENT_V1_ROUTE_DASHBOARD } from "./workspaceRoutes";
 
@@ -11,21 +9,14 @@ const environmentV1Routes: RouteRecordRaw[] = [
   {
     path: "environments/:environmentName",
     name: ENVIRONMENT_V1_ROUTE_DETAIL,
-    meta: {
-      title: (route: RouteLocationNormalized) => {
-        const environmentName = route.params.environmentName as string;
-        return (
-          useEnvironmentV1Store().getEnvironmentByName(
-            `${environmentNamePrefix}${environmentName}`
-          ) || unknownEnvironment()
-        ).title;
-      },
-    },
     components: {
       content: () => import("@/views/EnvironmentDetail.vue"),
       leftSidebar: DashboardSidebar,
     },
     props: { content: true },
+    meta: {
+      title: () => t("common.environment"),
+    },
   },
 ];
 

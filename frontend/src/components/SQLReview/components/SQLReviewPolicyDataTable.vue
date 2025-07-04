@@ -20,7 +20,7 @@ import { BBButtonConfirm } from "@/bbkit";
 import Resource from "@/components/v2/ResourceOccupiedModal/Resource.vue";
 import { pushNotification, useSQLReviewStore } from "@/store";
 import type { SQLReviewPolicy } from "@/types";
-import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
+import { SQLReviewRuleLevel } from "@/types/proto-es/v1/org_policy_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import { getHighlightHTMLByRegExp } from "@/utils";
 
@@ -124,7 +124,7 @@ const columns = computed(
         render: (review: SQLReviewPolicy) => {
           return (
             <div class="flex items-center gap-x-2">
-              <NButton onClick={() => emit("edit", review)}>
+              <NButton size="small" onClick={() => emit("edit", review)}>
                 {hasUpdatePolicyPermission.value
                   ? t("common.edit")
                   : t("common.view")}
@@ -132,6 +132,7 @@ const columns = computed(
               {hasDeletePolicyPermission.value && (
                 <BBButtonConfirm
                   text={false}
+                  size={"small"}
                   type={"DELETE"}
                   hideIcon={true}
                   buttonText={t("common.delete")}

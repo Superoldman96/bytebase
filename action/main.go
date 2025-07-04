@@ -1,71 +1,67 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 
-	"github.com/pkg/errors"
-
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/action/args"
+	"github.com/bytebase/bytebase/action/world"
+	"github.com/bytebase/bytebase/backend/common/log"
 )
 
-func run(platform JobPlatform) error {
-	url, serviceAccount, serviceAccountSecret := os.Getenv("BYTEBASE_URL"), os.Getenv("BYTEBASE_SERVICE_ACCOUNT"), os.Getenv("BYTEBASE_SERVICE_ACCOUNT_SECRET")
-	if url == "" {
-		return errors.Errorf("environment BYTEBASE_URL is not set")
-	}
-	if serviceAccount == "" {
-		return errors.Errorf("environment BYTEBASE_SERVICE_ACCOUNT is not set")
-	}
-	if serviceAccountSecret == "" {
-		return errors.Errorf("environment BYTEBASE_SERVICE_ACCOUNT_SECRET is not set")
-	}
-	project, bytebaseTargets, filePattern := os.Getenv("BYTEBASE_PROJECT"), os.Getenv("BYTEBASE_TARGETS"), os.Getenv("FILE_PATTERN")
-	if project == "" {
-		return errors.Errorf("environment BYTEBASE_PROJECT is not set")
-	}
-	if bytebaseTargets == "" {
-		return errors.Errorf("environment BYTEBASE_TARGETS is not set")
-	}
-	if filePattern == "" {
-		return errors.Errorf("environment FILE_PATTERN is not set")
-	}
-	targets := strings.Split(bytebaseTargets, ",")
-
-	client, err := NewClient(url, serviceAccount, serviceAccountSecret)
-	if err != nil {
-		return err
+func checkVersionCompatibility(client *Client, cliVersion string) {
+	if cliVersion == "unknown" {
+		slog.Warn("CLI version unknown, unable to check compatibility")
+		return
 	}
 
-	releaseFiles, err := getReleaseFiles(filePattern)
+	actuatorInfo, err := client.getActuatorInfo()
 	if err != nil {
-		return err
+		slog.Warn("Unable to get server version for compatibility check", "error", err)
+		return
 	}
-	checkReleaseResponse, err := client.checkRelease(project, &v1pb.CheckReleaseRequest{
-		Release: &v1pb.Release{Files: releaseFiles},
-		Targets: targets,
-	})
-	if err != nil {
-		return err
+
+	serverVersion := actuatorInfo.Version
+	if serverVersion == "" {
+		slog.Warn("Server version is empty, unable to check compatibility")
+		return
 	}
-	switch platform {
-	case GitLab:
-		if err := writeReleaseCheckToCodeQualityJSON(checkReleaseResponse); err != nil {
-			return err
-		}
-	case AzureDevOps:
-		if err := loggingReleaseChecks(checkReleaseResponse); err != nil {
-			return err
-		}
+
+	if cliVersion == "latest" {
+		slog.Warn("Using 'latest' CLI version. It is recommended to use a specific version like bytebase-action:" + serverVersion + " to match your Bytebase server version " + serverVersion)
+		return
 	}
-	return nil
+
+	if cliVersion != serverVersion {
+		slog.Warn("CLI version mismatch", "cliVersion", cliVersion, "serverVersion", serverVersion, "recommendation", "use bytebase-action:"+serverVersion+" to match your Bytebase server")
+	} else {
+		slog.Info("CLI version matches server version", "version", cliVersion)
+	}
 }
 
 func main() {
-	platform := getJobPlatform()
-	fmt.Printf("Hello, World - %s!\n", platform.String())
-	if err := run(platform); err != nil {
-		panic(err)
+	slog.Info("bytebase-action version " + args.Version + " built at commit " + args.Gitcommit)
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	// Trigger graceful shutdown on SIGINT or SIGTERM.
+	// The default signal sent by the `kill` command is SIGTERM,
+	// which is taken as the graceful shutdown signal for many systems, eg., Kubernetes, Gunicorn.
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-c
+		slog.Info(fmt.Sprintf("%s received.", sig.String()))
+		cancel()
+	}()
+
+	w := world.NewWorld()
+	cmd := NewRootCommand(w)
+
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		slog.Error("failed to execute command", log.BBError(err))
+		os.Exit(1)
 	}
 }

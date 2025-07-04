@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -649,7 +649,7 @@ func (q *querySpanExtractor) extractTSqlSensitiveFieldsFromSubquery(ctx parser.I
 }
 
 func (q *querySpanExtractor) tsqlFindTableSchema(fullTableName parser.IFull_table_nameContext) (base.TableSource, error) {
-	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName := normalizeFullTableNameFallback(fullTableName, "" /* Linked Server Name */, "", "")
+	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName := normalizeFullTableNameFallback(fullTableName, "", "")
 	if normalizedLinkedServer != "" {
 		// TODO(zp): How do we handle the linked server?
 		return nil, errors.Errorf("linked server is not supported yet, but found %q", fullTableName.GetText())
@@ -670,7 +670,7 @@ func (q *querySpanExtractor) tsqlFindTableSchema(fullTableName parser.IFull_tabl
 		}
 	}
 
-	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName = normalizeFullTableNameFallback(fullTableName, "" /* Linked Server Name */, q.defaultDatabase, q.defaultSchema)
+	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName = normalizeFullTableNameFallback(fullTableName, q.defaultDatabase, q.defaultSchema)
 	if normalizedLinkedServer != "" {
 		// TODO(zp): How do we handle the linked server?
 		return nil, errors.Errorf("linked server is not supported yet, but found %q", fullTableName.GetText())
@@ -705,7 +705,7 @@ func (q *querySpanExtractor) tsqlFindTableSchema(fullTableName parser.IFull_tabl
 					Server:   "",
 					Database: databaseName,
 					Schema:   schemaName,
-					Name:     tableName,
+					Name:     table.GetProto().Name,
 					Columns: func() []string {
 						var result []string
 						for _, column := range table.GetColumns() {
@@ -731,7 +731,7 @@ func (q *querySpanExtractor) tsqlFindTableSchema(fullTableName parser.IFull_tabl
 					Server:   "",
 					Database: databaseName,
 					Schema:   schemaName,
-					Name:     viewName,
+					Name:     view.GetProto().Name,
 					Columns:  columns,
 				}
 				return tableSource, nil
@@ -799,7 +799,7 @@ func (q *querySpanExtractor) tsqlGetAllFieldsOfTableInFromOrOuterCTE(normalizedD
 }
 
 func (q *querySpanExtractor) tsqlIsFullColumnNameSensitive(ctx parser.IFull_column_nameContext) (base.QuerySpanResult, error) {
-	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName := normalizeFullTableNameFallback(ctx.Full_table_name(), "", "", "")
+	normalizedLinkedServer, normalizedDatabaseName, normalizedSchemaName, normalizedTableName := normalizeFullTableNameFallback(ctx.Full_table_name(), "", "")
 	if normalizedLinkedServer != "" {
 		return base.QuerySpanResult{}, errors.Errorf("linked server is not supported yet, but found %q", ctx.GetText())
 	}
@@ -3454,8 +3454,14 @@ func getAccessTables(currentNormalizedDatabase string, currentNormalizedSchema s
 
 	var result []base.SchemaResource
 	antlr.ParseTreeWalkerDefault.Walk(l, tree)
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].String() < result[j].String()
+	slices.SortFunc(result, func(a, b base.SchemaResource) int {
+		if a.String() < b.String() {
+			return -1
+		}
+		if a.String() > b.String() {
+			return 1
+		}
+		return 0
 	})
 
 	return l.resourceMap
@@ -3575,7 +3581,7 @@ func splitTableNameIntoNormalizedParts(tableName parser.ITable_nameContext) (str
 }
 
 // normalizeFullTableNameFallback normalizes the each part of the full table name, returns (linkedServer, database, schema, table).
-func normalizeFullTableNameFallback(fullTableName parser.IFull_table_nameContext, normalizedFallbackLinkedServerName, normalizedFallbackDatabaseName, normalizedFallbackSchemaName string) (string, string, string, string) {
+func normalizeFullTableNameFallback(fullTableName parser.IFull_table_nameContext, normalizedFallbackDatabaseName, normalizedFallbackSchemaName string) (string, string, string, string) {
 	if fullTableName == nil {
 		return "", "", "", ""
 	}
@@ -3584,7 +3590,7 @@ func normalizeFullTableNameFallback(fullTableName parser.IFull_table_nameContext
 	if err != nil {
 		slog.Debug("Failed to normalize full table name", "error", err)
 	}
-	linkedServer := normalizedFallbackLinkedServerName
+	linkedServer := ""
 	if name.LinkedServer != "" {
 		linkedServer = name.LinkedServer
 	}

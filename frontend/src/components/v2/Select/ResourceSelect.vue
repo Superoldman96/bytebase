@@ -6,6 +6,7 @@
     :virtual-scroll="true"
     :multiple="multiple"
     :value="selected"
+    :disabled="disabled"
     :options="options"
     :fallback-option="fallbackOption"
     :filter="filterResource"
@@ -16,6 +17,7 @@
     :consistent-menu-width="consistentMenuWidth"
     class="bb-user-select"
     @search="handleSearch"
+    @click="() => handleSearch('')"
     @update:value="handleValueUpdated"
   >
     <template v-if="$slots.empty" #empty>

@@ -22,16 +22,16 @@ import { computed, watch, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import DatabaseInfo from "@/components/DatabaseInfo.vue";
-import { databaseForTask } from "@/components/IssueV1";
 import IssueLabelSelector, {
   getValidIssueLabels,
 } from "@/components/IssueV1/components/IssueLabelSelector.vue";
 import IssueStatusIconWithTaskSummary from "@/components/IssueV1/components/IssueStatusIconWithTaskSummary.vue";
-import { ProjectNameCell } from "@/components/v2/Model/DatabaseV1Table/cells";
+import { projectOfIssue } from "@/components/IssueV1/logic";
 import { emitWindowEvent } from "@/plugins";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import { useSheetV1Store } from "@/store";
-import { getTimeForPbTimestamp, type ComposedIssue } from "@/types";
+import { getTimeForPbTimestampProtoEs, type ComposedIssue } from "@/types";
+import { databaseForTask } from "@/utils";
 import {
   extractProjectResourceName,
   humanizeTs,
@@ -41,6 +41,25 @@ import {
 } from "@/utils";
 
 const { t } = useI18n();
+
+const props = withDefaults(
+  defineProps<{
+    issueList: ComposedIssue[];
+    loading?: boolean;
+  }>(),
+  {
+    loading: true,
+  }
+);
+
+const router = useRouter();
+const sheetStore = useSheetV1Store();
+
+const tableRef = ref<HTMLDivElement>();
+const { width: tableWidth } = useElementSize(tableRef);
+const showExtendedColumns = computed(() => {
+  return tableWidth.value > 800;
+});
 
 const columnList = computed((): DataTableColumn<ComposedIssue>[] => {
   const columns: (DataTableColumn<ComposedIssue> & { hide?: boolean })[] = [
@@ -70,16 +89,6 @@ const columnList = computed((): DataTableColumn<ComposedIssue>[] => {
       },
     },
     {
-      key: "project",
-      title: t("common.project"),
-      width: 144,
-      resizable: true,
-      hide: !props.showProject,
-      render: (issue) => (
-        <ProjectNameCell project={issue.projectEntity} mode={"ALL_SHORT"} />
-      ),
-    },
-    {
       key: "labels",
       title: t("common.labels"),
       width: 144,
@@ -87,7 +96,7 @@ const columnList = computed((): DataTableColumn<ComposedIssue>[] => {
       render: (issue) => {
         const labels = getValidIssueLabels(
           issue.labels,
-          issue.projectEntity.issueLabels
+          projectOfIssue(issue).issueLabels
         );
         if (labels.length === 0) {
           return "-";
@@ -98,7 +107,7 @@ const columnList = computed((): DataTableColumn<ComposedIssue>[] => {
             selected={labels}
             size="small"
             maxTagCount="responsive"
-            project={issue.projectEntity}
+            project={projectOfIssue(issue)}
           />
         );
       },
@@ -135,31 +144,10 @@ const columnList = computed((): DataTableColumn<ComposedIssue>[] => {
       resizable: true,
       hide: !showExtendedColumns.value,
       render: (issue) =>
-        humanizeTs(getTimeForPbTimestamp(issue.updateTime, 0) / 1000),
+        humanizeTs(getTimeForPbTimestampProtoEs(issue.updateTime, 0) / 1000),
     },
   ];
   return columns.filter((column) => !column.hide);
-});
-
-const props = withDefaults(
-  defineProps<{
-    issueList: ComposedIssue[];
-    loading?: boolean;
-    showProject: boolean;
-  }>(),
-  {
-    loading: true,
-    showProject: true,
-  }
-);
-
-const router = useRouter();
-const sheetStore = useSheetV1Store();
-
-const tableRef = ref<HTMLDivElement>();
-const { width: tableWidth } = useElementSize(tableRef);
-const showExtendedColumns = computed(() => {
-  return tableWidth.value > 800;
 });
 
 const rowProps = (issue: ComposedIssue) => {
@@ -172,8 +160,8 @@ const rowProps = (issue: ComposedIssue) => {
       const route = router.resolve({
         name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
         params: {
-          projectId: extractProjectResourceName(issue.project),
-          issueSlug: issueV1Slug(issue),
+          projectId: extractProjectResourceName(issue.name),
+          issueSlug: issueV1Slug(issue.name, issue.title),
         },
       });
       const url = route.fullPath;
@@ -191,12 +179,15 @@ const issueRelatedDatabase = (issue: ComposedIssue) => {
   if (!task) {
     return;
   }
-  return databaseForTask(issue, task);
+  return databaseForTask(projectOfIssue(issue), task);
 };
 
 const issueRelatedStatement = (issue: ComposedIssue) => {
   const task = head(flattenTaskV1List(issue.rolloutEntity));
-  const sheetName = task?.databaseDataExport?.sheet;
+  const sheetName =
+    task?.payload?.case === "databaseDataExport"
+      ? task.payload.value.sheet
+      : undefined;
   if (!task || !sheetName) {
     return;
   }
@@ -214,7 +205,10 @@ watch(
     // Prepare the sheet for each issue.
     for (const issue of list) {
       const task = head(flattenTaskV1List(issue.rolloutEntity));
-      const sheetName = task?.databaseDataExport?.sheet;
+      const sheetName =
+        task?.payload?.case === "databaseDataExport"
+          ? task.payload.value.sheet
+          : undefined;
       if (!task || !sheetName) {
         continue;
       }

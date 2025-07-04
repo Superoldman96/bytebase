@@ -8,13 +8,14 @@ import {
 } from "@/components/v2";
 import { t } from "@/plugins/i18n";
 import {
+  environmentNamePrefix,
   useEnvironmentV1List,
   useEnvironmentV1Store,
   useInstanceV1Store,
   useProjectV1Store,
 } from "@/store";
 import type { MaybeRef } from "@/types";
-import { engineToJSON } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import type { SearchScopeId } from "@/utils";
 import {
   environmentV1Name,
@@ -23,6 +24,7 @@ import {
   extractProjectResourceName,
   supportedEngineV1List,
   getDefaultPagination,
+  hasWorkspacePermissionV2,
 } from "@/utils";
 import type { ScopeOption, ValueOption } from "./types";
 
@@ -111,7 +113,7 @@ export const useCommonSearchScopeOptions = (
                   keywords: [
                     name,
                     ins.title,
-                    engineToJSON(ins.engine),
+                    String(ins.engine),
                     extractEnvironmentResourceName(ins.environment),
                   ],
                   render: () => {
@@ -139,8 +141,8 @@ export const useCommonSearchScopeOptions = (
         description: t("issue.advanced-search.scope.environment.description"),
         options: environmentList.value.map((env) => {
           return {
-            value: extractEnvironmentResourceName(env.name),
-            keywords: [env.name, env.title],
+            value: env.id,
+            keywords: [`${environmentNamePrefix}${env.id}`, env.title],
             render: () =>
               h(EnvironmentV1Name, {
                 environment: env,
@@ -157,28 +159,59 @@ export const useCommonSearchScopeOptions = (
         ),
         allowMultiple: true,
       }),
+      table: () => ({
+        id: "table",
+        title: t("issue.advanced-search.scope.table.title"),
+        description: t("issue.advanced-search.scope.table.description"),
+        allowMultiple: false,
+      }),
       engine: () => ({
         id: "engine",
         title: t("issue.advanced-search.scope.engine.title"),
         description: t("issue.advanced-search.scope.engine.description"),
         options: supportedEngineV1List().map((engine) => {
           return {
-            value: engine,
-            keywords: [engineToJSON(engine).toLowerCase()],
+            value: Engine[engine],
+            keywords: [Engine[engine].toLowerCase()],
             render: () => h(RichEngineName, { engine, tag: "p" }),
           };
         }),
         allowMultiple: true,
       }),
-    } as Record<SearchScopeId, () => ScopeOption>;
+      drifted: () => ({
+        id: "drifted",
+        title: t("database.drifted.self"),
+        description: t("database.drifted.schema-drift-detected.self"),
+        options: [
+          {
+            value: "true",
+            keywords: ["true"],
+            render: () => "TRUE",
+          },
+          {
+            value: "false",
+            keywords: ["false"],
+            render: () => "FALSE",
+          },
+        ],
+        allowMultiple: false,
+      }),
+    } as Partial<Record<SearchScopeId, () => ScopeOption>>;
 
     const scopes: ScopeOption[] = [];
-    unref(supportOptionIdList).forEach((id) => {
+    for (const id of unref(supportOptionIdList)) {
+      // TODO(ed): optimize it.
+      if (id === "instance") {
+        if (!hasWorkspacePermissionV2("bb.instances.list")) {
+          continue;
+        }
+      }
       const create = scopeCreators[id];
       if (create) {
         scopes.push(create());
       }
-    });
+    }
+
     return scopes;
   });
 

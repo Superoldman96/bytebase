@@ -1,25 +1,19 @@
+import { create } from "@bufbuild/protobuf";
 import dayjs from "dayjs";
-import { orderBy } from "lodash-es";
+import { uniq } from "lodash-es";
 import { defineStore } from "pinia";
-import { planServiceClient } from "@/grpcweb";
-import { useUserStore } from "@/store";
-import { EMPTY_ID, UNKNOWN_ID } from "@/types";
-import { unknownUser } from "@/types";
-import type { Plan } from "@/types/proto/v1/plan_service";
+import { planServiceClientConnect } from "@/grpcweb";
 import {
-  emptyPlan,
-  unknownPlan,
-  type ComposedPlan,
-} from "@/types/v1/issue/plan";
+  SearchPlansRequestSchema,
+  GetPlanRequestSchema,
+} from "@/types/proto-es/v1/plan_service_pb";
+import type { Plan } from "@/types/proto-es/v1/plan_service_pb";
 import {
-  extractProjectResourceName,
   getTsRangeFromSearchParams,
   getValueFromSearchParams,
-  hasProjectPermissionV2,
   type SearchParams,
 } from "@/utils";
-import { batchGetOrFetchDatabases } from "./database";
-import { useProjectV1Store } from "./project";
+import { useUserStore } from "../user";
 
 export interface PlanFind {
   project: string;
@@ -33,7 +27,7 @@ export interface PlanFind {
 export const buildPlanFilter = (find: PlanFind): string => {
   const filter: string[] = [];
   if (find.creator) {
-    filter.push(`creator = "${find.creator}"`);
+    filter.push(`creator == "${find.creator}"`);
   }
   if (find.createdTsAfter) {
     filter.push(
@@ -46,10 +40,10 @@ export const buildPlanFilter = (find: PlanFind): string => {
     );
   }
   if (find.hasIssue !== undefined) {
-    filter.push(`has_issue = "${find.hasIssue}"`);
+    filter.push(`has_issue == ${find.hasIssue}`);
   }
   if (find.hasPipeline !== undefined) {
-    filter.push(`has_pipeline = "${find.hasPipeline}"`);
+    filter.push(`has_pipeline == ${find.hasPipeline}`);
   }
   return filter.join(" && ");
 };
@@ -73,43 +67,6 @@ export const buildPlanFindBySearchParams = (
   return filter;
 };
 
-export const composePlan = async (rawPlan: Plan): Promise<ComposedPlan> => {
-  const userStore = useUserStore();
-  const project = `projects/${extractProjectResourceName(rawPlan.name)}`;
-  const projectEntity =
-    await useProjectV1Store().getOrFetchProjectByName(project);
-
-  const creatorEntity =
-    (await userStore.getOrFetchUserByIdentifier(rawPlan.creator)) ??
-    unknownUser();
-
-  const plan: ComposedPlan = {
-    ...rawPlan,
-    planCheckRunList: [],
-    project,
-    projectEntity,
-    creatorEntity,
-  };
-
-  await batchGetOrFetchDatabases(
-    plan.steps
-      .flatMap((step) => step.specs)
-      .flatMap((spec) => spec.changeDatabaseConfig?.target ?? "")
-  );
-
-  if (hasProjectPermissionV2(projectEntity, "bb.planCheckRuns.list")) {
-    // Only show the latest plan check runs.
-    // TODO(steven): maybe we need to show all plan check runs on a separate page later.
-    const { planCheckRuns } = await planServiceClient.listPlanCheckRuns({
-      parent: rawPlan.name,
-      latestOnly: true,
-    });
-    plan.planCheckRunList = orderBy(planCheckRuns, "name", "desc");
-  }
-
-  return plan;
-};
-
 export type ListPlanParams = {
   find: PlanFind;
   pageSize?: number;
@@ -118,46 +75,33 @@ export type ListPlanParams = {
 
 export const usePlanStore = defineStore("plan", () => {
   const searchPlans = async ({ find, pageSize, pageToken }: ListPlanParams) => {
-    const resp = await planServiceClient.searchPlans({
+    const request = create(SearchPlansRequestSchema, {
       parent: find.project,
       filter: buildPlanFilter(find),
       pageSize,
       pageToken,
     });
-    const composedPlans = await Promise.all(
-      resp.plans.map((plan) => composePlan(plan))
-    );
+    const resp = await planServiceClientConnect.searchPlans(request);
+    const plans = resp.plans;
+    // Prepare creator for the plans.
+    const users = uniq(plans.map((plan) => plan.creator));
+    await useUserStore().batchGetUsers(users);
     return {
       nextPageToken: resp.nextPageToken,
-      plans: composedPlans,
+      plans,
     };
   };
 
-  const fetchPlanByName = async (name: string): Promise<ComposedPlan> => {
-    const rawPlan = await planServiceClient.getPlan({
+  const fetchPlanByName = async (name: string): Promise<Plan> => {
+    const request = create(GetPlanRequestSchema, {
       name,
     });
-    return await composePlan(rawPlan);
-  };
-
-  const fetchPlanByUID = async (
-    uid: string,
-    project = "-"
-  ): Promise<ComposedPlan> => {
-    if (uid === "undefined") {
-      console.warn("undefined plan uid");
-      return emptyPlan();
-    }
-
-    if (uid === String(EMPTY_ID)) return emptyPlan();
-    if (uid === String(UNKNOWN_ID)) return unknownPlan();
-
-    return fetchPlanByName(`projects/${project}/plans/${uid}`);
+    const response = await planServiceClientConnect.getPlan(request);
+    return response;
   };
 
   return {
     searchPlans,
     fetchPlanByName,
-    fetchPlanByUID,
   };
 });

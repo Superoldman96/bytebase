@@ -93,6 +93,20 @@ const actionList = computed(() => {
     tag: "div",
     disabled: errors.value.length > 0,
   };
+  if (selectedTask.value.payload?.case === "databaseDataExport") {
+    return [
+      {
+        key: `${action}-STAGE`,
+        text,
+        props: actionProps,
+        params: {
+          action,
+          target: "STAGE",
+        },
+      },
+    ];
+  }
+
   const actionList: RolloutButtonAction[] = [
     {
       key: `${action}-TASK`,
@@ -104,7 +118,7 @@ const actionList = computed(() => {
       },
     },
   ];
-  if (props.stageRolloutActionList.includes(action as any)) {
+  if (props.stageRolloutActionList.includes(action)) {
     actionList.push({
       key: `${action}-STAGE`,
       text: t("issue.action-to-current-stage", { action: text }),

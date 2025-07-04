@@ -23,12 +23,13 @@ import {
   getColumnCatalog,
 } from "@/store";
 import type { ComposedDatabase } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
 import type {
   ColumnMetadata,
   TableMetadata,
-} from "@/types/proto/v1/database_service";
-import type { DataClassificationSetting_DataClassificationConfig } from "@/types/proto/v1/setting_service";
+} from "@/types/proto-es/v1/database_service_pb";
+import type { DataClassificationSetting_DataClassificationConfig } from "@/types/proto-es/v1/setting_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasProjectPermissionV2 } from "@/utils";
 import ClassificationCell from "./ClassificationCell.vue";
 import LabelsCell from "./LabelsCell.vue";
@@ -63,7 +64,7 @@ const engine = computed(() => {
 const subscriptionV1Store = useSubscriptionV1Store();
 
 const hasSensitiveDataFeature = computed(() => {
-  return subscriptionV1Store.hasFeature("bb.feature.sensitive-data");
+  return subscriptionV1Store.hasFeature(PlanFeature.FEATURE_DATA_MASKING);
 });
 
 const showSensitiveColumn = computed(() => {
@@ -79,7 +80,8 @@ const showSensitiveColumn = computed(() => {
       engine.value === Engine.MSSQL ||
       engine.value === Engine.BIGQUERY ||
       engine.value === Engine.RISINGWAVE ||
-      engine.value === Engine.SPANNER)
+      engine.value === Engine.SPANNER ||
+      engine.value === Engine.TRINO)
   );
 });
 

@@ -22,13 +22,13 @@ import { computed, h, watch, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useInstanceV1Store } from "@/store";
 import {
+  DEBOUNCE_SEARCH_DELAY,
   UNKNOWN_INSTANCE_NAME,
   isValidInstanceName,
   unknownInstance,
   type ComposedInstance,
 } from "@/types";
-import { type Engine } from "@/types/proto/v1/common";
-import type { InstanceResource } from "@/types/proto/v1/instance_service";
+import { type Engine } from "@/types/proto-es/v1/common_pb";
 import { supportedEngineV1List, getDefaultPagination } from "@/utils";
 import { InstanceV1EngineIcon } from "../Model/Instance";
 import ResourceSelect from "./ResourceSelect.vue";
@@ -106,10 +106,14 @@ const handleSearch = useDebounceFn(async (search: string) => {
   } finally {
     state.loading = false;
   }
-}, 200);
+}, DEBOUNCE_SEARCH_DELAY);
 
 watch(
-  () => [props.allowedEngineList, props.environmentName, props.projectName],
+  [
+    () => props.allowedEngineList,
+    () => props.environmentName,
+    () => props.projectName,
+  ],
   () => {
     handleSearch("");
   },
@@ -118,7 +122,7 @@ watch(
   }
 );
 
-const renderLabel = (instance: InstanceResource) => {
+const renderLabel = (instance: ComposedInstance) => {
   if (instance.name === UNKNOWN_INSTANCE_NAME) {
     return t("instance.all");
   }
@@ -150,7 +154,12 @@ const options = computed(() => {
 // might not exist in the new list. In such case, we need to reset the selection
 // and emit the event.
 const resetInvalidSelection = () => {
-  if (!props.autoReset) return;
+  if (!props.autoReset) {
+    return;
+  }
+  if (state.loading) {
+    return;
+  }
   if (
     props.instanceName &&
     !state.rawInstanceList.find((item) => item.name === props.instanceName)
@@ -160,7 +169,12 @@ const resetInvalidSelection = () => {
 };
 
 watch(
-  [() => props.instanceName, state.rawInstanceList, props.projectName],
+  [
+    () => state.loading,
+    () => props.instanceName,
+    () => state.rawInstanceList,
+    () => props.projectName,
+  ],
   resetInvalidSelection,
   {
     immediate: true,

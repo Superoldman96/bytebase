@@ -4,7 +4,7 @@
       {{ $t("settings.im-integration.description") }}
       <a
         class="normal-link inline-flex items-center"
-        href="https://www.bytebase.com/docs/change-database/webhook?source=console"
+        href="https://docs.bytebase.com/change-database/webhook?source=console"
         target="__BLANK"
       >
         {{ $t("common.learn-more") }}
@@ -48,6 +48,8 @@
 </template>
 
 <script lang="tsx" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import { cloneDeep, isEqual } from "lodash-es";
 import { NTabs, NTabPane, NButton } from "naive-ui";
 import { computed, watch, reactive } from "vue";
@@ -56,15 +58,18 @@ import { BBAttention } from "@/bbkit";
 import BBTextField from "@/bbkit/BBTextField.vue";
 import WebhookTypeIcon from "@/components/Project/WebhookTypeIcon.vue";
 import { useSettingV1Store, pushNotification } from "@/store";
-import { Webhook_Type } from "@/types/proto/v1/project_service";
+import { Webhook_Type } from "@/types/proto-es/v1/project_service_pb";
 import {
-  AppIMSetting,
-  AppIMSetting_Feishu,
-  AppIMSetting_Slack,
-  AppIMSetting_Lark,
-  AppIMSetting_Wecom,
-  AppIMSetting_DingTalk,
-} from "@/types/proto/v1/setting_service";
+  type AppIMSetting,
+  AppIMSettingSchema,
+  AppIMSetting_FeishuSchema,
+  AppIMSetting_SlackSchema,
+  AppIMSetting_LarkSchema,
+  AppIMSetting_WecomSchema,
+  AppIMSetting_DingTalkSchema,
+  Setting_SettingName,
+  ValueSchema as SettingValueSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
 
 interface LocalState {
   selectedTab: Webhook_Type;
@@ -80,16 +85,18 @@ const { t } = useI18n();
 const state = reactive<LocalState>({
   selectedTab: Webhook_Type.SLACK,
   loading: false,
-  setting: AppIMSetting.fromPartial({}),
+  setting: create(AppIMSettingSchema, {}),
 });
 
 const settingStore = useSettingV1Store();
 
-const imSetting = computed(
-  () =>
-    settingStore.getSettingByName("bb.app.im")?.value?.appImSettingValue ??
-    AppIMSetting.fromPartial({})
-);
+const imSetting = computed(() => {
+  const setting = settingStore.getSettingByName(Setting_SettingName.APP_IM);
+  if (setting?.value?.value?.case === "appImSettingValue") {
+    return setting.value.value.value;
+  }
+  return create(AppIMSettingSchema, {});
+});
 
 watch(
   () => imSetting.value,
@@ -105,27 +112,27 @@ watch(
     switch (tab) {
       case Webhook_Type.SLACK:
         if (!state.setting.slack) {
-          state.setting.slack = AppIMSetting_Slack.fromPartial({});
+          state.setting.slack = create(AppIMSetting_SlackSchema, {});
         }
         break;
       case Webhook_Type.FEISHU:
         if (!state.setting.feishu) {
-          state.setting.feishu = AppIMSetting_Feishu.fromPartial({});
+          state.setting.feishu = create(AppIMSetting_FeishuSchema, {});
         }
         break;
       case Webhook_Type.WECOM:
         if (!state.setting.wecom) {
-          state.setting.wecom = AppIMSetting_Wecom.fromPartial({});
+          state.setting.wecom = create(AppIMSetting_WecomSchema, {});
         }
         break;
       case Webhook_Type.LARK:
         if (!state.setting.lark) {
-          state.setting.lark = AppIMSetting_Lark.fromPartial({});
+          state.setting.lark = create(AppIMSetting_LarkSchema, {});
         }
         break;
       case Webhook_Type.DINGTALK:
         if (!state.setting.dingtalk) {
-          state.setting.dingtalk = AppIMSetting_DingTalk.fromPartial({});
+          state.setting.dingtalk = create(AppIMSetting_DingTalkSchema, {});
         }
         break;
     }
@@ -279,7 +286,7 @@ const imList = computed(() => {
                 placeholder={t("common.write-only")}
                 value={state.setting.dingtalk?.clientId ?? ""}
                 onUpdate:value={(val: string) => {
-                  state.setting.dingtalk!.clientId= val;
+                  state.setting.dingtalk!.clientId = val;
                 }}
               />
             </div>
@@ -308,7 +315,7 @@ const imList = computed(() => {
           </div>
         );
       },
-    }
+    },
   ];
 });
 
@@ -317,27 +324,27 @@ const dataChanged = computed(() => {
     case Webhook_Type.SLACK:
       return !isEqual(
         state.setting.slack,
-        imSetting.value.slack ?? AppIMSetting_Slack.fromPartial({})
+        imSetting.value.slack ?? create(AppIMSetting_SlackSchema, {})
       );
     case Webhook_Type.FEISHU:
       return !isEqual(
         state.setting.feishu,
-        imSetting.value.feishu ?? AppIMSetting_Feishu.fromPartial({})
+        imSetting.value.feishu ?? create(AppIMSetting_FeishuSchema, {})
       );
     case Webhook_Type.WECOM:
       return !isEqual(
         state.setting.wecom,
-        imSetting.value.wecom ?? AppIMSetting_Wecom.fromPartial({})
+        imSetting.value.wecom ?? create(AppIMSetting_WecomSchema, {})
       );
     case Webhook_Type.LARK:
       return !isEqual(
         state.setting.lark,
-        imSetting.value.lark ?? AppIMSetting_Lark.fromPartial({})
+        imSetting.value.lark ?? create(AppIMSetting_LarkSchema, {})
       );
     case Webhook_Type.DINGTALK:
       return !isEqual(
         state.setting.dingtalk,
-        imSetting.value.dingtalk ?? AppIMSetting_DingTalk.fromPartial({})
+        imSetting.value.dingtalk ?? create(AppIMSetting_DingTalkSchema, {})
       );
     default:
       return false;
@@ -372,18 +379,18 @@ const canSave = computed(() => {
 const discardChanges = () => {
   switch (state.selectedTab) {
     case Webhook_Type.SLACK:
-      state.setting.slack = AppIMSetting_Slack.fromPartial({});
+      state.setting.slack = create(AppIMSetting_SlackSchema, {});
       break;
     case Webhook_Type.FEISHU:
-      state.setting.feishu = AppIMSetting_Feishu.fromPartial({});
+      state.setting.feishu = create(AppIMSetting_FeishuSchema, {});
       break;
     case Webhook_Type.WECOM:
-      state.setting.wecom = AppIMSetting_Wecom.fromPartial({});
+      state.setting.wecom = create(AppIMSetting_WecomSchema, {});
       break;
     case Webhook_Type.LARK:
-      state.setting.lark = AppIMSetting_Lark.fromPartial({});
+      state.setting.lark = create(AppIMSetting_LarkSchema, {});
     case Webhook_Type.DINGTALK:
-      state.setting.dingtalk = AppIMSetting_DingTalk.fromPartial({});
+      state.setting.dingtalk = create(AppIMSetting_DingTalkSchema, {});
       break;
   }
 };
@@ -418,38 +425,51 @@ const onSave = async () => {
 
   try {
     const setting = await settingStore.upsertSetting({
-      name: "bb.app.im",
-      value: {
-        appImSettingValue: data,
-      },
-      updateMask,
+      name: Setting_SettingName.APP_IM,
+      value: create(SettingValueSchema, {
+        value: {
+          case: "appImSettingValue",
+          value: data,
+        },
+      }),
+      updateMask: create(FieldMaskSchema, { paths: updateMask }),
     });
 
     switch (state.selectedTab) {
       case Webhook_Type.SLACK:
-        state.setting.slack =
-          setting.value?.appImSettingValue?.slack ??
-          AppIMSetting_Slack.fromPartial({});
+        if (setting.value?.value?.case === "appImSettingValue") {
+          state.setting.slack =
+            setting.value.value.value.slack ??
+            create(AppIMSetting_SlackSchema, {});
+        }
         break;
       case Webhook_Type.FEISHU:
-        state.setting.feishu =
-          setting.value?.appImSettingValue?.feishu ??
-          AppIMSetting_Feishu.fromPartial({});
+        if (setting.value?.value?.case === "appImSettingValue") {
+          state.setting.feishu =
+            setting.value.value.value.feishu ??
+            create(AppIMSetting_FeishuSchema, {});
+        }
         break;
       case Webhook_Type.WECOM:
-        state.setting.wecom =
-          setting.value?.appImSettingValue?.wecom ??
-          AppIMSetting_Wecom.fromPartial({});
+        if (setting.value?.value?.case === "appImSettingValue") {
+          state.setting.wecom =
+            setting.value.value.value.wecom ??
+            create(AppIMSetting_WecomSchema, {});
+        }
         break;
       case Webhook_Type.LARK:
-        state.setting.lark =
-          setting.value?.appImSettingValue?.lark ??
-          AppIMSetting_Lark.fromPartial({});
+        if (setting.value?.value?.case === "appImSettingValue") {
+          state.setting.lark =
+            setting.value.value.value.lark ??
+            create(AppIMSetting_LarkSchema, {});
+        }
         break;
       case Webhook_Type.DINGTALK:
-        state.setting.dingtalk =
-          setting.value?.appImSettingValue?.dingtalk ??
-          AppIMSetting_DingTalk.fromPartial({});
+        if (setting.value?.value?.case === "appImSettingValue") {
+          state.setting.dingtalk =
+            setting.value.value.value.dingtalk ??
+            create(AppIMSetting_DingTalkSchema, {});
+        }
         break;
     }
 

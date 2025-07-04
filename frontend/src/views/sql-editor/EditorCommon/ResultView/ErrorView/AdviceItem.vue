@@ -31,7 +31,7 @@ import { NButton } from "naive-ui";
 import { computed } from "vue";
 import { positionWithOffset } from "@/components/MonacoEditor/utils";
 import type { SQLEditorQueryParams } from "@/types";
-import { Advice_Status, type Advice } from "@/types/proto/v1/sql_service";
+import { Advice_Status, type Advice } from "@/types/proto-es/v1/sql_service_pb";
 import { useSQLEditorContext } from "@/views/sql-editor/context";
 
 const props = defineProps<{
@@ -52,13 +52,13 @@ const title = computed(() => {
 const position = computed(() => {
   const { advice, executeParams } = props;
   const [startLine, startColumn] = positionWithOffset(
-    advice.startPosition?.line ?? advice.line,
-    advice.startPosition?.column ?? advice.column,
+    advice.startPosition?.line ?? 0,
+    advice.startPosition?.column ?? Number.MAX_SAFE_INTEGER,
     executeParams?.selection
   );
   const [endLine, endColumn] = positionWithOffset(
-    advice.endPosition?.line ?? advice.line,
-    advice.endPosition?.column ?? advice.column,
+    advice.endPosition?.line ?? 0,
+    advice.endPosition?.column ?? Number.MAX_SAFE_INTEGER,
     executeParams?.selection
   );
   return {

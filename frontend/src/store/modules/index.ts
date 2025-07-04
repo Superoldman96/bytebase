@@ -1,4 +1,4 @@
-export * from "./auth";
+export * from "./v1/auth";
 export * from "./command";
 export * from "./help";
 export * from "./notification";
@@ -6,7 +6,6 @@ export * from "./router";
 export * from "./sqlEditor";
 export * from "./uistate";
 export * from "./sqlReview";
-export * from "./onboardingState";
 export * from "./idp";
 export * from "./user";
 export * from "./risk";

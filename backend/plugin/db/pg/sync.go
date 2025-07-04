@@ -77,6 +77,11 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		return nil, common.Errorf(common.NotFound, "database %q not found", d.databaseName)
 	}
 	isAtLeastPG10 := isAtLeastPG10(d.connectionCtx.EngineVersion)
+	searchPath, err := d.GetSearchPath(ctx)
+	if err != nil {
+		return nil, common.Errorf(common.Internal, "failed to get search path for database %q: %v", d.databaseName, err)
+	}
+	databaseMetadata.SearchPath = searchPath
 
 	txn, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -94,7 +99,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get extension dependencies from database %q", d.databaseName)
 	}
-	schemas, schemaOwners, skipDumps, err := getSchemas(txn, extensionDepend)
+	schemas, schemaOwners, schemaComments, skipDumps, err := getSchemas(txn, extensionDepend)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get schemas from database %q", d.databaseName)
 	}
@@ -117,13 +122,17 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get triggers from database %q", d.databaseName)
 	}
-	tableMap, externalTableMap, tableOidMap, err := getTables(txn, isAtLeastPG10, columnMap, indexMap, triggerMap, extensionDepend)
+	checksMap, err := getChecks(txn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get checks from database %q", d.databaseName)
+	}
+	tableMap, externalTableMap, tableOidMap, err := getTables(txn, isAtLeastPG10, columnMap, indexMap, triggerMap, checksMap, extensionDepend)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get tables from database %q", d.databaseName)
 	}
 	var tablePartitionMap map[db.TableKey][]*storepb.TablePartitionMetadata
 	if isAtLeastPG10 {
-		tablePartitionMap, err = getTablePartitions(txn, indexMap)
+		tablePartitionMap, err = getTablePartitions(txn, indexMap, checksMap)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get table partitions from database %q", d.databaseName)
 		}
@@ -179,6 +188,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			Sequences:         sequenceMap[schemaName],
 			MaterializedViews: materializedViewMap[schemaName],
 			Owner:             schemaOwners[i],
+			Comment:           schemaComments[i],
 			EnumTypes:         enumTypes[schemaName],
 			SkipDump:          skipDumps[i],
 		})
@@ -228,6 +238,38 @@ func getExtensionDepend(txn *sql.Tx) (map[int]bool, error) {
 		return nil, err
 	}
 	return extensionDepend, nil
+}
+
+var listCheckQuery = `
+SELECT nsp.nspname, rel.relname, con.conname, pg_get_constraintdef(con.oid, true)
+    FROM pg_catalog.pg_constraint con
+        INNER JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+        INNER JOIN pg_catalog.pg_namespace nsp ON nsp.oid = connamespace
+        WHERE contype = 'c' and ` + fmt.Sprintf(`nsp.nspname NOT IN (%s)`, pgparser.SystemSchemaWhereClause)
+
+func getChecks(txn *sql.Tx) (map[db.TableKey][]*storepb.CheckConstraintMetadata, error) {
+	checksMap := make(map[db.TableKey][]*storepb.CheckConstraintMetadata)
+	rows, err := txn.Query(listCheckQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var checkMetadata storepb.CheckConstraintMetadata
+		var schemaName, tableName, checkDefinition string
+		if err := rows.Scan(&schemaName, &tableName, &checkMetadata.Name, &checkDefinition); err != nil {
+			return nil, err
+		}
+		checkMetadata.Expression = strings.TrimPrefix(checkDefinition, "CHECK ")
+
+		key := db.TableKey{Schema: schemaName, Table: tableName}
+		checksMap[key] = append(checksMap[key], &checkMetadata)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return checksMap, nil
 }
 
 var listForeignKeyQuery = `
@@ -369,26 +411,28 @@ func formatTableNameFromRegclass(name string) string {
 }
 
 var listSchemaQuery = fmt.Sprintf(`
-SELECT oid, nspname, pg_catalog.pg_get_userbyid(nspowner) as schema_owner
+SELECT oid, nspname, pg_catalog.pg_get_userbyid(nspowner) as schema_owner, 
+       obj_description(oid, 'pg_namespace') as schema_comment
 FROM pg_catalog.pg_namespace
 WHERE nspname NOT IN (%s)
 ORDER BY nspname;
 `, pgparser.SystemSchemaWhereClause)
 
-func getSchemas(txn *sql.Tx, extensionDepend map[int]bool) ([]string, []string, []bool, error) {
+func getSchemas(txn *sql.Tx, extensionDepend map[int]bool) ([]string, []string, []string, []bool, error) {
 	rows, err := txn.Query(listSchemaQuery)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	defer rows.Close()
 
-	var schemaNames, schemaOwners []string
+	var schemaNames, schemaOwners, schemaComments []string
 	var skipDump []bool
 	for rows.Next() {
 		var oid int
 		var schemaName, schemaOwner string
-		if err := rows.Scan(&oid, &schemaName, &schemaOwner); err != nil {
-			return nil, nil, nil, err
+		var comment sql.NullString
+		if err := rows.Scan(&oid, &schemaName, &schemaOwner, &comment); err != nil {
+			return nil, nil, nil, nil, err
 		}
 		if pgparser.IsSystemSchema(schemaName) {
 			continue
@@ -396,11 +440,16 @@ func getSchemas(txn *sql.Tx, extensionDepend map[int]bool) ([]string, []string, 
 		skipDump = append(skipDump, extensionDepend[oid])
 		schemaNames = append(schemaNames, schemaName)
 		schemaOwners = append(schemaOwners, schemaOwner)
+		if comment.Valid {
+			schemaComments = append(schemaComments, comment.String)
+		} else {
+			schemaComments = append(schemaComments, "")
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return schemaNames, schemaOwners, skipDump, nil
+	return schemaNames, schemaOwners, schemaComments, skipDump, nil
 }
 
 func getListForeignTableQuery() string {
@@ -436,6 +485,7 @@ func getTables(
 	columnMap map[db.TableKey][]*storepb.ColumnMetadata,
 	indexMap map[db.TableKey][]*storepb.IndexMetadata,
 	triggerMap map[db.TableKey][]*storepb.TriggerMetadata,
+	checksMap map[db.TableKey][]*storepb.CheckConstraintMetadata,
 	extensionDepend map[int]bool,
 ) (map[string][]*storepb.TableMetadata, map[string][]*storepb.ExternalTableMetadata, map[int]*db.TableKeyWithColumns, error) {
 	foreignKeysMap, err := getForeignKeys(txn)
@@ -478,6 +528,7 @@ func getTables(
 		table.Indexes = indexMap[key]
 		table.ForeignKeys = foreignKeysMap[key]
 		table.Triggers = triggerMap[key]
+		table.CheckConstraints = checksMap[key]
 
 		tableMap[schemaName] = append(tableMap[schemaName], table)
 		tableOidMap[oid] = &db.TableKeyWithColumns{Schema: schemaName, Table: table.Name, Columns: table.Columns}
@@ -550,7 +601,7 @@ WHERE
 	AND n.nspname NOT IN (%s)
 ORDER BY c.oid;`, pgparser.SystemSchemaWhereClause)
 
-func getTablePartitions(txn *sql.Tx, indexMap map[db.TableKey][]*storepb.IndexMetadata) (map[db.TableKey][]*storepb.TablePartitionMetadata, error) {
+func getTablePartitions(txn *sql.Tx, indexMap map[db.TableKey][]*storepb.IndexMetadata, checksMap map[db.TableKey][]*storepb.CheckConstraintMetadata) (map[db.TableKey][]*storepb.TablePartitionMetadata, error) {
 	result := make(map[db.TableKey][]*storepb.TablePartitionMetadata)
 	rows, err := txn.Query(listTablePartitionQuery)
 	if err != nil {
@@ -569,10 +620,11 @@ func getTablePartitions(txn *sql.Tx, indexMap map[db.TableKey][]*storepb.IndexMe
 		key := db.TableKey{Schema: schemaName, Table: tableName}
 		inhKey := db.TableKey{Schema: inhSchemaName, Table: inhTableName}
 		metadata := &storepb.TablePartitionMetadata{
-			Name:       tableName,
-			Expression: partKeyDef,
-			Value:      relPartBound,
-			Indexes:    indexMap[key],
+			Name:             tableName,
+			Expression:       partKeyDef,
+			Value:            relPartBound,
+			Indexes:          indexMap[key],
+			CheckConstraints: checksMap[key],
 		}
 		switch strings.ToLower(partitionType) {
 		case "l":
@@ -675,10 +727,11 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 		if err := rows.Scan(&schemaName, &tableName, &column.Name, &column.Type, &characterMaxLength, &column.Position, &defaultStr, &nullable, &collation, &udtSchema, &udtName, &identityGeneration, &comment); err != nil {
 			return nil, err
 		}
+		// Store schema-qualified default in the Default field for Step 4 of column default migration
 		if defaultStr.Valid {
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{
-				DefaultExpression: defaultStr.String,
-			}
+			column.Default = defaultStr.String
+		} else {
+			column.Default = "" // Handle NULL case (no default or DEFAULT NULL)
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {

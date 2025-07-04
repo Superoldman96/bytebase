@@ -40,7 +40,7 @@
       }}</span>
       <ExportFormatSelector
         :key="refreshKey"
-        v-model:format="state.config.format"
+        v-model:format="convertedFormat"
         :editable="optionsEditable"
       />
     </div>
@@ -58,23 +58,25 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { cloneDeep, head } from "lodash-es";
 import { NButton, NTooltip } from "naive-ui";
 import { computed, watch, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {
   allowUserToEditStatementForTask,
-  notifyNotEditableLegacyIssue,
   useIssueContext,
 } from "@/components/IssueV1/logic";
 import ErrorList from "@/components/misc/ErrorList.vue";
-import { planServiceClient } from "@/grpcweb";
+import { planServiceClientConnect } from "@/grpcweb";
 import { pushNotification } from "@/store";
-import { IssueStatus } from "@/types/proto/v1/issue_service";
+import { IssueStatus } from "@/types/proto-es/v1/issue_service_pb";
+import { type Plan_ExportDataConfig } from "@/types/proto-es/v1/plan_service_pb";
 import {
-  Plan_Spec,
-  Plan_ExportDataConfig,
-} from "@/types/proto/v1/plan_service";
+  UpdatePlanRequestSchema,
+  Plan_SpecSchema,
+  Plan_ExportDataConfigSchema,
+} from "@/types/proto-es/v1/plan_service_pb";
 import ExportFormatSelector from "./ExportFormatSelector.vue";
 import ExportPasswordInputer from "./ExportPasswordInputer.vue";
 
@@ -89,13 +91,21 @@ const { issue, isCreating, selectedTask, events } = context;
 const refreshKey = ref(0);
 
 const spec = computed(
-  () =>
-    head(issue.value.planEntity?.steps.flatMap((step) => step.specs)) ||
-    Plan_Spec.fromPartial({})
+  () => head(issue.value.planEntity?.specs) || create(Plan_SpecSchema, {})
 );
 
 const state = reactive<LocalState>({
-  config: Plan_ExportDataConfig.fromPartial({ ...spec.value.exportDataConfig }),
+  config: create(
+    Plan_ExportDataConfigSchema,
+    spec.value.config?.case === "exportDataConfig"
+      ? {
+          targets: spec.value.config.value.targets,
+          sheet: spec.value.config.value.sheet,
+          format: spec.value.config.value.format,
+          password: spec.value.config.value.password,
+        }
+      : {}
+  ),
   isEditing: false,
 });
 
@@ -108,18 +118,32 @@ const optionsEditable = computed(() => {
 });
 
 const denyEditTaskReasons = computed(() =>
-  allowUserToEditStatementForTask(
-    issue.value,
-    selectedTask.value,
-    context.getPlanCheckRunsForTask(selectedTask.value)
-  )
+  allowUserToEditStatementForTask(issue.value, selectedTask.value)
 );
+
+// Convert between old and new ExportFormat types
+const convertedFormat = computed({
+  get() {
+    return state.config.format;
+  },
+  set(value) {
+    state.config.format = value;
+  },
+});
 
 const handleCancelEdit = () => {
   state.isEditing = false;
-  state.config = Plan_ExportDataConfig.fromPartial({
-    ...spec.value.exportDataConfig,
-  });
+  state.config = create(
+    Plan_ExportDataConfigSchema,
+    spec.value.config?.case === "exportDataConfig"
+      ? {
+          targets: spec.value.config.value.targets,
+          sheet: spec.value.config.value.sheet,
+          format: spec.value.config.value.format,
+          password: spec.value.config.value.password,
+        }
+      : {}
+  );
   // Trigger a re-render of the child components.
   refreshKey.value++;
 };
@@ -127,27 +151,28 @@ const handleCancelEdit = () => {
 const handleSaveEdit = async () => {
   const planPatch = cloneDeep(issue.value.planEntity);
   if (!planPatch) {
-    notifyNotEditableLegacyIssue();
-    return;
+    // Should not reach here.
+    throw new Error("Plan is not defined. Cannot update export options.");
   }
 
   const distinctSpecIds = new Set([spec.value.id]);
-  const specsToPatch = planPatch.steps
-    .flatMap((step) => step.specs)
-    .filter((spec) => distinctSpecIds.has(spec.id));
+  const specsToPatch = (planPatch.specs || []).filter((spec) =>
+    distinctSpecIds.has(spec.id)
+  );
   for (let i = 0; i < specsToPatch.length; i++) {
     const spec = specsToPatch[i];
-    const config = spec.exportDataConfig;
-    if (!config) continue;
-    config.format = state.config.format;
-    config.password = state.config.password || undefined;
+    if (spec.config?.case === "exportDataConfig") {
+      spec.config.value.format = state.config.format;
+      spec.config.value.password = state.config.password || undefined;
+    }
   }
 
-  const updatedPlan = await planServiceClient.updatePlan({
+  const request = create(UpdatePlanRequestSchema, {
     plan: planPatch,
-    updateMask: ["steps"],
+    updateMask: { paths: ["specs"] },
   });
-  issue.value.planEntity = updatedPlan;
+  const response = await planServiceClientConnect.updatePlan(request);
+  issue.value.planEntity = response;
 
   events.emit("status-changed", { eager: true });
   pushNotification({
@@ -164,11 +189,15 @@ watch(
     if (!isCreating.value) {
       return;
     }
-    spec.value.exportDataConfig = Plan_ExportDataConfig.fromPartial({
-      ...spec.value.exportDataConfig,
-      format: state.config.format,
-      password: state.config.password,
-    });
+    for (const spec of issue.value.planEntity?.specs ?? []) {
+      if (spec.config?.case === "exportDataConfig") {
+        spec.config.value = create(Plan_ExportDataConfigSchema, {
+          ...spec.config.value,
+          format: state.config.format,
+          password: state.config.password,
+        });
+      }
+    }
   },
   { deep: true }
 );

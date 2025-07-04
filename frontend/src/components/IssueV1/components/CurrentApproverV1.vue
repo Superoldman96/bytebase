@@ -51,7 +51,7 @@ import {
 import { useCurrentUserV1, useUserStore } from "@/store";
 import { userNamePrefix } from "@/store/modules/v1/common";
 import { type ComposedIssue } from "@/types";
-import { IssueStatus } from "@/types/proto/v1/issue_service";
+import { IssueStatus } from "@/types/proto-es/v1/issue_service_pb";
 
 const props = defineProps<{
   issue: ComposedIssue;
@@ -65,7 +65,7 @@ const userStore = useUserStore();
 const wrappedSteps = useWrappedReviewStepsV1(toRef(props, "issue"), context);
 
 const currentStep = computed(() => {
-  return wrappedSteps.value?.find(
+  return wrappedSteps.value.find(
     (step) => step.status === "CURRENT" || step.status === "REJECTED"
   );
 });

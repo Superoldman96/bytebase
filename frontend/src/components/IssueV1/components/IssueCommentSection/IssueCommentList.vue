@@ -3,6 +3,7 @@
     <ul>
       <IssueCreatedComment :issue-comments="issueComments" :issue="issue" />
       <IssueCommentView
+        class="group"
         v-for="(item, index) in issueComments"
         :key="item.comment.name"
         :issue="issue"
@@ -12,8 +13,9 @@
         :similar="item.similar"
       >
         <template v-if="allowEditIssueComment(item.comment)" #subject-suffix>
-          <div class="space-x-2 flex items-center text-control-light">
-            <!-- mr-2 is to vertical align with the text description edit button-->
+          <div
+            class="invisible group-hover:visible space-x-2 flex items-center text-control-light"
+          >
             <div
               v-if="!state.editCommentMode"
               class="mr-2 flex items-center space-x-2"
@@ -24,7 +26,7 @@
                 size="tiny"
                 @click.prevent="onUpdateComment(item.comment)"
               >
-                <heroicons-outline:pencil class="w-4 h-4" />
+                <PencilIcon class="w-4 h-4 text-control-light" />
               </NButton>
             </div>
           </div>
@@ -41,7 +43,7 @@
             "
             :content="item.comment.comment"
             :issue-list="issueList"
-            :project="issue.projectEntity"
+            :project="project"
             @change="(val: string) => (state.editComment = val)"
             @submit="doUpdateComment"
             @cancel="cancelEditComment"
@@ -89,12 +91,13 @@
             mode="editor"
             :content="state.newComment"
             :issue-list="issueList"
-            :project="issue.projectEntity"
+            :project="project"
             @change="(val: string) => (state.newComment = val)"
             @submit="doCreateComment(state.newComment)"
           />
-          <div class="my-4 flex items-center justify-between">
+          <div class="my-3 flex items-center justify-between">
             <NButton
+              size="small"
               :disabled="state.newComment.length == 0"
               @click.prevent="doCreateComment(state.newComment)"
             >
@@ -108,6 +111,8 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
+import { PencilIcon } from "lucide-vue-next";
 import { NButton } from "naive-ui";
 import { computed, onMounted, reactive, ref, watch, watchEffect } from "vue";
 import { useRoute } from "vue-router";
@@ -117,12 +122,13 @@ import {
   useCurrentUserV1,
   useIssueCommentStore,
   useIssueV1Store,
+  useCurrentProjectV1,
   type ComposedIssueComment,
   extractUserId,
 } from "@/store";
 import { isValidProjectName } from "@/types";
 import type { ComposedIssue } from "@/types";
-import { ListIssueCommentsRequest } from "@/types/proto/v1/issue_service";
+import { ListIssueCommentsRequestSchema } from "@/types/proto-es/v1/issue_service_pb";
 import { hasProjectPermissionV2 } from "@/utils";
 import { useIssueContext } from "../../logic";
 import {
@@ -133,6 +139,10 @@ import {
 } from "./IssueCommentView";
 import IssueCreatedComment from "./IssueCommentView/IssueCreatedComment.vue";
 
+const props = defineProps<{
+  commentFilter?: (comment: ComposedIssueComment) => boolean;
+}>();
+
 interface LocalState {
   editCommentMode: boolean;
   activeComment?: ComposedIssueComment;
@@ -142,6 +152,7 @@ interface LocalState {
 
 const route = useRoute();
 
+const { project } = useCurrentProjectV1();
 const { issue } = useIssueContext();
 const issueList = ref<ComposedIssue[]>([]);
 
@@ -171,7 +182,7 @@ const prepareIssueListForMarkdownEditor = async () => {
 
 const prepareIssueComments = async () => {
   await issueCommentStore.listIssueComments(
-    ListIssueCommentsRequest.fromPartial({
+    create(ListIssueCommentsRequestSchema, {
       parent: issue.value.name,
       // Try to get all comments at once with max page size.
       pageSize: 1000,
@@ -198,14 +209,13 @@ const issueComments = computed((): DistinctIssueComment[] => {
       distinctIssueComments.push({ comment, similar: [] });
     }
   }
-  return distinctIssueComments;
+  return props.commentFilter
+    ? distinctIssueComments.filter((item) => props.commentFilter!(item.comment))
+    : distinctIssueComments;
 });
 
 const allowCreateComment = computed(() => {
-  return hasProjectPermissionV2(
-    issue.value.projectEntity,
-    "bb.issueComments.create"
-  );
+  return hasProjectPermissionV2(project.value, "bb.issueComments.create");
 });
 
 const cancelEditComment = () => {
@@ -230,10 +240,7 @@ const allowEditIssueComment = (comment: ComposedIssueComment) => {
   if (currentUser.value.email === extractUserId(comment.creator)) {
     return true;
   }
-  return hasProjectPermissionV2(
-    issue.value.projectEntity,
-    "bb.issueComments.update"
-  );
+  return hasProjectPermissionV2(project.value, "bb.issueComments.update");
 };
 
 const onUpdateComment = (issueComment: ComposedIssueComment) => {

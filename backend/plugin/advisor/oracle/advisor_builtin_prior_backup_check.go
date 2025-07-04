@@ -3,7 +3,6 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/pkg/errors"
@@ -28,7 +27,7 @@ type StatementPriorBackupCheckAdvisor struct {
 }
 
 func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx advisor.Context) ([]*storepb.Advice, error) {
-	if checkCtx.PreUpdateBackupDetail == nil || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
+	if !checkCtx.EnablePriorBackup || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
 		return nil, nil
 	}
 
@@ -46,26 +45,22 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 
 	if len(checkCtx.Statements) > common.MaxSheetCheckSize {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("The size of the SQL statements exceeds the maximum limit of %d bytes for backup", common.MaxSheetCheckSize),
-			Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 1,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("The size of the SQL statements exceeds the maximum limit of %d bytes for backup", common.MaxSheetCheckSize),
+			Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
-	databaseName := extractDatabaseName(checkCtx.PreUpdateBackupDetail.Database)
+	databaseName := common.BackupDatabaseNameOfEngine(storepb.Engine_ORACLE)
 	if !advisor.DatabaseExists(ctx, checkCtx, databaseName) {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("Need database %q to do prior backup but it does not exist", checkCtx.PreUpdateBackupDetail.Database),
-			Code:    advisor.DatabaseNotExists.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 0,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("Need database %q to do prior backup but it does not exist", databaseName),
+			Code:          advisor.DatabaseNotExists.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 		return adviceList, nil
 	}
@@ -75,13 +70,11 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 
 	if checker.hasDDL {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: "Prior backup cannot deal with mixed DDL and DML statements",
-			Code:    int32(advisor.BuiltinPriorBackupCheck),
-			StartPosition: &storepb.Position{
-				Line: 0,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       "Prior backup cannot deal with mixed DDL and DML statements",
+			Code:          int32(advisor.BuiltinPriorBackupCheck),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
@@ -105,13 +98,11 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 			}
 			if statementType != item.table.StatementType {
 				adviceList = append(adviceList, &storepb.Advice{
-					Status:  level,
-					Title:   title,
-					Content: fmt.Sprintf("Prior backup cannot handle mixed DML statements on the same table %q", key),
-					Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-					StartPosition: &storepb.Position{
-						Line: 1,
-					},
+					Status:        level,
+					Title:         title,
+					Content:       fmt.Sprintf("Prior backup cannot handle mixed DML statements on the same table %q", key),
+					Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+					StartPosition: common.FirstLinePosition,
 				})
 				break
 			}
@@ -268,9 +259,4 @@ func (l *statementDisallowMixDMLChecker) EnterUnit_statement(ctx *plsql.Unit_sta
 	} else {
 		l.hasDDL = true
 	}
-}
-
-func extractDatabaseName(databaseUID string) string {
-	segments := strings.Split(databaseUID, "/")
-	return segments[len(segments)-1]
 }

@@ -20,12 +20,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	UserService_GetUser_FullMethodName      = "/bytebase.v1.UserService/GetUser"
-	UserService_ListUsers_FullMethodName    = "/bytebase.v1.UserService/ListUsers"
-	UserService_CreateUser_FullMethodName   = "/bytebase.v1.UserService/CreateUser"
-	UserService_UpdateUser_FullMethodName   = "/bytebase.v1.UserService/UpdateUser"
-	UserService_DeleteUser_FullMethodName   = "/bytebase.v1.UserService/DeleteUser"
-	UserService_UndeleteUser_FullMethodName = "/bytebase.v1.UserService/UndeleteUser"
+	UserService_GetUser_FullMethodName        = "/bytebase.v1.UserService/GetUser"
+	UserService_BatchGetUsers_FullMethodName  = "/bytebase.v1.UserService/BatchGetUsers"
+	UserService_GetCurrentUser_FullMethodName = "/bytebase.v1.UserService/GetCurrentUser"
+	UserService_ListUsers_FullMethodName      = "/bytebase.v1.UserService/ListUsers"
+	UserService_CreateUser_FullMethodName     = "/bytebase.v1.UserService/CreateUser"
+	UserService_UpdateUser_FullMethodName     = "/bytebase.v1.UserService/UpdateUser"
+	UserService_DeleteUser_FullMethodName     = "/bytebase.v1.UserService/DeleteUser"
+	UserService_UndeleteUser_FullMethodName   = "/bytebase.v1.UserService/UndeleteUser"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -34,20 +36,33 @@ const (
 type UserServiceClient interface {
 	// Get the user.
 	// Any authenticated user can get the user.
+	// Permissions required: bb.users.get
 	GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*User, error)
+	// Get the users in batch.
+	// Any authenticated user can batch get users.
+	// Permissions required: bb.users.get
+	BatchGetUsers(ctx context.Context, in *BatchGetUsersRequest, opts ...grpc.CallOption) (*BatchGetUsersResponse, error)
+	// Get the current authenticated user.
+	// Permissions required: None
+	GetCurrentUser(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*User, error)
 	// List all users.
 	// Any authenticated user can list users.
+	// Permissions required: bb.users.list
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
 	// Create a user.
 	// When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user.
 	// Otherwise, any unauthenticated user can create a user.
+	// Permissions required: bb.users.create
 	CreateUser(ctx context.Context, in *CreateUserRequest, opts ...grpc.CallOption) (*User, error)
 	// Only the user itself and the user with bb.users.update permission on the workspace can update the user.
+	// Permissions required: bb.users.update
 	UpdateUser(ctx context.Context, in *UpdateUserRequest, opts ...grpc.CallOption) (*User, error)
 	// Only the user with bb.users.delete permission on the workspace can delete the user.
 	// The last remaining workspace admin cannot be deleted.
+	// Permissions required: bb.users.delete
 	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Only the user with bb.users.undelete permission on the workspace can undelete the user.
+	// Permissions required: bb.users.undelete
 	UndeleteUser(ctx context.Context, in *UndeleteUserRequest, opts ...grpc.CallOption) (*User, error)
 }
 
@@ -63,6 +78,26 @@ func (c *userServiceClient) GetUser(ctx context.Context, in *GetUserRequest, opt
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(User)
 	err := c.cc.Invoke(ctx, UserService_GetUser_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) BatchGetUsers(ctx context.Context, in *BatchGetUsersRequest, opts ...grpc.CallOption) (*BatchGetUsersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BatchGetUsersResponse)
+	err := c.cc.Invoke(ctx, UserService_BatchGetUsers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *userServiceClient) GetCurrentUser(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*User, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(User)
+	err := c.cc.Invoke(ctx, UserService_GetCurrentUser_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,20 +160,33 @@ func (c *userServiceClient) UndeleteUser(ctx context.Context, in *UndeleteUserRe
 type UserServiceServer interface {
 	// Get the user.
 	// Any authenticated user can get the user.
+	// Permissions required: bb.users.get
 	GetUser(context.Context, *GetUserRequest) (*User, error)
+	// Get the users in batch.
+	// Any authenticated user can batch get users.
+	// Permissions required: bb.users.get
+	BatchGetUsers(context.Context, *BatchGetUsersRequest) (*BatchGetUsersResponse, error)
+	// Get the current authenticated user.
+	// Permissions required: None
+	GetCurrentUser(context.Context, *emptypb.Empty) (*User, error)
 	// List all users.
 	// Any authenticated user can list users.
+	// Permissions required: bb.users.list
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
 	// Create a user.
 	// When Disallow Signup is enabled, only the caller with bb.users.create on the workspace can create a user.
 	// Otherwise, any unauthenticated user can create a user.
+	// Permissions required: bb.users.create
 	CreateUser(context.Context, *CreateUserRequest) (*User, error)
 	// Only the user itself and the user with bb.users.update permission on the workspace can update the user.
+	// Permissions required: bb.users.update
 	UpdateUser(context.Context, *UpdateUserRequest) (*User, error)
 	// Only the user with bb.users.delete permission on the workspace can delete the user.
 	// The last remaining workspace admin cannot be deleted.
+	// Permissions required: bb.users.delete
 	DeleteUser(context.Context, *DeleteUserRequest) (*emptypb.Empty, error)
 	// Only the user with bb.users.undelete permission on the workspace can undelete the user.
+	// Permissions required: bb.users.undelete
 	UndeleteUser(context.Context, *UndeleteUserRequest) (*User, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
@@ -152,6 +200,12 @@ type UnimplementedUserServiceServer struct{}
 
 func (UnimplementedUserServiceServer) GetUser(context.Context, *GetUserRequest) (*User, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUser not implemented")
+}
+func (UnimplementedUserServiceServer) BatchGetUsers(context.Context, *BatchGetUsersRequest) (*BatchGetUsersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BatchGetUsers not implemented")
+}
+func (UnimplementedUserServiceServer) GetCurrentUser(context.Context, *emptypb.Empty) (*User, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCurrentUser not implemented")
 }
 func (UnimplementedUserServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListUsers not implemented")
@@ -203,6 +257,42 @@ func _UserService_GetUser_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UserServiceServer).GetUser(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_BatchGetUsers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatchGetUsersRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).BatchGetUsers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_BatchGetUsers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).BatchGetUsers(ctx, req.(*BatchGetUsersRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _UserService_GetCurrentUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).GetCurrentUser(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_GetCurrentUser_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).GetCurrentUser(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -307,6 +397,14 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUser",
 			Handler:    _UserService_GetUser_Handler,
+		},
+		{
+			MethodName: "BatchGetUsers",
+			Handler:    _UserService_BatchGetUsers_Handler,
+		},
+		{
+			MethodName: "GetCurrentUser",
+			Handler:    _UserService_GetCurrentUser_Handler,
 		},
 		{
 			MethodName: "ListUsers",

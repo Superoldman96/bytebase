@@ -26,6 +26,7 @@ import { orderBy } from "lodash-es";
 import { Building2Icon } from "lucide-vue-next";
 import { NTag, NTooltip } from "naive-ui";
 import { computed } from "vue";
+import type { Binding } from "@/types/proto-es/v1/iam_policy_pb";
 import { displayRoleTitle, sortRoles, isBindingPolicyExpired } from "@/utils";
 import type { MemberRole } from "../../types";
 
@@ -38,6 +39,23 @@ const workspaceLevelRoles = computed(() => {
 });
 
 const projectRoleBindings = computed(() => {
-  return orderBy(props.role.projectRoleBindings, ["role"]);
+  const roleMap = new Map<string, { expired: boolean; binding: Binding }>();
+  for (const binding of props.role.projectRoleBindings) {
+    const isExpired = isBindingPolicyExpired(binding);
+    if (
+      !roleMap.has(binding.role) ||
+      (roleMap.get(binding.role)?.expired && !isExpired)
+    ) {
+      roleMap.set(binding.role, {
+        expired: isExpired,
+        binding,
+      });
+    }
+  }
+
+  return orderBy(
+    [...roleMap.values()].map((item) => item.binding),
+    ["role"]
+  );
 });
 </script>

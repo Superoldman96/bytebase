@@ -6,27 +6,25 @@ import {
   isValidInstanceName,
   languageOfEngineV1,
   unknownInstance,
-  emptyInstance,
 } from "@/types";
-import { Engine, State } from "@/types/proto/v1/common";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import { State } from "@/types/proto-es/v1/common_pb";
+// Using proto-es types directly, no conversions needed
 import type {
   Instance,
   InstanceResource,
-} from "@/types/proto/v1/instance_service";
+} from "@/types/proto-es/v1/instance_service_pb";
 import {
   DataSourceType,
   type DataSource,
-} from "@/types/proto/v1/instance_service";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+} from "@/types/proto-es/v1/instance_service_pb";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 
 export function instanceV1Name(instance: Instance | InstanceResource) {
   const store = useSubscriptionV1Store();
   let name = instance.title;
-  // For unknown or empty instance, we will use the name as the title.
-  if (
-    instance.title === unknownInstance().title ||
-    instance.title === emptyInstance().title
-  ) {
+  // For unknown instance, we will use the name as the title.
+  if (instance.title === unknownInstance().title) {
     name = extractInstanceResourceName(instance.name);
   }
   if ((instance as Instance).state === State.DELETED) {
@@ -135,7 +133,6 @@ export const enginesSupportCreateDatabase = () => {
     Engine.MONGODB,
     Engine.TIDB,
     Engine.OCEANBASE,
-    Engine.OCEANBASE_ORACLE,
     Engine.REDSHIFT,
     Engine.MARIADB,
     Engine.STARROCKS,
@@ -210,8 +207,9 @@ export const instanceV1HasExtraParameters = (
     Engine.POSTGRES,
     Engine.ORACLE,
     Engine.MSSQL,
+    Engine.MONGODB,
   ].includes(engine);
-}
+};
 
 export const instanceV1HasCollationAndCharacterSet = (
   instanceOrEngine: Instance | InstanceResource | Engine
@@ -257,6 +255,7 @@ export const instanceV1AllowsExplain = (
     Engine.COCKROACHDB,
     Engine.DM,
     Engine.HIVE,
+    Engine.MSSQL,
     Engine.OCEANBASE_ORACLE,
     Engine.ORACLE,
     Engine.POSTGRES,
@@ -327,13 +326,13 @@ export const instanceV1MaskingForNoSQL = (
   instanceOrEngine: Instance | InstanceResource | Engine
 ) => {
   const engine = engineOfInstanceV1(instanceOrEngine);
-  return [Engine.MONGODB, Engine.COSMOSDB].includes(engine);
+  return [Engine.MONGODB].includes(engine);
 };
 
 export const engineOfInstanceV1 = (
   instanceOrEngine: Instance | InstanceResource | Engine
-) => {
-  if (typeof instanceOrEngine === "string") {
+): Engine => {
+  if (typeof instanceOrEngine === "number") {
     return instanceOrEngine;
   }
   return instanceOrEngine.engine;
@@ -392,7 +391,7 @@ export const engineNameV1 = (type: Engine): string => {
     case Engine.COSMOSDB:
       return "CosmosDB";
     case Engine.CASSANDRA:
-      return "Cassandra"
+      return "Cassandra";
     case Engine.TRINO:
       return "Trino";
   }
@@ -407,7 +406,8 @@ export const hasSchemaProperty = (databaseEngine: Engine) => {
     databaseEngine === Engine.REDSHIFT ||
     databaseEngine === Engine.RISINGWAVE ||
     databaseEngine === Engine.COCKROACHDB ||
-    databaseEngine === Engine.SPANNER
+    databaseEngine === Engine.SPANNER ||
+    databaseEngine === Engine.TRINO
   );
 };
 
@@ -470,5 +470,6 @@ export const supportGetStringSchema = (engine: Engine) => {
     Engine.CLICKHOUSE,
     Engine.REDSHIFT,
     Engine.ORACLE,
+    Engine.MSSQL,
   ].includes(engine);
 };

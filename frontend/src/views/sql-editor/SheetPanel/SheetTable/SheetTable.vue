@@ -1,49 +1,28 @@
 <template>
-  <BBGrid
-    :column-list="columns"
-    :data-source="sortedSheetList"
-    :show-placeholder="true"
-    :ready="!isLoading"
-    row-key="name"
-    @click-row="handleSheetClick"
-  >
-    <template #item="{ item: sheet }: BBGridRow<Worksheet>">
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <div class="bb-grid-cell" v-html="titleHTML(sheet)"></div>
-      <div class="bb-grid-cell">
-        <SheetConnection :sheet="sheet" />
-      </div>
-      <div class="bb-grid-cell">
-        <ProjectV1Name :project="projectForSheet(sheet)" :link="false" />
-      </div>
-      <div class="bb-grid-cell">
-        {{ visibilityDisplayName(sheet.visibility) }}
-      </div>
-      <div v-if="showCreator" class="bb-grid-cell">
-        {{ creatorForSheet(sheet) }}
-      </div>
-      <div class="bb-grid-cell">
-        <HumanizeDate :date="getDateForPbTimestamp(sheet.updateTime)" />
-      </div>
-      <div class="bb-grid-cell" @click.stop>
-        <Dropdown :sheet="sheet" :view="view" />
-      </div>
-    </template>
-  </BBGrid>
+  <NDataTable
+    size="small"
+    :columns="columns"
+    :data="sortedSheetList"
+    :loading="isLoading"
+    :striped="true"
+    :bordered="true"
+    :row-key="(sheet: Worksheet) => sheet.name"
+    :row-props="getRowProps"
+  />
 </template>
 
-<script lang="ts" setup>
+<script lang="tsx" setup>
 import { escape, orderBy } from "lodash-es";
+import { NDataTable } from "naive-ui";
+import type { DataTableColumn } from "naive-ui";
 import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import type { BBGridRow, BBGridColumn } from "@/bbkit";
-import { BBGrid } from "@/bbkit";
 import HumanizeDate from "@/components/misc/HumanizeDate.vue";
 import { ProjectV1Name } from "@/components/v2";
 import { useUserStore, useProjectV1Store } from "@/store";
-import { getDateForPbTimestamp } from "@/types";
-import type { Worksheet } from "@/types/proto/v1/worksheet_service";
-import { Worksheet_Visibility } from "@/types/proto/v1/worksheet_service";
+import { getDateForPbTimestampProtoEs } from "@/types";
+import type { Worksheet } from "@/types/proto-es/v1/worksheet_service_pb";
+import { Worksheet_Visibility } from "@/types/proto-es/v1/worksheet_service_pb";
 import { getHighlightHTMLByRegExp } from "@/utils";
 import type { SheetViewMode } from "../../Sheet";
 import { useSheetContextByView, Dropdown } from "../../Sheet";
@@ -72,42 +51,69 @@ const handleSheetClick = (sheet: Worksheet) => {
   emit("select-sheet", sheet);
 };
 
-const columns = computed(() => {
-  const NAME: BBGridColumn = {
-    title: t("common.name"),
-    width: "2fr",
-  };
-  const CONNECTION: BBGridColumn = {
-    title: t("sql-editor.sheet.connection"),
-    width: "minmax(auto, 2fr)",
-  };
-  const PROJECT: BBGridColumn = {
-    title: t("common.project"),
-    width: "minmax(auto, 1fr)",
-  };
-  const VISIBILITY: BBGridColumn = {
-    title: t("common.visibility"),
-    width: "minmax(auto, 8rem)",
-  };
-  const CREATOR: BBGridColumn = {
-    title: t("common.creator"),
-    width: "minmax(auto, 1fr)",
-  };
-  const UPDATED: BBGridColumn = {
-    title: t("common.updated-at"),
-    width: "minmax(auto, 10rem)",
-  };
-  const OPERATION: BBGridColumn = {
-    title: "",
-    width: "auto",
-  };
-  const columns = [NAME, CONNECTION, PROJECT, VISIBILITY];
+const columns = computed((): DataTableColumn<Worksheet>[] => {
+  const cols: DataTableColumn<Worksheet>[] = [
+    {
+      title: t("common.name"),
+      key: "name",
+      render: (sheet) => <div v-html={titleHTML(sheet)} />,
+    },
+    {
+      title: t("sql-editor.sheet.connection"),
+      key: "connection",
+      render: (sheet) => <SheetConnection sheet={sheet} />,
+    },
+    {
+      title: t("common.project"),
+      key: "project",
+      render: (sheet) => (
+        <ProjectV1Name project={projectForSheet(sheet)} link={false} />
+      ),
+    },
+    {
+      title: t("common.visibility"),
+      key: "visibility",
+      width: 150,
+      render: (sheet) => visibilityDisplayName(sheet.visibility),
+    },
+  ];
+
   if (showCreator.value) {
-    columns.push(CREATOR);
+    cols.push({
+      title: t("common.creator"),
+      key: "creator",
+      render: (sheet) => creatorForSheet(sheet),
+    });
   }
-  columns.push(UPDATED, OPERATION);
-  return columns;
+
+  cols.push(
+    {
+      title: t("common.updated-at"),
+      key: "updatedAt",
+      width: 180,
+      render: (sheet) => (
+        <HumanizeDate date={getDateForPbTimestampProtoEs(sheet.updateTime)} />
+      ),
+    },
+    {
+      title: "",
+      key: "operations",
+      width: 50,
+      render: (sheet) => <Dropdown sheet={sheet} view={props.view} />,
+    }
+  );
+
+  return cols;
 });
+
+const getRowProps = (sheet: Worksheet) => {
+  return {
+    style: "cursor: pointer;",
+    onClick: () => {
+      handleSheetClick(sheet);
+    },
+  };
+};
 
 const filteredList = computed(() => {
   const keyword = props.keyword?.toLowerCase()?.trim();
@@ -135,11 +141,11 @@ const creatorForSheet = (sheet: Worksheet) => {
 
 const visibilityDisplayName = (visibility: Worksheet_Visibility) => {
   switch (visibility) {
-    case Worksheet_Visibility.VISIBILITY_PRIVATE:
+    case Worksheet_Visibility.PRIVATE:
       return t("sql-editor.private");
-    case Worksheet_Visibility.VISIBILITY_PROJECT_READ:
+    case Worksheet_Visibility.PROJECT_READ:
       return t("sql-editor.project-read");
-    case Worksheet_Visibility.VISIBILITY_PROJECT_WRITE:
+    case Worksheet_Visibility.PROJECT_WRITE:
       return t("sql-editor.project-write");
     default:
       return "";

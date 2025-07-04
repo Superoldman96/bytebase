@@ -1,5 +1,5 @@
 <template>
-  <div class="textlabel">
+  <div>
     <div
       class="flex flex-col md:flex-row md:items-center gap-y-2 justify-between"
     >
@@ -21,7 +21,9 @@
       <NInputGroup style="width: auto">
         <EnvironmentSelect
           class="!w-40"
-          :environment-name="environment?.name"
+          :environment-name="
+            environment ? formatEnvironmentName(environment.id) : undefined
+          "
           @update:environment-name="changeEnvironmentFilter"
         />
         <InstanceSelect
@@ -48,9 +50,13 @@
 import { NInputGroup, NRadio, NRadioGroup } from "naive-ui";
 import { InstanceSelect, SearchBox } from "@/components/v2";
 import { useEnvironmentV1Store, useInstanceResourceByName } from "@/store";
-import { isValidEnvironmentName, isValidInstanceName } from "@/types";
-import type { Environment } from "@/types/proto/v1/environment_service";
-import type { InstanceResource } from "@/types/proto/v1/instance_service";
+import {
+  formatEnvironmentName,
+  isValidEnvironmentName,
+  isValidInstanceName,
+} from "@/types";
+import { type InstanceResource } from "@/types/proto-es/v1/instance_service_pb";
+import type { Environment } from "@/types/v1/environment";
 import EnvironmentSelect from "../v2/Select/EnvironmentSelect.vue";
 import type { TransferSource } from "./utils";
 
@@ -91,6 +97,10 @@ const changeInstanceFilter = (name: string | undefined) => {
   if (!isValidInstanceName(name)) {
     return emit("update:instance", undefined);
   }
-  emit("update:instance", useInstanceResourceByName(name).instance.value);
+
+  emit(
+    "update:instance",
+    useInstanceResourceByName(name).instance.value as InstanceResource
+  );
 };
 </script>

@@ -15,7 +15,7 @@
             </div>
             <DatabaseAndGroupSelector
               :project="project"
-              @update="handleTargetChange"
+              v-model:value="state.targetSelectState"
             />
           </div>
           <div
@@ -74,7 +74,7 @@ import { NRadioGroup, NRadio } from "naive-ui";
 import { zindexable as vZindexable } from "vdirs";
 import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
+import { useRouter, type LocationQueryRaw } from "vue-router";
 import { BBSpin } from "@/bbkit";
 import DatabaseAndGroupSelector, {
   type DatabaseSelectState,
@@ -82,7 +82,6 @@ import DatabaseAndGroupSelector, {
 import { Drawer, DrawerContent, ErrorTipsButton } from "@/components/v2";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import { useDatabaseV1Store, useDBGroupStore } from "@/store";
-import { DatabaseGroup } from "@/types/proto/v1/database_group_service";
 import { extractProjectResourceName, generateIssueTitle } from "@/utils";
 import { useChangelistDetailContext } from "../context";
 
@@ -121,10 +120,6 @@ const nextButtonErrors = computed(() => {
   return errors;
 });
 
-const handleTargetChange = (databaseSelectState: DatabaseSelectState) => {
-  state.targetSelectState = databaseSelectState;
-};
-
 const handleClickNext = async () => {
   if (!state.targetSelectState) {
     return;
@@ -135,12 +130,10 @@ const handleClickNext = async () => {
     const databaseList = state.targetSelectState.selectedDatabaseNameList.map(
       (name) => databaseStore.getDatabaseByName(name)
     );
-    const databaseGroup = DatabaseGroup.fromPartial({
-      ...dbGroupStore.getDBGroupByName(
-        state.targetSelectState.selectedDatabaseGroup || ""
-      ),
-    });
-    const query: Record<string, any> = {
+    const databaseGroup = dbGroupStore.getDBGroupByName(
+      state.targetSelectState.selectedDatabaseGroup || ""
+    );
+    const query: LocationQueryRaw = {
       template:
         state.changeType === "DDL"
           ? "bb.issue.database.schema.update"
@@ -149,7 +142,7 @@ const handleClickNext = async () => {
         "bb.issue.database.schema.update",
         state.targetSelectState.changeSource === "DATABASE"
           ? databaseList.map((db) => db.databaseName)
-          : [databaseGroup?.databasePlaceholder]
+          : [databaseGroup?.title ?? ""]
       ),
       changelist: changelist.value.name,
       description: `Apply changelist [${changelist.value.description}]`,

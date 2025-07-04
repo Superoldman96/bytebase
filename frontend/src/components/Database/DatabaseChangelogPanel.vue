@@ -103,12 +103,14 @@
       })
     "
     :description="$t('changelog.establish-baseline-description')"
-    @ok="doCreateBaseline"
+    @ok="updateDatabaseDrift"
     @cancel="state.showBaselineModal = false"
   />
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import dayjs from "dayjs";
 import saveAs from "file-saver";
 import JSZip from "jszip";
@@ -125,19 +127,22 @@ import {
 import { useDatabaseDetailContext } from "@/components/Database/context";
 import { TooltipButton } from "@/components/v2";
 import PagedTable from "@/components/v2/Model/PagedTable.vue";
+import { PROJECT_V1_ROUTE_SYNC_SCHEMA } from "@/router/dashboard/projectV1";
 import {
-  PROJECT_V1_ROUTE_ISSUE_DETAIL,
-  PROJECT_V1_ROUTE_SYNC_SCHEMA,
-} from "@/router/dashboard/projectV1";
-import { useChangelogStore } from "@/store";
+  pushNotification,
+  useChangelogStore,
+  useDatabaseV1Store,
+} from "@/store";
 import type { ComposedDatabase, Table, SearchChangeLogParams } from "@/types";
-import { DEFAULT_PROJECT_NAME, getDateForPbTimestamp } from "@/types";
+import { DEFAULT_PROJECT_NAME } from "@/types";
 import {
   Changelog_Status,
   Changelog_Type,
   ChangelogView,
-} from "@/types/proto/v1/database_service";
-import type { Changelog } from "@/types/proto/v1/database_service";
+  DatabaseSchema$,
+  UpdateDatabaseRequestSchema,
+} from "@/types/proto-es/v1/database_service_pb";
+import type { Changelog } from "@/types/proto-es/v1/database_service_pb";
 import { extractProjectResourceName } from "@/utils";
 import { getChangelogChangeType } from "@/utils/v1/changelog";
 
@@ -157,6 +162,7 @@ const props = defineProps<{
 const { t } = useI18n();
 const router = useRouter();
 const changelogStore = useChangelogStore();
+const databaseStore = useDatabaseV1Store();
 const changedlogPagedTable =
   ref<ComponentExposed<typeof PagedTable<Changelog>>>();
 
@@ -171,7 +177,9 @@ const state = reactive<LocalState>({
 const searchChangeLogParams = computed(
   (): SearchChangeLogParams => ({
     tables: state.selectedAffectedTables,
-    types: state.selectedChangeType ? [state.selectedChangeType] : undefined,
+    types: state.selectedChangeType
+      ? [Changelog_Type[state.selectedChangeType]]
+      : undefined,
   })
 );
 
@@ -181,7 +189,9 @@ const searchChangelogFilter = computed(() => {
     searchChangeLogParams.value.types &&
     searchChangeLogParams.value.types.length > 0
   ) {
-    filter.push(`type = "${searchChangeLogParams.value.types.join(" | ")}"`);
+    filter.push(
+      `type = "${searchChangeLogParams.value.types.map(Number).join(" | ")}"`
+    );
   }
   if (
     searchChangeLogParams.value.tables &&
@@ -264,7 +274,7 @@ const handleExportChangelogs = async () => {
   for (const name of state.selectedChangelogNames) {
     const changelog = await changelogStore.fetchChangelog({
       name,
-      view: ChangelogView.CHANGELOG_VIEW_FULL,
+      view: ChangelogView.FULL,
     });
 
     if (changelog) {
@@ -273,7 +283,9 @@ const handleExportChangelogs = async () => {
       }
 
       const filePathPrefix = dayjs(
-        getDateForPbTimestamp(changelog.createTime)
+        changelog.createTime
+          ? new Date(Number(changelog.createTime.seconds) * 1000)
+          : new Date()
       ).format("YYYY-MM-DDTHH-mm-ss");
       if (
         changelog.type === Changelog_Type.MIGRATE ||
@@ -303,22 +315,24 @@ const handleExportChangelogs = async () => {
   state.isExporting = false;
 };
 
-const doCreateBaseline = () => {
-  state.showBaselineModal = false;
-
-  router.push({
-    name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
-    params: {
-      projectId: extractProjectResourceName(props.database.project),
-      issueSlug: "create",
-    },
-    query: {
-      template: "bb.issue.database.schema.baseline",
-      name: t("changelog.establish-database-baseline", {
-        name: props.database.databaseName,
-      }),
-      databaseList: props.database.name,
-    },
+const updateDatabaseDrift = async () => {
+  const updatedDatabase = create(DatabaseSchema$, {
+    ...props.database,
+    drifted: false,
   });
+
+  await databaseStore.updateDatabase(
+    create(UpdateDatabaseRequestSchema, {
+      database: updatedDatabase,
+      updateMask: create(FieldMaskSchema, { paths: ["drifted"] }),
+    })
+  );
+  pushNotification({
+    module: "bytebase",
+    style: "SUCCESS",
+    title: t("database.drifted.new-baseline.successfully-established"),
+  });
+  state.showBaselineModal = false;
+  changedlogPagedTable.value?.refresh();
 };
 </script>

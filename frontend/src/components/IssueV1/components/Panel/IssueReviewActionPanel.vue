@@ -81,7 +81,7 @@
               <NButton
                 :disabled="confirmErrors.length > 0"
                 v-bind="confirmButtonProps"
-                @click="handleClickConfirm"
+                @click="handleConfirm"
               >
                 {{ $t("common.confirm") }}
               </NButton>
@@ -97,6 +97,7 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import { NButton, NCheckbox, NInput, NTooltip } from "naive-ui";
 import { computed, reactive, ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -107,12 +108,18 @@ import {
   issueReviewActionButtonProps,
   issueReviewActionDisplayName,
   planCheckRunSummaryForIssue,
-  databaseForTask,
 } from "@/components/IssueV1/logic";
 import PlanCheckRunBar from "@/components/PlanCheckRun/PlanCheckRunBar.vue";
 import RequiredStar from "@/components/RequiredStar.vue";
-import { issueServiceClient } from "@/grpcweb";
-import { Issue_Approver_Status } from "@/types/proto/v1/issue_service";
+import { issueServiceClientConnect } from "@/grpcweb";
+import { useCurrentProjectV1 } from "@/store";
+import {
+  ApproveIssueRequestSchema,
+  RejectIssueRequestSchema,
+  RequestIssueRequestSchema,
+} from "@/types/proto-es/v1/issue_service_pb";
+import { Issue_Approver_Status } from "@/types/proto-es/v1/issue_service_pb";
+import { databaseForTask } from "@/utils";
 import { ErrorList } from "../common";
 import CommonDrawer from "./CommonDrawer.vue";
 
@@ -132,6 +139,7 @@ const state = reactive<LocalState>({
   loading: false,
 });
 const { events, issue, selectedTask } = useIssueContext();
+const { project } = useCurrentProjectV1();
 const comment = ref("");
 const performActionAnyway = ref(false);
 
@@ -148,7 +156,7 @@ const title = computed(() => {
 });
 
 const database = computed(() =>
-  databaseForTask(issue.value, selectedTask.value)
+  databaseForTask(project.value, selectedTask.value)
 );
 
 const showPerformActionAnyway = computed(() => {
@@ -205,53 +213,30 @@ const confirmButtonProps = computed(() => {
   return p;
 });
 
-const handleClickConfirm = (e: MouseEvent) => {
-  const button = e.target as HTMLElement;
-  const { left, top, width, height } = button.getBoundingClientRect();
-  const { innerWidth: winWidth, innerHeight: winHeight } = window;
-  const onSuccess = () => {
-    if (props.action !== "APPROVE") {
-      return;
-    }
-    // import the effect lib asynchronously
-    import("canvas-confetti").then(({ default: confetti }) => {
-      // Create a confetti effect from the position of the LGTM button
-      confetti({
-        particleCount: 100,
-        spread: 70,
-        origin: {
-          x: (left + width / 2) / winWidth,
-          y: (top + height / 2) / winHeight,
-        },
-      });
-    });
-  };
-
-  handleConfirm(onSuccess);
-};
-
-const handleConfirm = async (onSuccess: () => void) => {
+const handleConfirm = async () => {
   const { action } = props;
   if (!action) return;
   state.loading = true;
   try {
     const status = targetReviewStatusForReviewAction(action);
     if (status === Issue_Approver_Status.APPROVED) {
-      await issueServiceClient.approveIssue({
+      const request = create(ApproveIssueRequestSchema, {
         name: issue.value.name,
         comment: comment.value,
       });
-      onSuccess();
+      await issueServiceClientConnect.approveIssue(request);
     } else if (status === Issue_Approver_Status.PENDING) {
-      await issueServiceClient.requestIssue({
+      const request = create(RequestIssueRequestSchema, {
         name: issue.value.name,
         comment: comment.value,
       });
+      await issueServiceClientConnect.requestIssue(request);
     } else if (status === Issue_Approver_Status.REJECTED) {
-      await issueServiceClient.rejectIssue({
+      const request = create(RejectIssueRequestSchema, {
         name: issue.value.name,
         comment: comment.value,
       });
+      await issueServiceClientConnect.rejectIssue(request);
     }
 
     // notify the issue logic to update issue status

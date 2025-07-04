@@ -6,8 +6,6 @@
     :row-key="(row) => row.name"
     :striped="true"
     :bordered="true"
-    :max-height="'calc(100vh - 15rem)'"
-    virtual-scroll
     default-expand-all
   />
 </template>
@@ -18,7 +16,7 @@ import { NDataTable } from "naive-ui";
 import { computed, h } from "vue";
 import { useI18n } from "vue-i18n";
 import GroupNameCell from "@/components/User/Settings/UserDataTableByGroup/cells/GroupNameCell.vue";
-import type { User } from "@/types/proto/v1/user_service";
+import type { User } from "@/types/proto-es/v1/user_service_pb";
 import { displayRoleTitle } from "@/utils";
 import UserNameCell from "./MemberDataTable/cells/UserNameCell.vue";
 import UserOperationsCell from "./MemberDataTable/cells/UserOperationsCell.vue";
@@ -37,6 +35,7 @@ interface BindingRowData {
 }
 
 const props = defineProps<{
+  scope: "workspace" | "project";
   allowEdit: boolean;
   bindingsByRole: Map<string, Map<string, MemberBinding>>;
   onClickUser?: (user: User, event: MouseEvent) => void;
@@ -82,7 +81,14 @@ const columns = computed(() => {
         }
 
         if (row.member.type === "groups") {
-          return <GroupNameCell group={row.member.group!} />;
+          const deleted = row.member.group?.deleted ?? false;
+          return (
+            <GroupNameCell
+              group={row.member.group!}
+              link={!deleted}
+              deleted={deleted}
+            />
+          );
         }
 
         return (
@@ -99,6 +105,7 @@ const columns = computed(() => {
           return "";
         } else {
           return h(UserOperationsCell, {
+            scope: props.scope,
             allowEdit: props.allowEdit,
             binding: row.member,
             "onUpdate-binding": () => {

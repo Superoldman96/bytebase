@@ -85,8 +85,8 @@
           <NButton @click="$emit('close')">{{ $t("common.cancel") }}</NButton>
           <NButton type="primary" :disabled="!allowSave" @click="handleSave">
             <FeatureBadge
-              feature="bb.feature.custom-role"
-              custom-class="mr-1 text-white"
+              :feature="PlanFeature.FEATURE_CUSTOM_ROLES"
+              class="mr-1 text-white"
             />
             {{ mode === "ADD" ? $t("common.add") : $t("common.update") }}
           </NButton>
@@ -103,6 +103,7 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import { cloneDeep, uniq } from "lodash-es";
 import { PlusIcon } from "lucide-vue-next";
 import { NButton, NInput, NTransfer } from "naive-ui";
@@ -115,7 +116,9 @@ import { pushNotification, useRoleStore } from "@/store";
 import { roleNamePrefix } from "@/store/modules/v1/common";
 import type { ValidatedMessage } from "@/types";
 import { PERMISSIONS } from "@/types";
-import { Role } from "@/types/proto/v1/role_service";
+import type { Role } from "@/types/proto-es/v1/role_service_pb";
+import { RoleSchema } from "@/types/proto-es/v1/role_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { extractRoleResourceName } from "@/utils";
 import { displayPermissionTitle } from "@/utils/permission";
 import { useCustomRoleSettingContext } from "../context";
@@ -143,7 +146,7 @@ const roleStore = useRoleStore();
 const { hasCustomRoleFeature, showFeatureModal } =
   useCustomRoleSettingContext();
 const state = reactive<LocalState>({
-  role: Role.fromJSON({}),
+  role: create(RoleSchema, {}),
   dirty: false,
   loading: false,
   showImportPermissionFromRoleModal: false,

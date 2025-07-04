@@ -18,11 +18,13 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import { NButton } from "naive-ui";
-import { computed, onMounted, reactive } from "vue";
+import { onMounted, reactive } from "vue";
 import { useI18n } from "vue-i18n";
-import { pushNotification, useAuthStore, useUserStore } from "@/store";
-import { UpdateUserRequest } from "@/types/proto/v1/user_service";
+import { pushNotification, useCurrentUserV1, useUserStore } from "@/store";
+import { UpdateUserRequestSchema } from "@/types/proto-es/v1/user_service_pb";
 import RecoveryCodesView from "./RecoveryCodesView.vue";
 
 interface LocalState {
@@ -41,13 +43,11 @@ const props = withDefaults(
 const emit = defineEmits(["close"]);
 
 const { t } = useI18n();
-const authStore = useAuthStore();
 const userStore = useUserStore();
 const state = reactive<LocalState>({
   recoveryCodesDownloaded: false,
 });
-
-const currentUser = computed(() => authStore.currentUser);
+const currentUser = useCurrentUserV1();
 
 onMounted(() => {
   regenerateTempMfaSecret();
@@ -55,11 +55,13 @@ onMounted(() => {
 
 const regenerateTempMfaSecret = async () => {
   await userStore.updateUser(
-    UpdateUserRequest.fromPartial({
+    create(UpdateUserRequestSchema, {
       user: {
         name: currentUser.value.name,
       },
-      updateMask: [],
+      updateMask: create(FieldMaskSchema, {
+        paths: [],
+      }),
       regenerateTempMfaSecret: true,
     })
   );
@@ -67,11 +69,13 @@ const regenerateTempMfaSecret = async () => {
 
 const regenerateRecoveryCodes = async () => {
   await userStore.updateUser(
-    UpdateUserRequest.fromPartial({
+    create(UpdateUserRequestSchema, {
       user: {
         name: currentUser.value.name,
       },
-      updateMask: [],
+      updateMask: create(FieldMaskSchema, {
+        paths: [],
+      }),
       regenerateRecoveryCodes: true,
     })
   );

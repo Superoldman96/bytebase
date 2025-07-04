@@ -1,7 +1,6 @@
 -- idp stores generic identity provider.
 CREATE TABLE idp (
   id serial PRIMARY KEY,
-  deleted boolean NOT NULL DEFAULT FALSE,
   resource_id text NOT NULL,
   name text NOT NULL,
   domain text NOT NULL,
@@ -53,28 +52,15 @@ CREATE UNIQUE INDEX idx_role_unique_resource_id on role (resource_id);
 
 ALTER SEQUENCE role_id_seq RESTART WITH 101;
 
--- Environment
-CREATE TABLE environment (
-    id serial PRIMARY KEY,
-    deleted boolean NOT NULL DEFAULT FALSE,
-    name text NOT NULL,
-    "order" integer NOT NULL CHECK ("order" >= 0),
-    resource_id text NOT NULL
-);
-
-CREATE UNIQUE INDEX idx_environment_unique_resource_id ON environment(resource_id);
-
-ALTER SEQUENCE environment_id_seq RESTART WITH 101;
-
 -- Policy
 -- policy stores the policies for each resources.
 CREATE TABLE policy (
     id serial PRIMARY KEY,
     enforce boolean NOT NULL DEFAULT TRUE,
     updated_at timestamptz NOT NULL DEFAULT now(),
-    resource_type text NOT NULL CHECK (resource_type IN ('WORKSPACE', 'ENVIRONMENT', 'PROJECT', 'INSTANCE')),
+    resource_type text NOT NULL,
     resource TEXT NOT NULL,
-    type text NOT NULL CHECK (type LIKE 'bb.policy.%'),
+    type text NOT NULL,
     payload jsonb NOT NULL DEFAULT '{}',
     inherit_from_parent boolean NOT NULL DEFAULT TRUE
 );
@@ -102,7 +88,7 @@ CREATE TABLE project_webhook (
     type text NOT NULL CHECK (type LIKE 'bb.plugin.webhook.%'),
     name text NOT NULL,
     url text NOT NULL,
-    activity_list text ARRAY NOT NULL,
+    event_list text ARRAY NOT NULL,
     payload jsonb NOT NULL DEFAULT '{}'
 );
 
@@ -114,7 +100,7 @@ ALTER SEQUENCE project_webhook_id_seq RESTART WITH 101;
 CREATE TABLE instance (
     id serial PRIMARY KEY,
     deleted boolean NOT NULL DEFAULT FALSE,
-    environment text REFERENCES environment(resource_id),
+    environment text,
     resource_id text NOT NULL,
     metadata jsonb NOT NULL DEFAULT '{}'
 );
@@ -131,7 +117,7 @@ CREATE TABLE db (
     project text NOT NULL REFERENCES project(resource_id),
     instance text NOT NULL REFERENCES instance(resource_id),
     name text NOT NULL,
-    environment text REFERENCES environment(resource_id),
+    environment text,
     metadata jsonb NOT NULL DEFAULT '{}'
 );
 
@@ -149,6 +135,7 @@ CREATE TABLE db_schema (
     metadata json NOT NULL DEFAULT '{}',
     raw_dump text NOT NULL DEFAULT '',
     config jsonb NOT NULL DEFAULT '{}',
+    todo boolean NOT NULL DEFAULT TRUE,
     CONSTRAINT db_schema_instance_db_name_fkey FOREIGN KEY(instance, db_name) REFERENCES db(instance, name)
 );
 
@@ -198,30 +185,18 @@ CREATE TABLE pipeline (
 
 ALTER SEQUENCE pipeline_id_seq RESTART WITH 101;
 
--- stage table stores the stage for the pipeline
-CREATE TABLE stage (
-    id serial PRIMARY KEY,
-    pipeline_id integer NOT NULL REFERENCES pipeline(id),
-    environment text NOT NULL REFERENCES environment(resource_id)
-);
-
-CREATE INDEX idx_stage_pipeline_id ON stage(pipeline_id);
-
-ALTER SEQUENCE stage_id_seq RESTART WITH 101;
-
--- task table stores the task for the stage
+-- task table stores the task for the pipeline
 CREATE TABLE task (
     id serial PRIMARY KEY,
     pipeline_id integer NOT NULL REFERENCES pipeline(id),
-    stage_id integer NOT NULL REFERENCES stage(id),
     instance text NOT NULL REFERENCES instance(resource_id),
+    environment text,
     db_name text,
-    type text NOT NULL CHECK (type LIKE 'bb.task.%'),
-    payload jsonb NOT NULL DEFAULT '{}',
-    earliest_allowed_at timestamptz NULL
+    type text NOT NULL,
+    payload jsonb NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX idx_task_pipeline_id_stage_id ON task(pipeline_id, stage_id);
+CREATE INDEX idx_task_pipeline_id_environment ON task(pipeline_id, environment);
 
 ALTER SEQUENCE task_id_seq RESTART WITH 101;
 
@@ -236,6 +211,7 @@ CREATE TABLE task_run (
     attempt integer NOT NULL,
     status text NOT NULL CHECK (status IN ('PENDING', 'RUNNING', 'DONE', 'FAILED', 'CANCELED')),
     started_at timestamptz NULL,
+    run_at timestamptz,
     code integer NOT NULL DEFAULT 0,
     -- result saves the task run result in json format
     result jsonb NOT NULL DEFAULT '{}'
@@ -308,7 +284,7 @@ CREATE TABLE issue (
     pipeline_id integer REFERENCES pipeline(id),
     name text NOT NULL,
     status text NOT NULL CHECK (status IN ('OPEN', 'DONE', 'CANCELED')),
-    type text NOT NULL CHECK (type LIKE 'bb.issue.%'),
+    type text NOT NULL,
     description text NOT NULL DEFAULT '',
     payload jsonb NOT NULL DEFAULT '{}',
     ts_vector tsvector
@@ -325,15 +301,6 @@ CREATE INDEX idx_issue_creator_id ON issue(creator_id);
 CREATE INDEX idx_issue_ts_vector ON issue USING GIN(ts_vector);
 
 ALTER SEQUENCE issue_id_seq RESTART WITH 101;
-
--- stores the issue subscribers.
-CREATE TABLE issue_subscriber (
-    issue_id integer NOT NULL REFERENCES issue(id),
-    subscriber_id integer NOT NULL REFERENCES principal(id),
-    PRIMARY KEY (issue_id, subscriber_id)
-);
-
-CREATE INDEX idx_issue_subscriber_subscriber_id ON issue_subscriber(subscriber_id);
 
 -- instance change history records the changes an instance and its databases.
 CREATE TABLE instance_change_history (
@@ -390,24 +357,6 @@ CREATE TABLE query_history (
 CREATE INDEX idx_query_history_creator_id_created_at_project_id ON query_history(creator_id, created_at, project_id DESC);
 
 ALTER SEQUENCE query_history_id_seq RESTART WITH 101;
-
--- Anomaly
--- anomaly stores various anomalies found by the scanner.
--- For now, anomaly can be associated with a particular instance or database.
-CREATE TABLE anomaly (
-    id serial PRIMARY KEY,
-    updated_at timestamptz NOT NULL DEFAULT now(),
-    project text NOT NULL,
-    instance text NOT NULL,
-    db_name text NOT NULL,
-    type text NOT NULL CHECK (type LIKE 'bb.anomaly.%'),
-    payload jsonb NOT NULL DEFAULT '{}',
-    CONSTRAINT anomaly_instance_db_name_fkey FOREIGN KEY(instance, db_name) REFERENCES db(instance, name)
-);
-
-CREATE UNIQUE INDEX idx_anomaly_unique_project_instance_dn_name_type ON anomaly(project, instance, db_name, type);
-
-ALTER SEQUENCE anomaly_id_seq RESTART WITH 101;
 
 -- worksheet table stores worksheets in SQL Editor.
 CREATE TABLE worksheet (
@@ -575,9 +524,3 @@ ALTER SEQUENCE principal_id_seq RESTART WITH 101;
 INSERT INTO project (id, name, resource_id) VALUES (1, 'Default', 'default');
 
 ALTER SEQUENCE project_id_seq RESTART WITH 101;
-
--- Create "test" and "prod" environments
-INSERT INTO environment (id, name, "order", resource_id) VALUES (101, 'Test', 0, 'test');
-INSERT INTO environment (id, name, "order", resource_id) VALUES (102, 'Prod', 1, 'prod');
-
-ALTER SEQUENCE environment_id_seq RESTART WITH 103;

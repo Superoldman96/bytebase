@@ -16,12 +16,16 @@
 </template>
 
 <script setup lang="tsx">
+import { create } from "@bufbuild/protobuf";
 import { NSelect, type SelectOption } from "naive-ui";
 import { computed, reactive, ref, watch } from "vue";
-import { databaseForTask, useIssueContext } from "@/components/IssueV1/logic";
-import { instanceRoleServiceClient } from "@/grpcweb";
+import { useIssueContext } from "@/components/IssueV1/logic";
+import { instanceRoleServiceClientConnect } from "@/grpcweb";
+import { useCurrentProjectV1 } from "@/store";
 import { DEFAULT_PAGE_SIZE } from "@/store/modules/common";
-import type { InstanceRole } from "@/types/proto/v1/instance_role_service";
+import type { InstanceRole } from "@/types/proto-es/v1/instance_role_service_pb";
+import { ListInstanceRolesRequestSchema } from "@/types/proto-es/v1/instance_role_service_pb";
+import { databaseForTask } from "@/utils";
 import { useEditorContext } from "./context";
 
 /**
@@ -41,11 +45,12 @@ interface LocalState {
 
 const editorContext = useEditorContext();
 
-const { issue, selectedTask } = useIssueContext();
+const { selectedTask } = useIssueContext();
+const { project } = useCurrentProjectV1();
 const state = reactive<LocalState>({});
 
 const database = computed(() => {
-  return databaseForTask(issue.value, selectedTask.value);
+  return databaseForTask(project.value, selectedTask.value);
 });
 
 const instanceRoles = ref<InstanceRole[]>([]);
@@ -53,11 +58,13 @@ const instanceRoles = ref<InstanceRole[]>([]);
 watch(
   () => database.value.instance,
   async () => {
-    const { roles } = await instanceRoleServiceClient.listInstanceRoles({
+    const request = create(ListInstanceRolesRequestSchema, {
       parent: database.value.instance,
       pageSize: DEFAULT_PAGE_SIZE,
     });
-    instanceRoles.value = roles;
+    const response =
+      await instanceRoleServiceClientConnect.listInstanceRoles(request);
+    instanceRoles.value = response.roles;
   },
   {
     immediate: true,

@@ -13,8 +13,6 @@ import (
 	"time"
 	"unicode"
 
-	"cloud.google.com/go/cloudsqlconn"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,8 +47,7 @@ func init() {
 
 // Driver is the Postgres driver.
 type Driver struct {
-	dbBinDir string
-	config   db.ConnectionConfig
+	config db.ConnectionConfig
 
 	db        *sql.DB
 	sshClient *ssh.Client
@@ -61,10 +58,8 @@ type Driver struct {
 	connectionCtx    db.ConnectionContext
 }
 
-func newDriver(config db.DriverConfig) db.Driver {
-	return &Driver{
-		dbBinDir: config.DBBinDir,
-	}
+func newDriver() db.Driver {
+	return &Driver{}
 }
 
 // Open opens a Postgres driver.
@@ -114,6 +109,8 @@ func (d *Driver) Open(ctx context.Context, _ storepb.Engine, config db.Connectio
 	}
 	d.config = config
 
+	pgxConnConfig.OnNotice = d.onNotice
+
 	d.connectionString = stdlib.RegisterConnConfig(pgxConnConfig)
 	db, err := sql.Open(driverName, d.connectionString)
 	if err != nil {
@@ -131,6 +128,43 @@ func (d *Driver) Open(ctx context.Context, _ storepb.Engine, config db.Connectio
 	}
 	d.connectionCtx = config.ConnectionContext
 	return d, nil
+}
+
+func (d *Driver) onNotice(_ *pgconn.PgConn, n *pgconn.Notice) {
+	if n == nil {
+		return
+	}
+
+	d.connectionCtx.AppendMessage(&v1pb.QueryResult_Message{
+		Level:   convertLevel(n.Severity),
+		Content: n.Message,
+	})
+}
+
+func convertLevel(level string) v1pb.QueryResult_Message_Level {
+	switch level {
+	case "DEBUG":
+		return v1pb.QueryResult_Message_DEBUG
+	case "INFO":
+		return v1pb.QueryResult_Message_INFO
+	case "NOTICE":
+		return v1pb.QueryResult_Message_NOTICE
+	case "WARNING":
+		return v1pb.QueryResult_Message_WARNING
+	case "EXCEPTION":
+		return v1pb.QueryResult_Message_EXCEPTION
+	case "LOG":
+		return v1pb.QueryResult_Message_LOG
+	default:
+		return v1pb.QueryResult_Message_LEVEL_UNSPECIFIED
+	}
+}
+
+// PushAndClearMessages pushes and clears the messages.
+func (d *Driver) PushAndClearMessages() []*v1pb.QueryResult_Message {
+	messages := d.connectionCtx.MessageBuffer
+	d.connectionCtx.MessageBuffer = nil
+	return messages
 }
 
 func getPGConnectionConfig(config db.ConnectionConfig) (*pgx.ConnConfig, error) {
@@ -181,7 +215,7 @@ func getPGConnectionConfig(config db.ConnectionConfig) (*pgx.ConnConfig, error) 
 }
 
 func getRDSConnectionPassword(ctx context.Context, conf db.ConnectionConfig) (string, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := util.GetAWSConnectionConfig(ctx, conf)
 	if err != nil {
 		return "", errors.Wrap(err, "load aws config failed")
 	}
@@ -216,9 +250,9 @@ func getRDSConnectionConfig(ctx context.Context, conf db.ConnectionConfig) (*pgx
 // https://cloud.google.com/sql/docs/postgres/connect-connectors
 // https://github.com/GoogleCloudPlatform/golang-samples/blob/main/cloudsql/postgres/database-sql/cloudsql.go
 func getCloudSQLConnectionConfig(ctx context.Context, conf db.ConnectionConfig) (*pgx.ConnConfig, error) {
-	d, err := cloudsqlconn.NewDialer(ctx, cloudsqlconn.WithIAMAuthN())
+	d, err := util.GetGCPConnectionConfig(ctx, conf)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "load gcp config failed")
 	}
 
 	dsn := fmt.Sprintf("user=%s", conf.DataSource.Username)
@@ -276,6 +310,23 @@ func (d *Driver) getDatabases(ctx context.Context) ([]*storepb.DatabaseSchemaMet
 	return databases, nil
 }
 
+// GetSearchPath gets the current search path of the database.
+// It returns the search path as a raw comma-separated string of schema names.
+func (d *Driver) GetSearchPath(ctx context.Context) (string, error) {
+	// SHOW search_path returns the current search path.
+	// PostgreSQL supports it since 8.2.
+	// https://www.postgresql.org/docs/current/sql-show.html
+	query := "SHOW search_path"
+	var searchPath string
+	if err := d.db.QueryRowContext(ctx, query).Scan(&searchPath); err != nil {
+		if err == sql.ErrNoRows {
+			return "", common.FormatDBErrorEmptyRowWithQuery(query)
+		}
+		return "", util.FormatErrorWithQuery(err, query)
+	}
+	return strings.TrimSpace(searchPath), nil
+}
+
 // getVersion gets the version of Postgres server.
 func (d *Driver) getVersion(ctx context.Context) (string, error) {
 	// SHOW server_version_num returns an integer such as 100005, which means 10.0.5.
@@ -320,7 +371,6 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 	var nonTransactionAndSetRoleStmts []string
 	var nonTransactionAndSetRoleStmtsIndex []int32
 	var isPlsql bool
-	oneshot := true
 	// HACK(p0ny): always split for pg
 	//nolint
 	if true || len(statement) <= common.MaxSheetCheckSize {
@@ -336,11 +386,6 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		// https://www.postgresql.org/docs/current/plpgsql-control-structures.html
 		if len(singleSQLs) == 1 && isPlSQLBlock(singleSQLs[0].Text) {
 			isPlsql = true
-		}
-		// HACK(p0ny): always split for pg
-		//nolint
-		if false && len(commands) <= common.MaximumCommands {
-			oneshot = false
 		}
 
 		var tmpCommands []base.SingleSQL
@@ -368,17 +413,61 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		}
 		commands, originalIndex = tmpCommands, tmpOriginalIndex
 	}
-	// HACK(p0ny): always split for pg
-	//nolint
-	if false && oneshot {
-		commands = []base.SingleSQL{
-			{
-				Text: statement,
-			},
-		}
-		originalIndex = []int32{0}
+
+	affectedRows, err := d.tryExecute(ctx, owner, statement, commands, originalIndex, nonTransactionAndSetRoleStmts, nonTransactionAndSetRoleStmtsIndex, opts, isPlsql)
+	if err == nil {
+		return affectedRows, nil
+	}
+	var lockErr *LockTimeoutError
+	if !errors.As(err, &lockErr) {
+		return affectedRows, err
 	}
 
+	// Lock timeout retries.
+	for i := range opts.MaximumRetries {
+		// Random retry interval.
+		interval := (150 + (i+1)*100/opts.MaximumRetries) * int(time.Millisecond)
+		time.Sleep(time.Duration(interval))
+
+		// Log retry info.
+		opts.LogRetryInfo(err, i+1)
+
+		// Do retry.
+		affectedRows, err = d.tryExecute(ctx, owner, statement, commands, originalIndex, nonTransactionAndSetRoleStmts, nonTransactionAndSetRoleStmtsIndex, opts, isPlsql)
+		if err == nil {
+			break
+		}
+		if !errors.As(err, &lockErr) {
+			break
+		}
+	}
+
+	return affectedRows, err
+}
+
+type LockTimeoutError struct {
+	Message string
+}
+
+func (e *LockTimeoutError) Error() string {
+	return e.Message
+}
+
+func isLockTimeoutError(message string) bool {
+	return strings.Contains(message, "canceling statement due to lock timeout")
+}
+
+func (d *Driver) tryExecute(
+	ctx context.Context,
+	owner string,
+	statement string,
+	commands []base.SingleSQL,
+	originalIndex []int32,
+	nonTransactionAndSetRoleStmts []string,
+	nonTransactionAndSetRoleStmtsIndex []int32,
+	opts db.ExecuteOptions,
+	isPlsql bool,
+) (int64, error) {
 	conn, err := d.db.Conn(ctx)
 	if err != nil {
 		return 0, errors.Wrapf(err, "failed to get connection")
@@ -458,15 +547,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 					opts.LogCommandResponse(indexes, 0, nil, err.Error())
 
 					return &db.ErrorWithPosition{
-						Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-						Start: &storepb.TaskRunResult_Position{
-							Line:   int32(command.FirstStatementLine),
-							Column: int32(command.FirstStatementColumn),
-						},
-						End: &storepb.TaskRunResult_Position{
-							Line:   int32(command.LastLine),
-							Column: int32(command.LastColumn),
-						},
+						Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+						Start: command.Start,
+						End:   command.End,
 					}
 				}
 
@@ -492,6 +575,11 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 			return nil
 		})
 		if err != nil {
+			if isLockTimeoutError(err.Error()) {
+				return 0, &LockTimeoutError{
+					Message: err.Error(),
+				}
+			}
 			return 0, err
 		}
 	}
@@ -612,7 +700,7 @@ func (d *Driver) GetCurrentDatabaseOwner(ctx context.Context) (string, error) {
 }
 
 // QueryConn queries a SQL statement in a given connection.
-func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext db.QueryContext) ([]*v1pb.QueryResult, error) {
+func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext db.QueryContext) ([]*v1pb.QueryResult, error) {
 	singleSQLs, err := pgparser.SplitSQL(statement)
 	if err != nil {
 		return nil, err
@@ -628,11 +716,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 		if queryContext.Explain {
 			statement = fmt.Sprintf("EXPLAIN %s", statement)
 		} else if queryContext.Limit > 0 {
-			// Quick fix for do not add limit to non-select statement.
-			t := util.TrimStatement(statement)
-			if strings.HasPrefix(strings.ToUpper(t), "SELECT") || strings.HasPrefix(strings.ToUpper(t), "WITH") {
-				statement = getStatementWithResultLimit(statement, queryContext.Limit)
-			}
+			statement = getStatementWithResultLimit(statement, queryContext.Limit)
 		}
 
 		_, allQuery, err := base.ValidateSQLForEditor(storepb.Engine_POSTGRES, statement)
@@ -662,6 +746,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 				if err != nil {
 					return nil, err
 				}
+				r.Messages = d.PushAndClearMessages()
 				if err := rows.Err(); err != nil {
 					return nil, err
 				}
@@ -676,7 +761,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, d.PushAndClearMessages()), nil
 		}()
 		stop := false
 		if err != nil {
@@ -729,14 +814,18 @@ func getPgError(e error) *v1pb.QueryResult_PostgresError_ {
 	return nil
 }
 
-func getStatementWithResultLimit(stmt string, limit int) string {
-	// To handle cases where there are comments in the query.
-	// eg. select * from t1 -- this is comment;
-	// Add two new line symbol here.
-	return fmt.Sprintf("WITH result AS (\n%s\n) SELECT * FROM result LIMIT %d;", util.TrimStatement(stmt), limit)
-}
-
 func isPlSQLBlock(stmt string) bool {
+	defer func() {
+		if r := recover(); r != nil {
+			perr, ok := r.(error)
+			if !ok {
+				perr = errors.Errorf("%v", r)
+			}
+			err := errors.Errorf("PANIC RECOVER, err: %v", perr)
+			stmtT, _ := common.TruncateString(stmt, 1000)
+			slog.Info("isPlSQLBlock panic", log.BBError(err), "stmt_truncated", stmtT)
+		}
+	}()
 	tree, err := pgquery.Parse(stmt)
 	if err != nil {
 		return false

@@ -30,7 +30,7 @@
         <dd class="mt-1 text-3xl lg:text-4xl">{{ expireAt || "N/A" }}</dd>
       </div>
       <div
-        v-if="subscriptionStore.canTrial && allowEdit"
+        v-if="subscriptionStore.showTrial && allowEdit"
         class="flex flex-col text-left"
       >
         <div class="text-main">
@@ -88,21 +88,20 @@
       <div class="mb-3 text-sm text-gray-400">
         {{ $t("settings.general.workspace.id-description") }}
       </div>
-      <div class="mb-4 flex space-x-2">
+      <div class="mb-4 flex items-center space-x-2">
         <NInput
           ref="workspaceIdField"
-          class="mb-4 w-full"
+          class="w-full"
           readonly
           :value="workspaceId"
           @click="selectWorkspaceId"
         />
-        <NButton
-          v-if="isSupported"
-          :disabled="!workspaceId"
-          @click="handleCopyId"
-        >
-          <ClipboardCopyIcon class="w-4 h-4" />
-        </NButton>
+        <CopyButton
+          quaternary
+          :text="false"
+          :size="'small'"
+          :content="workspaceId"
+        />
       </div>
     </div>
     <div
@@ -118,7 +117,7 @@
         {{ $t("subscription.description") }}
         {{ $t("subscription.plan-compare") }}
         <LearnMoreLink url="https://www.bytebase.com/pricing?source=console" />
-        <span v-if="subscriptionStore.canTrial" class="ml-1">
+        <span v-if="subscriptionStore.showTrial" class="ml-1">
           <span class="text-accent cursor-pointer" @click="openTrialModal">
             {{ $t("subscription.plan.try") }}
           </span>
@@ -128,7 +127,7 @@
       <NInput
         v-model:value="state.license"
         type="textarea"
-        :placeholder="$t('subscription.sensitive-placeholder')"
+        :placeholder="$t('common.sensitive-placeholder')"
       />
       <div class="ml-auto mt-3">
         <NButton
@@ -155,8 +154,6 @@
 </template>
 
 <script lang="ts" setup>
-import { useClipboard } from "@vueuse/core";
-import { ClipboardCopyIcon } from "lucide-vue-next";
 import { NButton, NDivider, NInput } from "naive-ui";
 import { storeToRefs } from "pinia";
 import { computed, reactive, ref } from "vue";
@@ -165,15 +162,17 @@ import LearnMoreLink from "@/components/LearnMoreLink.vue";
 import TrialModal from "@/components/TrialModal.vue";
 import WeChatQRModal from "@/components/WeChatQRModal.vue";
 import WorkspaceInstanceLicenseStats from "@/components/WorkspaceInstanceLicenseStats.vue";
+import { CopyButton } from "@/components/v2";
 import { useLanguage } from "@/composables/useLanguage";
 import {
   pushNotification,
-  useSubscriptionV1Store,
-  useSettingV1Store,
   useActuatorV1Store,
+  useSettingV1Store,
+  useSubscriptionV1Store,
 } from "@/store";
 import { ENTERPRISE_INQUIRE_LINK } from "@/types";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { Setting_SettingName } from "@/types/proto-es/v1/setting_service_pb";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 
 interface LocalState {
@@ -218,28 +217,16 @@ const userLimit = computed((): string => {
 const workspaceIdField = ref<HTMLInputElement | null>(null);
 
 const workspaceId = computed(() => {
-  return (
-    settingV1Store.getSettingByName("bb.workspace.id")?.value?.stringValue ?? ""
+  const setting = settingV1Store.getSettingByName(
+    Setting_SettingName.WORKSPACE_ID
   );
+  return setting?.value?.value?.case === "stringValue"
+    ? setting.value.value.value
+    : "";
 });
 
 const selectWorkspaceId = () => {
   workspaceIdField.value?.select();
-};
-
-const { copy: copyTextToClipboard, isSupported } = useClipboard({
-  legacy: true,
-});
-
-const handleCopyId = () => {
-  selectWorkspaceId();
-  copyTextToClipboard(workspaceId.value).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: t("common.copied"),
-    });
-  });
 };
 
 const uploadLicense = async () => {

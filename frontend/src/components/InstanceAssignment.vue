@@ -13,7 +13,7 @@
               }}
             </div>
             <LearnMoreLink
-              url="https://www.bytebase.com/docs/administration/license?source=console"
+              url="https://docs.bytebase.com/administration/license?source=console"
               class="ml-1 text-sm"
             />
           </div>
@@ -90,10 +90,10 @@ import {
   useActuatorV1Store,
 } from "@/store";
 import { environmentNamePrefix } from "@/store/modules/v1/common";
-import { engineFromJSON } from "@/types/proto/v1/common";
-import { Instance } from "@/types/proto/v1/instance_service";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import type { Instance } from "@/types/proto-es/v1/instance_service_pb";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import { type SearchParams, hasWorkspacePermissionV2 } from "@/utils";
+import { convertScopeValueToEngine } from "@/utils/v1/common-conversions";
 import LearnMoreLink from "./LearnMoreLink.vue";
 
 const props = withDefaults(
@@ -149,7 +149,7 @@ const selectedEnvironment = computed(() => {
 const selectedEngines = computed(() => {
   return state.params.scopes
     .filter((scope) => scope.id === "engine")
-    .map((scope) => engineFromJSON(scope.value));
+    .map((scope) => convertScopeValueToEngine(scope.value));
 });
 
 const filter = computed(() => ({
@@ -244,10 +244,9 @@ const updateAssignment = async () => {
     }
     // activate instance
     instance.activation = true;
-    const composedInstance = await instanceV1Store.updateInstance(
-      Instance.fromPartial(instance),
-      ["activation"]
-    );
+    const composedInstance = await instanceV1Store.updateInstance(instance, [
+      "activation",
+    ]);
     databaseV1Store.updateDatabaseInstance(composedInstance);
   }
 

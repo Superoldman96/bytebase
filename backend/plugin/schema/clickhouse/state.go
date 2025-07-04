@@ -3,7 +3,7 @@ package clickhouse
 import (
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
@@ -73,8 +73,13 @@ func (t *tableState) toString(buf *strings.Builder) error {
 	for _, column := range t.columns {
 		columns = append(columns, column)
 	}
-	sort.Slice(columns, func(i, j int) bool {
-		return columns[i].id < columns[j].id
+	slices.SortFunc(columns, func(x, y *columnState) int {
+		if x.id < y.id {
+			return -1
+		} else if x.id > y.id {
+			return 1
+		}
+		return 0
 	})
 	for i, column := range columns {
 		if i > 0 {
@@ -218,19 +223,13 @@ func convertToColumnState(id int, column *storepb.ColumnMetadata) *columnState {
 		nullable: column.Nullable,
 		comment:  column.Comment,
 	}
-	if column.GetDefaultValue() != nil {
-		switch value := column.GetDefaultValue().(type) {
-		case *storepb.ColumnMetadata_DefaultNull:
-			result.defaultValue = &defaultValueNull{}
-		case *storepb.ColumnMetadata_Default:
-			if value.Default == nil {
-				result.defaultValue = &defaultValueNull{}
-			} else {
-				result.defaultValue = &defaultValueString{value: value.Default.GetValue()}
-			}
-		case *storepb.ColumnMetadata_DefaultExpression:
-			result.defaultValue = &defaultValueExpression{value: value.DefaultExpression}
-		}
+	// Handle default values based on the new field structure
+	if column.DefaultNull {
+		result.defaultValue = &defaultValueNull{}
+	} else if column.Default != "" {
+		result.defaultValue = &defaultValueString{value: column.Default}
+	} else if column.DefaultExpression != "" {
+		result.defaultValue = &defaultValueExpression{value: column.DefaultExpression}
 	}
 	return result
 }

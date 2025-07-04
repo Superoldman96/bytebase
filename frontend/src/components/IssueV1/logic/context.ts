@@ -4,9 +4,9 @@ import { v4 as uuidv4 } from "uuid";
 import type { InjectionKey, Ref, ComputedRef } from "vue";
 import { inject, provide } from "vue";
 import type { ComposedIssue, ReviewFlow } from "@/types";
-import type { Issue_Approver_Status } from "@/types/proto/v1/issue_service";
-import type { PlanCheckRun } from "@/types/proto/v1/plan_service";
-import type { Stage, Task } from "@/types/proto/v1/rollout_service";
+import type { Issue_Approver_Status } from "@/types/proto-es/v1/issue_service_pb";
+import type { PlanCheckRun } from "@/types/proto-es/v1/plan_service_pb";
+import type { Stage, Task } from "@/types/proto-es/v1/rollout_service_pb";
 import type {
   IssueReviewAction,
   IssueStatusAction,
@@ -44,14 +44,13 @@ export type IssueContext = {
   ready: Ref<boolean>;
   issue: Ref<ComposedIssue>;
   phase: Ref<IssuePhase>;
-  isLegacyIssue: Ref<boolean>;
-  // The release candidates of the issue.
-  // Format: users/{email}
-  releaserCandidates: Ref<string[]>;
-  allowEditIssue: ComputedRef<boolean>;
+  allowChange: ComputedRef<boolean>;
 
   // review status
   reviewContext: ReviewContext;
+  // The release candidates of the issue.
+  // Format: users/{email}
+  releaserCandidates: Ref<string[]>;
 
   // UI status
   selectedStage: Ref<Stage>;

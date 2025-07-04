@@ -64,12 +64,14 @@
           @hover-item="menuIndex = $event"
         />
         <ValueMenu
-          v-if="visibleValueOptions.length > 0 || currentScopeOption?.search"
           :show="state.menuView === 'value'"
           :scope-option="currentScopeOption"
           :value-options="visibleValueOptions"
           :menu-index="menuIndex"
           :fetch-state="currentFetchState"
+          :show-empty-placeholder="
+            (currentScopeOption?.options ?? []).length > 0
+          "
           @select-value="selectValue"
           @hover-item="menuIndex = $event"
           @fetch-next-page="() => handleSearch(currentValueForScope)"
@@ -91,6 +93,7 @@ import scrollIntoView from "scroll-into-view-if-needed";
 import { zindexable as vZindexable } from "vdirs";
 import { reactive, watch, onMounted, ref, computed, nextTick } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { DEBOUNCE_SEARCH_DELAY } from "@/types";
 import type { SearchParams, SearchScopeId } from "@/utils";
 import {
   emptySearchParams,
@@ -99,6 +102,7 @@ import {
   upsertScope,
   buildSearchTextBySearchParams,
   buildSearchParamsBySearchText,
+  mergeSearchParams,
 } from "@/utils";
 import ScopeMenu from "./ScopeMenu.vue";
 import ScopeTags from "./ScopeTags.vue";
@@ -108,14 +112,16 @@ import type { ScopeOption } from "./types";
 const props = withDefaults(
   defineProps<{
     params: SearchParams;
-    scopeOptions: ScopeOption[];
+    scopeOptions?: ScopeOption[];
     placeholder?: string | undefined;
     autofocus?: boolean;
+    overrideRouteQuery?: boolean;
   }>(),
   {
     scopeOptions: () => [],
     autofocus: false,
     placeholder: undefined,
+    overrideRouteQuery: true,
   }
 );
 
@@ -252,7 +258,7 @@ const handleSearch = useDebounceFn(async (search: string) => {
     fetchState.loading = false;
     state.fetchDataStateMap.set(currentScopeOption.value.id, fetchState);
   }
-});
+}, DEBOUNCE_SEARCH_DELAY);
 
 watch(
   [() => currentScopeOption.value, () => currentValueForScope.value],
@@ -479,17 +485,20 @@ const maybeDeselectMismatchedScope = () => {
 };
 
 const maybeEmitIncompleteValue = () => {
-  if (inputText.value !== `${state.currentScope}:`) {
+  if (!inputText.value.startsWith(`${state.currentScope}:`)) {
     const updated = cloneDeep(props.params);
     updated.query = inputText.value;
-    emit("update:params", updated);
+    updateParams(updated);
   }
 };
+
+const updateParams = useDebounceFn((params: SearchParams) => {
+  emit("update:params", params);
+}, DEBOUNCE_SEARCH_DELAY);
 
 const handleInputClick = () => {
   maybeSelectMatchedScope();
   maybeDeselectMismatchedScope();
-  maybeEmitIncompleteValue();
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
@@ -620,7 +629,7 @@ onMounted(() => {
       ...scope,
       readonly: existedScopes.get(scope.id),
     }));
-    emit("update:params", params);
+    emit("update:params", mergeSearchParams(cloneDeep(props.params), params));
   }
 });
 
@@ -670,13 +679,17 @@ watch(visibleValueOptions, (newOptions, oldOptions) => {
 watch(
   () => props.params,
   (params) => {
-    inputText.value = params.query || inputText.value;
-    router.replace({
-      query: {
-        ...route.query,
-        qs: buildSearchTextBySearchParams(params),
-      },
-    });
+    if (!inputText.value) {
+      inputText.value = params.query;
+    }
+    if (props.overrideRouteQuery) {
+      router.replace({
+        query: {
+          ...route.query,
+          qs: buildSearchTextBySearchParams(params),
+        },
+      });
+    }
   },
   { deep: true }
 );

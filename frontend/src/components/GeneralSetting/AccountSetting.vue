@@ -21,7 +21,9 @@
           />
           <div class="font-medium flex items-center gap-x-2">
             {{ $t("settings.general.workspace.disallow-signup.enable") }}
-            <FeatureBadge feature="bb.feature.disallow-signup" />
+            <FeatureBadge
+              :feature="PlanFeature.FEATURE_DISALLOW_SELF_SERVICE_SIGNUP"
+            />
           </div>
         </div>
         <div class="mt-1 mb-3 text-sm text-gray-400">
@@ -47,7 +49,7 @@
             />
             <div class="font-medium flex items-center gap-x-2">
               {{ $t("settings.general.workspace.require-2fa.enable") }}
-              <FeatureBadge feature="bb.feature.2fa" />
+              <FeatureBadge :feature="PlanFeature.FEATURE_TWO_FA" />
             </div>
           </div>
           <div class="mt-1 mb-3 text-sm text-gray-400">
@@ -86,7 +88,9 @@
                   )
                 }}
               </NTooltip>
-              <FeatureBadge feature="bb.feature.disallow-password-signin" />
+              <FeatureBadge
+                :feature="PlanFeature.FEATURE_DISALLOW_PASSWORD_SIGNIN"
+              />
             </div>
           </div>
           <div class="mt-1 mb-3 text-sm text-gray-400">
@@ -115,6 +119,8 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
 import { isEqual } from "lodash-es";
 import { TriangleAlertIcon } from "lucide-vue-next";
 import { NDivider, NTooltip } from "naive-ui";
@@ -127,15 +133,14 @@ import {
   useIdentityProviderStore,
 } from "@/store";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
-import type { FeatureType } from "@/types";
-import { State } from "@/types/proto/v1/common";
-import { type WorkspaceProfileSetting } from "@/types/proto/v1/setting_service";
+import { type WorkspaceProfileSetting } from "@/types/proto-es/v1/setting_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { FeatureBadge, FeatureModal } from "../FeatureGuard";
 import PasswordRestrictionSetting from "./PasswordRestrictionSetting.vue";
 import SignInFrequencySetting from "./SignInFrequencySetting.vue";
 
 interface LocalState {
-  featureNameForModal?: FeatureType;
+  featureNameForModal?: PlanFeature;
   disallowSignup: boolean;
   require2fa: boolean;
   disallowPasswordSignin: boolean;
@@ -169,10 +174,12 @@ const state = reactive<LocalState>({
 });
 
 const { isSaaSMode } = storeToRefs(actuatorStore);
-const has2FAFeature = featureToRef("bb.feature.2fa");
-const hasDisallowSignupFeature = featureToRef("bb.feature.disallow-signup");
+const has2FAFeature = featureToRef(PlanFeature.FEATURE_TWO_FA);
+const hasDisallowSignupFeature = featureToRef(
+  PlanFeature.FEATURE_DISALLOW_SELF_SERVICE_SIGNUP
+);
 const hasDisallowPasswordSigninFeature = featureToRef(
-  "bb.feature.disallow-password-signin"
+  PlanFeature.FEATURE_DISALLOW_PASSWORD_SIGNIN
 );
 
 watchEffect(async () => {
@@ -180,10 +187,7 @@ watchEffect(async () => {
 });
 
 const existActiveIdentityProvider = computed(() => {
-  return (
-    idpStore.identityProviderList.filter((idp) => idp.state === State.ACTIVE)
-      .length > 0
-  );
+  return idpStore.identityProviderList.length > 0;
 });
 
 const isDirty = computed(() => {
@@ -202,7 +206,7 @@ const onUpdate = async () => {
     await signInFrequencySettingRef.value.update();
   }
 
-  const updateMasks = [];
+  const updateMaskPaths = [];
   const payload: Partial<WorkspaceProfileSetting> = {
     disallowSignup: state.disallowSignup,
     require2fa: state.require2fa,
@@ -212,24 +216,28 @@ const onUpdate = async () => {
     state.disallowSignup !==
     settingV1Store.workspaceProfileSetting?.disallowSignup
   ) {
-    updateMasks.push("value.workspace_profile_setting_value.disallow_signup");
+    updateMaskPaths.push(
+      "value.workspace_profile_setting_value.disallow_signup"
+    );
   }
   if (state.require2fa !== settingV1Store.workspaceProfileSetting?.require2fa) {
-    updateMasks.push("value.workspace_profile_setting_value.require_2fa");
+    updateMaskPaths.push("value.workspace_profile_setting_value.require_2fa");
   }
   if (
     state.disallowPasswordSignin !==
     settingV1Store.workspaceProfileSetting?.disallowPasswordSignin
   ) {
-    updateMasks.push(
+    updateMaskPaths.push(
       "value.workspace_profile_setting_value.disallow_password_signin"
     );
   }
 
-  if (updateMasks.length > 0) {
+  if (updateMaskPaths.length > 0) {
     await settingV1Store.updateWorkspaceProfile({
       payload,
-      updateMask: updateMasks,
+      updateMask: create(FieldMaskSchema, {
+        paths: updateMaskPaths,
+      }),
     });
   }
 };

@@ -7,21 +7,26 @@ import (
 
 	"log/slog"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"connectrpc.com/connect"
+	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/google/cel-go/cel"
+	celast "github.com/google/cel-go/common/ast"
+	celoperators "github.com/google/cel-go/common/operators"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/iam"
 	"github.com/bytebase/bytebase/backend/store"
 	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/proto/generated-go/v1/v1connect"
 )
 
 // WorksheetService implements the worksheet service.
 type WorksheetService struct {
-	v1pb.UnimplementedWorksheetServiceServer
+	v1connect.UnimplementedWorksheetServiceHandler
 	store      *store.Store
 	iamManager *iam.Manager
 }
@@ -35,86 +40,78 @@ func NewWorksheetService(store *store.Store, iamManager *iam.Manager) *Worksheet
 }
 
 // CreateWorksheet creates a new worksheet.
-func (s *WorksheetService) CreateWorksheet(ctx context.Context, request *v1pb.CreateWorksheetRequest) (*v1pb.Worksheet, error) {
+func (s *WorksheetService) CreateWorksheet(
+	ctx context.Context,
+	req *connect.Request[v1pb.CreateWorksheetRequest],
+) (*connect.Response[v1pb.Worksheet], error) {
+	request := req.Msg
 	if request.Worksheet == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "worksheet must be set")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("worksheet must be set"))
 	}
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 
 	projectResourceID, err := common.GetProjectID(request.Worksheet.Project)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
 		ResourceID: &projectResourceID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project with resource id %q, err: %v", projectResourceID, err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project with resource id %q, err: %v", projectResourceID, err))
 	}
 	if project == nil {
-		return nil, status.Errorf(codes.NotFound, "project with resource id %q not found", projectResourceID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project with resource id %q not found", projectResourceID))
 	}
 	if project.Deleted {
-		return nil, status.Errorf(codes.NotFound, "project with resource id %q had deleted", projectResourceID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project with resource id %q had deleted", projectResourceID))
 	}
 
 	var database *store.DatabaseMessage
 	if request.Worksheet.Database != "" {
-		instanceResourceID, databaseName, err := common.GetInstanceDatabaseID(request.Worksheet.Database)
+		db, err := getDatabaseMessage(ctx, s.store, request.Worksheet.Database)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, connect.NewError(connect.CodeInternal, err)
 		}
-		instance, err := s.store.GetInstanceV2(ctx, &store.FindInstanceMessage{
-			ResourceID: &instanceResourceID,
-		})
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get instance with resource id %q, err: %v", instanceResourceID, err)
-		}
-		if instance == nil {
-			return nil, status.Errorf(codes.NotFound, "instance with resource id %q not found", instanceResourceID)
-		}
-
-		find := &store.FindDatabaseMessage{
-			ProjectID:       &projectResourceID,
-			InstanceID:      &instanceResourceID,
-			DatabaseName:    &databaseName,
-			IsCaseSensitive: store.IsObjectCaseSensitive(instance),
-		}
-		db, err := s.store.GetDatabaseV2(ctx, find)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to get database with name %q, err: %v", databaseName, err)
+		// Verify the database belongs to the specified project
+		if db.ProjectID != projectResourceID {
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("database %q not found in project %q", request.Worksheet.Database, projectResourceID))
 		}
 		if db == nil {
-			return nil, status.Errorf(codes.NotFound, "database with name %q not found in project %q instance %q", databaseName, projectResourceID, instanceResourceID)
+			return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("database %q not found", request.Worksheet.Database))
 		}
 		database = db
 	}
 	storeWorksheetCreate, err := convertToStoreWorksheetMessage(project, database, principalID, request.Worksheet)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to convert worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to convert worksheet: %v", err))
 	}
 	worksheet, err := s.store.CreateWorkSheet(ctx, storeWorksheetCreate)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create worksheet: %v", err))
 	}
 	v1pbWorksheet, err := s.convertToAPIWorksheetMessage(ctx, worksheet)
 	if err != nil {
 		return nil, err
 	}
-	return v1pbWorksheet, nil
+	return connect.NewResponse(v1pbWorksheet), nil
 }
 
 // GetWorksheet returns the requested worksheet, cutoff the content if the content is too long and the `raw` flag in request is false.
-func (s *WorksheetService) GetWorksheet(ctx context.Context, request *v1pb.GetWorksheetRequest) (*v1pb.Worksheet, error) {
+func (s *WorksheetService) GetWorksheet(
+	ctx context.Context,
+	req *connect.Request[v1pb.GetWorksheetRequest],
+) (*connect.Response[v1pb.Worksheet], error) {
+	request := req.Msg
 	worksheetUID, err := common.GetWorksheetUID(request.Name)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if worksheetUID <= 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid worksheet id %d, must be positive integer", worksheetUID)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid worksheet id %d, must be positive integer", worksheetUID))
 	}
 
 	find := &store.FindWorkSheetMessage{
@@ -128,24 +125,149 @@ func (s *WorksheetService) GetWorksheet(ctx context.Context, request *v1pb.GetWo
 
 	ok, err := s.canReadWorksheet(ctx, worksheet)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check access with error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check access with error: %v", err))
 	}
 	if !ok {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot access worksheet %s", worksheet.Title)
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot access worksheet %s", worksheet.Title))
 	}
 
 	v1pbWorksheet, err := s.convertToAPIWorksheetMessage(ctx, worksheet)
 	if err != nil {
 		return nil, err
 	}
-	return v1pbWorksheet, nil
+	return connect.NewResponse(v1pbWorksheet), nil
+}
+
+func (s *WorksheetService) getListSheetFilter(ctx context.Context, callerID int, filter string) (*store.ListResourceFilter, error) {
+	if filter == "" {
+		return nil, nil
+	}
+	e, err := cel.NewEnv()
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to create cel env"))
+	}
+	ast, iss := e.Parse(filter)
+	if iss != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to parse filter %v, error: %v", filter, iss.String()))
+	}
+
+	var getFilter func(expr celast.Expr) (string, error)
+	var positionalArgs []any
+
+	getUserID := func(name string) (int, error) {
+		creatorEmail := strings.TrimPrefix(name, "users/")
+		if creatorEmail == "" {
+			return 0, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid empty creator identifier"))
+		}
+		user, err := s.store.GetUserByEmail(ctx, creatorEmail)
+		if err != nil {
+			return 0, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get user: %v", err))
+		}
+		if user == nil {
+			return 0, connect.NewError(connect.CodeNotFound, errors.Errorf("user with email %s not found", creatorEmail))
+		}
+		return user.ID, nil
+	}
+
+	parseToSQL := func(variable, value any) (string, error) {
+		switch variable {
+		case "creator":
+			userID, err := getUserID(value.(string))
+			if err != nil {
+				return "", err
+			}
+			positionalArgs = append(positionalArgs, userID)
+			return fmt.Sprintf("worksheet.creator_id = $%d", len(positionalArgs)), nil
+		case "starred":
+			if starred, ok := value.(bool); ok {
+				positionalArgs = append(positionalArgs, callerID)
+				return fmt.Sprintf("worksheet.id IN (SELECT worksheet_id FROM worksheet_organizer WHERE principal_id = $%d AND starred = %v)", len(positionalArgs), starred), nil
+			}
+			return "TRUE", nil
+		case "visibility":
+			visibility, err := convertToStoreWorksheetVisibility(v1pb.Worksheet_Visibility(v1pb.Worksheet_Visibility_value[value.(string)]))
+			if err != nil {
+				return "", err
+			}
+			positionalArgs = append(positionalArgs, visibility)
+			return fmt.Sprintf("worksheet.visibility = $%d", len(positionalArgs)), nil
+		default:
+			return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unsupport variable %q", variable))
+		}
+	}
+
+	getFilter = func(expr celast.Expr) (string, error) {
+		switch expr.Kind() {
+		case celast.CallKind:
+			functionName := expr.AsCall().FunctionName()
+			switch functionName {
+			case celoperators.LogicalOr:
+				return getSubConditionFromExpr(expr, getFilter, "OR")
+			case celoperators.LogicalAnd:
+				return getSubConditionFromExpr(expr, getFilter, "AND")
+			case celoperators.Equals:
+				variable, value := getVariableAndValueFromExpr(expr)
+				return parseToSQL(variable, value)
+			case celoperators.NotEquals:
+				variable, value := getVariableAndValueFromExpr(expr)
+				if variable != "creator" {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`only "creator" support "!=" operator`))
+				}
+				userID, err := getUserID(value.(string))
+				if err != nil {
+					return "", err
+				}
+				positionalArgs = append(positionalArgs, userID)
+				return fmt.Sprintf("worksheet.creator_id != $%d", len(positionalArgs)), nil
+			case celoperators.In:
+				variable, value := getVariableAndValueFromExpr(expr)
+				if variable != "visibility" {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf(`only "visibility" support "visibility in [xx]" filter`))
+				}
+				rawList, ok := value.([]any)
+				if !ok {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid visibility value %q", value))
+				}
+				if len(rawList) == 0 {
+					return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("empty visibility filter"))
+				}
+				visibilityList := []string{}
+				for _, raw := range rawList {
+					visibility, err := convertToStoreWorksheetVisibility(v1pb.Worksheet_Visibility(v1pb.Worksheet_Visibility_value[raw.(string)]))
+					if err != nil {
+						return "", err
+					}
+					visibilityList = append(visibilityList, fmt.Sprintf(`'%s'`, visibility))
+				}
+				return fmt.Sprintf(`worksheet.visibility IN (%s)`, strings.Join(visibilityList, ",")), nil
+			default:
+				return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unexpected function %v", functionName))
+			}
+		default:
+			return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unexpected expr kind %v", expr.Kind()))
+		}
+	}
+
+	where, err := getFilter(ast.NativeRep().Expr())
+	if err != nil {
+		return nil, err
+	}
+
+	return &store.ListResourceFilter{
+		Args:  positionalArgs,
+		Where: "(" + where + ")",
+	}, nil
 }
 
 // SearchWorksheets returns a list of worksheets based on the search filters.
-func (s *WorksheetService) SearchWorksheets(ctx context.Context, request *v1pb.SearchWorksheetsRequest) (*v1pb.SearchWorksheetsResponse, error) {
+func (s *WorksheetService) SearchWorksheets(
+	ctx context.Context,
+	req *connect.Request[v1pb.SearchWorksheetsRequest],
+) (*connect.Response[v1pb.SearchWorksheetsResponse], error) {
+	request := req.Msg
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 
 	worksheetFind := &store.FindWorkSheetMessage{}
@@ -155,72 +277,25 @@ func (s *WorksheetService) SearchWorksheets(ctx context.Context, request *v1pb.S
 	// 2. creator ! = principal && visibility in (PROJECT, PUBLIC)
 	// So we don't allow empty filter for now.
 	if request.Filter == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "filter should not be empty")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("filter should not be empty"))
 	}
 
-	specs, err := ParseFilter(request.Filter)
+	filter, err := s.getListSheetFilter(ctx, principalID, request.Filter)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, err
 	}
-	for _, spec := range specs {
-		switch spec.Key {
-		case "creator":
-			creatorEmail := strings.TrimPrefix(spec.Value, "users/")
-			if creatorEmail == "" {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid empty creator identifier")
-			}
-			user, err := s.store.GetUserByEmail(ctx, creatorEmail)
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed to get user: %v", err)
-			}
-			if user == nil {
-				return nil, status.Errorf(codes.NotFound, "user with email %s not found", creatorEmail)
-			}
-			switch spec.Operator {
-			case ComparatorTypeEqual:
-				worksheetFind.CreatorID = &user.ID
-			case ComparatorTypeNotEqual:
-				worksheetFind.ExcludedCreatorID = &user.ID
-			default:
-				return nil, status.Errorf(codes.InvalidArgument, "invalid operator %q for creator", spec.Operator)
-			}
-		case "starred":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid operator %q for starred", spec.Operator)
-			}
-			switch spec.Value {
-			case "true":
-				worksheetFind.OrganizerPrincipalIDStarred = &principalID
-			case "false":
-				worksheetFind.OrganizerPrincipalIDNotStarred = &principalID
-			default:
-				return nil, status.Errorf(codes.InvalidArgument, "invalid value %q for starred", spec.Value)
-			}
-		case "visibility":
-			if spec.Operator != ComparatorTypeEqual {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid operator %q for starred", spec.Operator)
-			}
-			for _, rawVisibility := range strings.Split(spec.Value, " | ") {
-				visibility, err := convertToStoreWorksheetVisibility(v1pb.Worksheet_Visibility(v1pb.Worksheet_Visibility_value[rawVisibility]))
-				if err != nil {
-					return nil, err
-				}
-				worksheetFind.Visibilities = append(worksheetFind.Visibilities, visibility)
-			}
-		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid filter key %q", spec.Key)
-		}
-	}
+	worksheetFind.Filter = filter
+
 	worksheetList, err := s.store.ListWorkSheets(ctx, worksheetFind, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to list worksheets: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to list worksheets: %v", err))
 	}
 
 	var v1pbWorksheets []*v1pb.Worksheet
 	for _, worksheet := range worksheetList {
 		ok, err := s.canReadWorksheet(ctx, worksheet)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to check access with error: %v", err)
+			return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check access with error: %v", err))
 		}
 		if !ok {
 			slog.Warn("cannot access worksheet", slog.String("name", worksheet.Title))
@@ -228,8 +303,8 @@ func (s *WorksheetService) SearchWorksheets(ctx context.Context, request *v1pb.S
 		}
 		v1pbWorksheet, err := s.convertToAPIWorksheetMessage(ctx, worksheet)
 		if err != nil {
-			st := status.Convert(err)
-			if st.Code() == codes.NotFound {
+			var connectErr *connect.Error
+			if errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound {
 				slog.Debug("failed to found resource for worksheet", log.BBError(err), slog.Int("id", worksheet.UID), slog.String("project", worksheet.ProjectID))
 				continue
 			}
@@ -237,50 +312,54 @@ func (s *WorksheetService) SearchWorksheets(ctx context.Context, request *v1pb.S
 		}
 		v1pbWorksheets = append(v1pbWorksheets, v1pbWorksheet)
 	}
-	return &v1pb.SearchWorksheetsResponse{
+	return connect.NewResponse(&v1pb.SearchWorksheetsResponse{
 		Worksheets: v1pbWorksheets,
-	}, nil
+	}), nil
 }
 
 // UpdateWorksheet updates a worksheet.
-func (s *WorksheetService) UpdateWorksheet(ctx context.Context, request *v1pb.UpdateWorksheetRequest) (*v1pb.Worksheet, error) {
+func (s *WorksheetService) UpdateWorksheet(
+	ctx context.Context,
+	req *connect.Request[v1pb.UpdateWorksheetRequest],
+) (*connect.Response[v1pb.Worksheet], error) {
+	request := req.Msg
 	if request.Worksheet == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "worksheet cannot be empty")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("worksheet cannot be empty"))
 	}
 	if request.UpdateMask == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "update mask cannot be empty")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("update mask cannot be empty"))
 	}
 	if request.Worksheet.Name == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "worksheet name cannot be empty")
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("worksheet name cannot be empty"))
 	}
 
 	worksheetUID, err := common.GetWorksheetUID(request.Worksheet.Name)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if worksheetUID <= 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid worksheet id %d, must be positive integer", worksheetUID)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid worksheet id %d, must be positive integer", worksheetUID))
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	worksheet, err := s.store.GetWorkSheet(ctx, &store.FindWorkSheetMessage{
 		UID: &worksheetUID,
 	}, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get worksheet: %v", err))
 	}
 	if worksheet == nil {
-		return nil, status.Errorf(codes.NotFound, "worksheet %q not found", request.Worksheet.Name)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("worksheet %q not found", request.Worksheet.Name))
 	}
 	ok, err = s.canWriteWorksheet(ctx, worksheet)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check access with error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check access with error: %v", err))
 	}
 	if !ok {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot write worksheet %s", worksheet.Title)
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot write worksheet %s", worksheet.Title))
 	}
 
 	worksheetPatch := &store.PatchWorkSheetMessage{
@@ -296,94 +375,95 @@ func (s *WorksheetService) UpdateWorksheet(ctx context.Context, request *v1pb.Up
 		case "visibility":
 			visibility, err := convertToStoreWorksheetVisibility(request.Worksheet.Visibility)
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid visibility %q", request.Worksheet.Visibility)
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid visibility %q", request.Worksheet.Visibility))
 			}
 			stringVisibility := string(visibility)
 			worksheetPatch.Visibility = &stringVisibility
 		case "database":
-			instanceID, databaseName, err := common.GetInstanceDatabaseID(request.Worksheet.Database)
+			database, err := getDatabaseMessage(ctx, s.store, request.Worksheet.Database)
 			if err != nil {
-				return nil, status.Error(codes.InvalidArgument, err.Error())
+				return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to found database %v", request.Worksheet.Database))
 			}
-			database, err := s.store.GetDatabaseV2(ctx, &store.FindDatabaseMessage{
-				InstanceID:   &instanceID,
-				DatabaseName: &databaseName,
-			})
-			if err != nil {
-				return nil, status.Error(codes.Internal, err.Error())
-			}
-			if database == nil {
-				return nil, status.Errorf(codes.InvalidArgument, `database "%q" not found`, request.Worksheet.Database)
+			if database == nil || database.Deleted {
+				return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("database %v not found", request.Worksheet.Database))
 			}
 			worksheetPatch.InstanceID, worksheetPatch.DatabaseName = &database.InstanceID, &database.DatabaseName
 		default:
-			return nil, status.Errorf(codes.InvalidArgument, "invalid update mask path %q", path)
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid update mask path %q", path))
 		}
 	}
 	if err := s.store.PatchWorkSheet(ctx, worksheetPatch); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to update worksheet: %v", err))
 	}
 
 	worksheet, err = s.store.GetWorkSheet(ctx, &store.FindWorkSheetMessage{
 		UID: &worksheetUID,
 	}, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get worksheet: %v", err))
 	}
 	if worksheet == nil {
-		return nil, status.Errorf(codes.NotFound, "worksheet %q not found", request.Worksheet.Name)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("worksheet %q not found", request.Worksheet.Name))
 	}
 	v1pbWorksheet, err := s.convertToAPIWorksheetMessage(ctx, worksheet)
 	if err != nil {
 		return nil, err
 	}
 
-	return v1pbWorksheet, nil
+	return connect.NewResponse(v1pbWorksheet), nil
 }
 
 // DeleteWorksheet deletes a worksheet.
-func (s *WorksheetService) DeleteWorksheet(ctx context.Context, request *v1pb.DeleteWorksheetRequest) (*emptypb.Empty, error) {
+func (s *WorksheetService) DeleteWorksheet(
+	ctx context.Context,
+	req *connect.Request[v1pb.DeleteWorksheetRequest],
+) (*connect.Response[emptypb.Empty], error) {
+	request := req.Msg
 	worksheetUID, err := common.GetWorksheetUID(request.Name)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	worksheet, err := s.store.GetWorkSheet(ctx, &store.FindWorkSheetMessage{
 		UID: &worksheetUID,
 	}, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get worksheet: %v", err))
 	}
 	if worksheet == nil {
-		return nil, status.Errorf(codes.NotFound, "worksheet with id %d not found", worksheetUID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("worksheet with id %d not found", worksheetUID))
 	}
 	ok, err = s.canWriteWorksheet(ctx, worksheet)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check access with error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check access with error: %v", err))
 	}
 	if !ok {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot write worksheet %s", worksheet.Title)
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot write worksheet %s", worksheet.Title))
 	}
 
 	if err := s.store.DeleteWorkSheet(ctx, worksheetUID); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to delete worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to delete worksheet: %v", err))
 	}
 
-	return &emptypb.Empty{}, nil
+	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 // UpdateWorksheetOrganizer upsert the worksheet organizer.
-func (s *WorksheetService) UpdateWorksheetOrganizer(ctx context.Context, request *v1pb.UpdateWorksheetOrganizerRequest) (*v1pb.WorksheetOrganizer, error) {
+func (s *WorksheetService) UpdateWorksheetOrganizer(
+	ctx context.Context,
+	req *connect.Request[v1pb.UpdateWorksheetOrganizerRequest],
+) (*connect.Response[v1pb.WorksheetOrganizer], error) {
+	request := req.Msg
 	worksheetUID, err := common.GetWorksheetUID(request.Organizer.Worksheet)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	if worksheetUID <= 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid worksheet id %d, must be positive integer", worksheetUID)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid worksheet id %d, must be positive integer", worksheetUID))
 	}
 
 	worksheet, err := s.findWorksheet(ctx, &store.FindWorkSheetMessage{
@@ -393,17 +473,17 @@ func (s *WorksheetService) UpdateWorksheetOrganizer(ctx context.Context, request
 		return nil, err
 	}
 
-	ok, err := s.canWriteWorksheet(ctx, worksheet)
+	ok, err := s.canReadWorksheet(ctx, worksheet)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check access with error: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check access with error: %v", err))
 	}
 	if !ok {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot access worksheet %s", worksheet.Title)
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.Errorf("cannot access worksheet %s", worksheet.Title))
 	}
 
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	worksheetOrganizerUpsert := &store.WorksheetOrganizerMessage{
 		WorksheetUID: worksheetUID,
@@ -418,26 +498,26 @@ func (s *WorksheetService) UpdateWorksheetOrganizer(ctx context.Context, request
 
 	organizer, err := s.store.UpsertWorksheetOrganizer(ctx, worksheetOrganizerUpsert)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to upsert organizer for worksheet %s with error: %v", request.Organizer.Worksheet, err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to upsert organizer for worksheet %s with error: %v", request.Organizer.Worksheet, err))
 	}
 
-	return &v1pb.WorksheetOrganizer{
+	return connect.NewResponse(&v1pb.WorksheetOrganizer{
 		Worksheet: request.Organizer.Worksheet,
 		Starred:   organizer.Starred,
-	}, nil
+	}), nil
 }
 
 func (s *WorksheetService) findWorksheet(ctx context.Context, find *store.FindWorkSheetMessage) (*store.WorkSheetMessage, error) {
 	principalID, ok := ctx.Value(common.PrincipalIDContextKey).(int)
 	if !ok {
-		return nil, status.Errorf(codes.Internal, "principal ID not found")
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("principal ID not found"))
 	}
 	worksheet, err := s.store.GetWorkSheet(ctx, find, principalID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get worksheet: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get worksheet: %v", err))
 	}
 	if worksheet == nil {
-		return nil, status.Errorf(codes.NotFound, "cannot find the worksheet")
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("cannot find the worksheet"))
 	}
 	return worksheet, nil
 }
@@ -449,38 +529,30 @@ func (s *WorksheetService) findWorksheet(ctx context.Context, find *store.FindWo
 func (s *WorksheetService) canWriteWorksheet(ctx context.Context, worksheet *store.WorkSheetMessage) (bool, error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return false, status.Errorf(codes.Internal, "user not found")
+		return false, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 
-	// Worksheet creator and workspace bb.worksheets.manage can always write.
+	// Worksheet creator and workspace "bb.worksheets.manage" can always write.
 	if worksheet.CreatorID == user.ID {
 		return true, nil
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionWorksheetsManage, user)
 	if err != nil {
-		return false, err
+		return false, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check permission with error: %v", err.Error()))
 	}
 	if ok {
 		return true, nil
 	}
 
 	switch worksheet.Visibility {
-	case store.PrivateWorkSheet, store.ProjectReadWorkSheet:
+	case store.PrivateWorkSheet:
 		return false, nil
+	case store.ProjectReadWorkSheet:
+		// For READ visibility, check the "bb.worksheets.manage" permission in the project.
+		return s.checkWorksheetPermission(ctx, worksheet.ProjectID, user, iam.PermissionWorksheetsManage)
 	case store.ProjectWriteWorkSheet:
-		project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
-			ResourceID: &worksheet.ProjectID,
-		})
-		if err != nil {
-			return false, err
-		}
-		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionWorksheetsGet, user, project.ResourceID)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return true, nil
-		}
+		// For READ visibility, needs "bb.worksheets.get" permission in the project.
+		return s.checkWorksheetPermission(ctx, worksheet.ProjectID, user, iam.PermissionWorksheetsGet)
 	}
 
 	return false, nil
@@ -494,7 +566,7 @@ func (s *WorksheetService) canWriteWorksheet(ctx context.Context, worksheet *sto
 func (s *WorksheetService) canReadWorksheet(ctx context.Context, worksheet *store.WorkSheetMessage) (bool, error) {
 	user, ok := ctx.Value(common.UserContextKey).(*store.UserMessage)
 	if !ok {
-		return false, status.Errorf(codes.Internal, "user not found")
+		return false, connect.NewError(connect.CodeInternal, errors.Errorf("user not found"))
 	}
 
 	// Worksheet creator and workspace bb.worksheets.get can always read.
@@ -503,7 +575,7 @@ func (s *WorksheetService) canReadWorksheet(ctx context.Context, worksheet *stor
 	}
 	ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionWorksheetsManage, user)
 	if err != nil {
-		return false, err
+		return false, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check permission with error: %v", err.Error()))
 	}
 	if ok {
 		return true, nil
@@ -513,22 +585,30 @@ func (s *WorksheetService) canReadWorksheet(ctx context.Context, worksheet *stor
 	case store.PrivateWorkSheet:
 		return false, nil
 	case store.ProjectReadWorkSheet, store.ProjectWriteWorkSheet:
-		project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
-			ResourceID: &worksheet.ProjectID,
-		})
-		if err != nil {
-			return false, err
-		}
-		ok, err := s.iamManager.CheckPermission(ctx, iam.PermissionWorksheetsGet, user, project.ResourceID)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			return true, nil
-		}
+		// Check the "bb.worksheets.get" permission in the project.
+		return s.checkWorksheetPermission(ctx, worksheet.ProjectID, user, iam.PermissionWorksheetsGet)
 	}
 
 	return false, nil
+}
+
+func (s *WorksheetService) checkWorksheetPermission(
+	ctx context.Context,
+	projectID string,
+	user *store.UserMessage,
+	permission iam.Permission,
+) (bool, error) {
+	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
+		ResourceID: &projectID,
+	})
+	if err != nil {
+		return false, err
+	}
+	ok, err := s.iamManager.CheckPermission(ctx, permission, user, project.ResourceID)
+	if err != nil {
+		return false, connect.NewError(connect.CodeInternal, errors.Errorf("failed to check permission with error: %v", err.Error()))
+	}
+	return ok, nil
 }
 
 func (s *WorksheetService) convertToAPIWorksheetMessage(ctx context.Context, worksheet *store.WorkSheetMessage) (*v1pb.Worksheet, error) {
@@ -550,26 +630,26 @@ func (s *WorksheetService) convertToAPIWorksheetMessage(ctx context.Context, wor
 	visibility := v1pb.Worksheet_VISIBILITY_UNSPECIFIED
 	switch worksheet.Visibility {
 	case store.ProjectReadWorkSheet:
-		visibility = v1pb.Worksheet_VISIBILITY_PROJECT_READ
+		visibility = v1pb.Worksheet_PROJECT_READ
 	case store.ProjectWriteWorkSheet:
-		visibility = v1pb.Worksheet_VISIBILITY_PROJECT_WRITE
+		visibility = v1pb.Worksheet_PROJECT_WRITE
 	case store.PrivateWorkSheet:
-		visibility = v1pb.Worksheet_VISIBILITY_PRIVATE
+		visibility = v1pb.Worksheet_PRIVATE
 	}
 
 	creator, err := s.store.GetUserByID(ctx, worksheet.CreatorID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get creator: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get creator: %v", err))
 	}
 
 	project, err := s.store.GetProjectV2(ctx, &store.FindProjectMessage{
 		ResourceID: &worksheet.ProjectID,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get project: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to get project: %v", err))
 	}
 	if project == nil {
-		return nil, status.Errorf(codes.NotFound, "project with id %s not found", worksheet.ProjectID)
+		return nil, connect.NewError(connect.CodeNotFound, errors.Errorf("project with id %s not found", worksheet.ProjectID))
 	}
 	return &v1pb.Worksheet{
 		Name:        fmt.Sprintf("%s%d", common.WorksheetIDPrefix, worksheet.UID),
@@ -608,14 +688,14 @@ func convertToStoreWorksheetMessage(project *store.ProjectMessage, database *sto
 func convertToStoreWorksheetVisibility(visibility v1pb.Worksheet_Visibility) (store.WorkSheetVisibility, error) {
 	switch visibility {
 	case v1pb.Worksheet_VISIBILITY_UNSPECIFIED:
-		return store.WorkSheetVisibility(""), status.Errorf(codes.InvalidArgument, "invalid visibility %q", visibility)
-	case v1pb.Worksheet_VISIBILITY_PROJECT_READ:
+		return store.WorkSheetVisibility(""), connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid visibility %q", visibility))
+	case v1pb.Worksheet_PROJECT_READ:
 		return store.ProjectReadWorkSheet, nil
-	case v1pb.Worksheet_VISIBILITY_PROJECT_WRITE:
+	case v1pb.Worksheet_PROJECT_WRITE:
 		return store.ProjectWriteWorkSheet, nil
-	case v1pb.Worksheet_VISIBILITY_PRIVATE:
+	case v1pb.Worksheet_PRIVATE:
 		return store.PrivateWorkSheet, nil
 	default:
-		return store.WorkSheetVisibility(""), status.Errorf(codes.InvalidArgument, "invalid visibility %q", visibility)
+		return store.WorkSheetVisibility(""), connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid visibility %q", visibility))
 	}
 }

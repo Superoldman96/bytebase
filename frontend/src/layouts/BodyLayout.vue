@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
     <div class="flex-1 flex overflow-hidden">
-      <template v-if="!hideSidebar && !isRootPath">
+      <template v-if="!isRootPath">
         <!-- Off-canvas menu for mobile, show/hide based on off-canvas menu state. -->
         <div
           v-show="state.showMobileOverlay"
@@ -72,12 +72,11 @@
       </template>
 
       <div
-        class="flex flex-col min-w-0 flex-1"
-        :class="!hideHeader && 'border-x border-block-border'"
+        class="flex flex-col min-w-0 flex-1 border-x border-block-border"
         data-label="bb-main-body-wrapper"
       >
         <nav
-          v-if="!hideHeader && !isRootPath"
+          v-if="!isRootPath"
           class="bg-white border-b border-block-border"
           data-label="bb-dashboard-header"
         >
@@ -86,7 +85,7 @@
           </div>
         </nav>
 
-        <aside v-if="!hideSidebar && !isRootPath" class="md:hidden">
+        <aside v-if="!isRootPath" class="md:hidden">
           <!-- Static sidebar for mobile -->
           <div
             class="flex items-center justify-start bg-gray-50 border-b border-block-border px-4"
@@ -119,46 +118,38 @@
       </div>
     </div>
 
-    <Quickstart v-if="!hideQuickStart" />
+    <Quickstart v-if="actuatorStore.info?.enableSample" />
   </div>
 
-  <TrialModal
-    v-if="state.showTrialModal"
-    @cancel="state.showTrialModal = false"
-  />
   <ReleaseRemindModal
-    v-if="
-      !hideReleaseRemind &&
-      state.showReleaseModal &&
-      route.name !== WORKSPACE_ROOT_MODULE
-    "
+    v-if="state.showReleaseModal && route.name !== WORKSPACE_ROOT_MODULE"
     @cancel="state.showReleaseModal = false"
   />
 </template>
 
 <script lang="ts" setup>
 import { useMounted, useWindowSize } from "@vueuse/core";
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ReleaseRemindModal from "@/components/ReleaseRemindModal.vue";
-import TrialModal from "@/components/TrialModal.vue";
+import { t } from "@/plugins/i18n";
 import { WORKSPACE_ROOT_MODULE } from "@/router/dashboard/workspaceRoutes";
 import {
   useActuatorV1Store,
-  useAppFeature,
   useSubscriptionV1Store,
   usePermissionStore,
+  pushNotification,
 } from "@/store";
 import { PresetRoleType } from "@/types";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import DashboardHeader from "@/views/DashboardHeader.vue";
 import Quickstart from "../components/Quickstart.vue";
 import { provideBodyLayoutContext } from "./common";
 
 interface LocalState {
   showMobileOverlay: boolean;
-  showTrialModal: boolean;
   showReleaseModal: boolean;
+  showRefreshRemindModal: boolean;
 }
 
 const actuatorStore = useActuatorV1Store();
@@ -170,8 +161,8 @@ const mounted = useMounted();
 
 const state = reactive<LocalState>({
   showMobileOverlay: false,
-  showTrialModal: false,
   showReleaseModal: false,
+  showRefreshRemindModal: false,
 });
 
 const mainContainerRef = ref<HTMLDivElement>();
@@ -185,11 +176,6 @@ const sidebarView = computed(() => {
   return windowWidth.value >= 768 ? "DESKTOP" : "MOBILE";
 });
 
-const hideSidebar = useAppFeature("bb.feature.console.hide-sidebar");
-const hideHeader = useAppFeature("bb.feature.console.hide-header");
-const hideQuickStart = useAppFeature("bb.feature.hide-quick-start");
-const hideReleaseRemind = useAppFeature("bb.feature.hide-release-remind");
-
 actuatorStore.tryToRemindRelease().then((openRemindModal) => {
   if (
     subscriptionStore.currentPlan === PlanType.ENTERPRISE &&
@@ -198,6 +184,42 @@ actuatorStore.tryToRemindRelease().then((openRemindModal) => {
     return;
   }
   state.showReleaseModal = openRemindModal;
+});
+
+// compare BE and FE commit hash every 30 minutes.
+// if they are different, show the refresh remind modal.
+const refreshRemindTimer = ref<NodeJS.Timeout>();
+onMounted(async () => {
+  const remind = await actuatorStore.tryToRemindRefresh();
+  if (remind) {
+    pushNotification({
+      module: "bytebase",
+      style: "WARN",
+      title: t("refresh-remind.title"),
+      description: t("refresh-remind.description"),
+      manualHide: true,
+    });
+  }
+  refreshRemindTimer.value = setInterval(
+    async () => {
+      const remind = await actuatorStore.tryToRemindRefresh();
+      if (remind) {
+        pushNotification({
+          module: "bytebase",
+          style: "WARN",
+          title: t("refresh-remind.title"),
+          description: t("refresh-remind.description"),
+          manualHide: true,
+        });
+      }
+    },
+    1000 * 60 * 30
+  );
+});
+onUnmounted(() => {
+  if (refreshRemindTimer.value) {
+    clearInterval(refreshRemindTimer.value);
+  }
 });
 
 const { mainContainerClasses } = provideBodyLayoutContext({

@@ -40,11 +40,8 @@ const { locale } = useLanguage();
 const subscriptionStore = useSubscriptionV1Store();
 
 const actionText = computed(() => {
-  if (!subscriptionStore.canTrial) {
+  if (!subscriptionStore.showTrial) {
     return t("subscription.upgrade");
-  }
-  if (subscriptionStore.canUpgradeTrial) {
-    return t("subscription.upgrade-trial-button");
   }
   return t("subscription.request-n-days-trial", {
     days: subscriptionStore.trialingDays,
@@ -52,7 +49,7 @@ const actionText = computed(() => {
 });
 
 const onClick = () => {
-  if (subscriptionStore.canTrial) {
+  if (subscriptionStore.showTrial) {
     if (locale.value === "zh-CN") {
       state.showQRCodeModal = true;
     } else {

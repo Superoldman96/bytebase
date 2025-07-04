@@ -8,10 +8,9 @@ import {
 import type { ComposedDatabase, Permission } from "@/types";
 import { DEFAULT_PROJECT_NAME } from "@/types";
 import {
+  hasPermissionToCreateChangeDatabaseIssue,
   hasProjectPermissionV2,
   instanceV1HasAlterSchema,
-  isArchivedDatabaseV1,
-  hasPermissionToCreateChangeDatabaseIssue,
 } from "@/utils";
 
 export type DatabaseDetailContext = {
@@ -60,10 +59,8 @@ export const provideDatabaseDetailContext = (
   };
 
   const allowGetDatabase = computed(() => checkPermission("bb.databases.get"));
-  const allowUpdateDatabase = computed(
-    () =>
-      !isArchivedDatabaseV1(database.value) &&
-      checkPermission("bb.databases.update")
+  const allowUpdateDatabase = computed(() =>
+    checkPermission("bb.databases.update")
   );
   const allowSyncDatabase = computed(() => {
     return (

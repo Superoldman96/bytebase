@@ -37,13 +37,20 @@
   />
 </template>
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { PlusIcon } from "lucide-vue-next";
 import { NButton } from "naive-ui";
 import { v4 as uuidv4 } from "uuid";
 import { computed, reactive, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { featureToRef, pushNotification, useSettingV1Store } from "@/store";
-import { SemanticTypeSetting_SemanticType } from "@/types/proto/v1/setting_service";
+import type { SemanticTypeSetting_SemanticType } from "@/types/proto-es/v1/setting_service_pb";
+import {
+  SemanticTypeSetting_SemanticTypeSchema,
+  Setting_SettingName,
+  ValueSchema as SettingValueSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import SemanticTemplateDrawer from "./components/SemanticTemplateDrawer.vue";
 import type { SemanticItem } from "./components/SemanticTypesTable.vue";
@@ -66,13 +73,15 @@ const settingStore = useSettingV1Store();
 const hasPermission = computed(() => {
   return hasWorkspacePermissionV2("bb.policies.update");
 });
-const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
+const hasSensitiveDataFeature = featureToRef(PlanFeature.FEATURE_DATA_MASKING);
 
 const semanticTypeSettingValue = computed(() => {
   const semanticTypeSetting = settingStore.getSettingByName(
-    "bb.workspace.semantic-types"
+    Setting_SettingName.SEMANTIC_TYPES
   );
-  return semanticTypeSetting?.value?.semanticTypeSettingValue?.types ?? [];
+  return semanticTypeSetting?.value?.value?.case === "semanticTypeSettingValue"
+    ? (semanticTypeSetting.value.value.value.types ?? [])
+    : [];
 });
 
 onMounted(async () => {
@@ -91,10 +100,8 @@ const onAdd = () => {
   state.semanticItemList.push({
     mode: "CREATE",
     dirty: false,
-    item: SemanticTypeSetting_SemanticType.fromJSON({
+    item: create(SemanticTypeSetting_SemanticTypeSchema, {
       id: uuidv4(),
-      fullMaskAlgorithmId: "",
-      partialMaskAlgorithmId: "",
     }),
   });
 };
@@ -110,14 +117,17 @@ const onRemove = async (index: number) => {
   }
 
   await settingStore.upsertSetting({
-    name: "bb.workspace.semantic-types",
-    value: {
-      semanticTypeSettingValue: {
-        types: state.semanticItemList
-          .filter((data) => data.mode === "NORMAL")
-          .map((data) => data.item),
+    name: Setting_SettingName.SEMANTIC_TYPES,
+    value: create(SettingValueSchema, {
+      value: {
+        case: "semanticTypeSettingValue",
+        value: {
+          types: state.semanticItemList
+            .filter((data) => data.mode === "NORMAL")
+            .map((data) => data.item),
+        },
       },
-    },
+    }),
   });
 
   pushNotification({
@@ -148,12 +158,15 @@ const onUpsert = async (
   notification: string
 ) => {
   await settingStore.upsertSetting({
-    name: "bb.workspace.semantic-types",
-    value: {
-      semanticTypeSettingValue: {
-        types: semanticItemList,
+    name: Setting_SettingName.SEMANTIC_TYPES,
+    value: create(SettingValueSchema, {
+      value: {
+        case: "semanticTypeSettingValue",
+        value: {
+          types: semanticItemList,
+        },
       },
-    },
+    }),
   });
 
   pushNotification({
@@ -170,11 +183,13 @@ const onCancel = (index: number) => {
     state.semanticItemList.splice(index, 1);
   } else {
     const semanticTypeSetting = settingStore.getSettingByName(
-      "bb.workspace.semantic-types"
+      Setting_SettingName.SEMANTIC_TYPES
     );
-    const origin = (
-      semanticTypeSetting?.value?.semanticTypeSettingValue?.types ?? []
-    ).find((s) => s.id === item.item.id);
+    const types =
+      semanticTypeSetting?.value?.value?.case === "semanticTypeSettingValue"
+        ? (semanticTypeSetting.value.value.value.types ?? [])
+        : [];
+    const origin = types.find((s) => s.id === item.item.id);
     if (!origin) {
       return;
     }
@@ -203,7 +218,7 @@ const onTemplateApply = async (template: SemanticTypeSetting_SemanticType) => {
   const semanticItem: SemanticItem = {
     dirty: false,
     mode: "NORMAL",
-    item: SemanticTypeSetting_SemanticType.fromPartial({
+    item: create(SemanticTypeSetting_SemanticTypeSchema, {
       ...template,
     }),
   };

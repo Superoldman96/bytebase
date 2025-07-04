@@ -54,9 +54,9 @@
                   {{
                     $t("sql-review.not-available-for-free", {
                       plan: $t(
-                        `subscription.plan.${planTypeToString(
+                        `subscription.plan.${PlanType[
                           currentPlan
-                        )}.title`
+                        ].toLowerCase()}.title`
                       ),
                     })
                   }}
@@ -65,7 +65,7 @@
               <span>
                 {{ getRuleLocalization(rule.type, rule.engine).title }}
                 <a
-                  :href="`https://www.bytebase.com/docs/sql-review/review-rules#${rule.type}`"
+                  :href="`https://docs.bytebase.com/sql-review/review-rules#${rule.type}`"
                   target="_blank"
                   class="inline-block"
                 >
@@ -131,12 +131,9 @@ import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useCurrentPlan } from "@/store";
 import type { RuleTemplateV2 } from "@/types";
-import {
-  getRuleLocalization,
-  ruleIsAvailableInSubscription,
-  planTypeToString,
-} from "@/types";
-import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
+import { getRuleLocalization, ruleIsAvailableInSubscription } from "@/types";
+import { SQLReviewRuleLevel } from "@/types/proto-es/v1/org_policy_service_pb";
+import { PlanType } from "@/types/proto-es/v1/subscription_service_pb";
 import RuleConfig from "./RuleConfigComponents/RuleConfig.vue";
 import RuleLevelSwitch from "./RuleLevelSwitch.vue";
 import type { RuleListWithCategory } from "./SQLReviewCategoryTabFilter.vue";
@@ -257,7 +254,7 @@ const columns = computed(() => {
           <div class="flex items-center space-x-2">
             <span>{getRuleLocalization(rule.type, rule.engine).title}</span>
             <a
-              href={`https://www.bytebase.com/docs/sql-review/review-rules#${rule.type}`}
+              href={`https://docs.bytebase.com/sql-review/review-rules#${rule.type}`}
               target="_blank"
               class="flex flex-row space-x-2 items-center text-base text-gray-500 hover:text-gray-900"
             >

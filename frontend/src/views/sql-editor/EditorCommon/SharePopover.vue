@@ -69,42 +69,37 @@
           <heroicons-solid:link class="w-5 h-auto" />
         </div>
       </NInputGroupLabel>
-      <NInput v-model:value="sharedTabLink" disabled />
-      <NButton
-        class="w-20"
-        :type="copied ? 'success' : 'primary'"
-        :disabled="tabStore.currentTab?.status !== 'CLEAN'"
-        @click="handleCopy"
-      >
-        <heroicons-solid:check v-if="copied" class="h-4 w-4" />
-        {{ copied ? $t("common.copied") : $t("common.copy") }}
-      </NButton>
+      <NInput :value="sharedTabLink" disabled />
+      <div class="pl-2">
+        <CopyButton
+          quaternary
+          :text="false"
+          :size="'medium'"
+          :content="sharedTabLink"
+          :disabled="tabStore.currentTab?.status !== 'CLEAN'"
+        />
+      </div>
     </NInputGroup>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { useClipboard } from "@vueuse/core";
 import { LockKeyholeIcon, UsersIcon } from "lucide-vue-next";
-import {
-  NButton,
-  NInput,
-  NInputGroup,
-  NInputGroupLabel,
-  NPopover,
-} from "naive-ui";
+import { NInput, NInputGroup, NInputGroupLabel, NPopover } from "naive-ui";
 import { ref, computed, onMounted, h } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import { CopyButton } from "@/components/v2";
 import { SQL_EDITOR_WORKSHEET_MODULE } from "@/router/sqlEditor";
 import {
   pushNotification,
   useSQLEditorTabStore,
   useWorkSheetStore,
+  useSettingV1Store,
   useWorkSheetAndTabStore,
 } from "@/store";
 import type { AccessOption } from "@/types";
-import { Worksheet_Visibility } from "@/types/proto/v1/worksheet_service";
+import { Worksheet_Visibility } from "@/types/proto-es/v1/worksheet_service_pb";
 import { extractProjectResourceName, extractWorksheetUID } from "@/utils";
 
 const { t } = useI18n();
@@ -113,24 +108,29 @@ const router = useRouter();
 const tabStore = useSQLEditorTabStore();
 const worksheetV1Store = useWorkSheetStore();
 const sheetAndTabStore = useWorkSheetAndTabStore();
+const settingStore = useSettingV1Store();
+
+const workspaceExternalURL = computed(
+  () => settingStore.workspaceProfileSetting?.externalUrl
+);
 
 const accessOptions = computed<AccessOption[]>(() => {
   return [
     {
       label: t("sql-editor.private"),
-      value: Worksheet_Visibility.VISIBILITY_PRIVATE,
+      value: Worksheet_Visibility.PRIVATE,
       description: t("sql-editor.private-desc"),
       icon: h(LockKeyholeIcon),
     },
     {
       label: t("sql-editor.project-read"),
-      value: Worksheet_Visibility.VISIBILITY_PROJECT_READ,
+      value: Worksheet_Visibility.PROJECT_READ,
       description: t("sql-editor.project-read-desc"),
       icon: h(UsersIcon),
     },
     {
       label: t("sql-editor.project-write"),
-      value: Worksheet_Visibility.VISIBILITY_PROJECT_WRITE,
+      value: Worksheet_Visibility.PROJECT_WRITE,
       description: t("sql-editor.project-write-desc"),
       icon: h(UsersIcon),
     },
@@ -147,23 +147,22 @@ const allowChangeAccess = computed(() => {
 const currentAccess = ref<AccessOption>(accessOptions.value[0]);
 const isShowAccessPopover = ref(false);
 
-const updateWorksheet = () => {
-  if (sheet.value) {
-    worksheetV1Store.patchWorksheet(
+const handleChangeAccess = async (option: AccessOption) => {
+  // only creator can change access
+  if (allowChangeAccess.value && sheet.value) {
+    currentAccess.value = option;
+    await worksheetV1Store.patchWorksheet(
       {
-        name: sheet.value.name,
+        ...sheet.value,
         visibility: currentAccess.value.value,
       },
       ["visibility"]
     );
-  }
-};
-
-const handleChangeAccess = (option: AccessOption) => {
-  // only creator can change access
-  if (allowChangeAccess.value) {
-    currentAccess.value = option;
-    updateWorksheet();
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: t("common.updated"),
+    });
   }
   isShowAccessPopover.value = false;
 };
@@ -180,22 +179,11 @@ const sharedTabLink = computed(() => {
       sheet: extractWorksheetUID(sheet.value.name),
     },
   });
-  return new URL(route.href, window.location.origin).href;
+  return new URL(
+    route.href,
+    workspaceExternalURL.value || window.location.origin
+  ).href;
 });
-
-const { copy, copied } = useClipboard({
-  source: sharedTabLink.value,
-  legacy: true,
-});
-
-const handleCopy = async () => {
-  await copy();
-  pushNotification({
-    module: "bytebase",
-    style: "SUCCESS",
-    title: t("sql-editor.notify.copy-share-link"),
-  });
-};
 
 onMounted(() => {
   if (sheet.value) {

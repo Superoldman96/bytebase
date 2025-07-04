@@ -1,25 +1,26 @@
+import { toJson } from "@bufbuild/protobuf";
 import dayjs from "dayjs";
 import Long from "long";
-import { getDateForPbTimestamp } from "@/types";
-import { NullValue } from "@/types/proto/google/protobuf/struct";
-import { Engine } from "@/types/proto/v1/common";
-import {
+import { getDateForPbTimestampProtoEs } from "@/types";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import type {
   RowValue,
-  type RowValue_Timestamp,
-  type RowValue_TimestampTZ,
-} from "@/types/proto/v1/sql_service";
+  RowValue_Timestamp,
+  RowValue_TimestampTZ,
+} from "@/types/proto-es/v1/sql_service_pb";
+import { RowValueSchema } from "@/types/proto-es/v1/sql_service_pb";
 import { isNullOrUndefined } from "../util";
 
 // extractSQLRowValuePlain extracts a plain value from a RowValue.
 export const extractSQLRowValuePlain = (value: RowValue | undefined) => {
-  if (
-    typeof value === "undefined" ||
-    value.nullValue === NullValue.NULL_VALUE
-  ) {
+  if (typeof value === "undefined" || value.kind?.case === "nullValue") {
     return null;
   }
 
-  const plainObject = RowValue.toJSON(value) as Record<string, any>;
+  const plainObject = toJson(RowValueSchema, value);
+  if (plainObject === null) {
+    return undefined;
+  }
   const keys = Object.keys(plainObject);
   if (keys.length === 0) {
     return undefined; // Will be displayed as "UNSET"
@@ -27,17 +28,21 @@ export const extractSQLRowValuePlain = (value: RowValue | undefined) => {
   if (keys.length > 1) {
     console.debug("mixed type in row value", value);
   }
-  
+
   // First check if there's a formatted stringValue which should take precedence
-  if (value.stringValue) {
-    return value.stringValue;
+  if (value.kind?.case === "stringValue") {
+    let stringValue = value.kind.value;
+    if (stringValue.startsWith('"') && stringValue.endsWith('"')) {
+      stringValue = stringValue.replace(/^"|"$/g, "");
+    }
+    return stringValue;
   }
-  
+
   // Handle binary data with auto-format detection
-  if (value.bytesValue) {
+  if (value.kind?.case === "bytesValue") {
     // Ensure bytesValue exists before converting to array
-    const byteArray = Array.from(value.bytesValue);
-    
+    const byteArray = Array.from(value.kind.value);
+
     // For single byte/bit values (could be boolean)
     if (byteArray.length === 1) {
       // If it's 0 or 1, display as boolean
@@ -45,9 +50,11 @@ export const extractSQLRowValuePlain = (value: RowValue | undefined) => {
         return byteArray[0] === 1 ? "true" : "false";
       }
     }
-    
+
     // Check if it's readable text
-    const isReadableText = byteArray.every(byte => byte >= 32 && byte <= 126);
+    const isReadableText = byteArray.every(
+      (byte: number) => byte >= 32 && byte <= 126
+    );
     if (isReadableText) {
       try {
         return new TextDecoder().decode(new Uint8Array(byteArray));
@@ -55,31 +62,44 @@ export const extractSQLRowValuePlain = (value: RowValue | undefined) => {
         // If text decoding fails, fallback to hex
       }
     }
-    
+
     // The column type isn't available in this context
     // Default to HEX format for most binary data as it's more compact
-    return "0x" + byteArray
-      .map((byte) => byte.toString(16).toUpperCase().padStart(2, "0"))
-      .join("");
-  }
-  
-  if (value.timestampValue && value.timestampValue.googleTimestamp) {
-    return formatTimestamp(value.timestampValue);
-  }
-  if (value.timestampTzValue && value.timestampTzValue.googleTimestamp) {
-    return formatTimestampWithTz(value.timestampTzValue);
-  }
-  if (value.valueValue) {
-    return JSON.stringify(value.valueValue);
+    return (
+      "0x" +
+      byteArray
+        .map((byte: number) => byte.toString(16).toUpperCase().padStart(2, "0"))
+        .join("")
+    );
   }
 
-  const key = keys[0];
-  return plainObject[key];
+  if (
+    value.kind?.case === "timestampValue" &&
+    value.kind.value.googleTimestamp
+  ) {
+    return formatTimestamp(value.kind.value);
+  }
+  if (
+    value.kind?.case === "timestampTzValue" &&
+    value.kind.value.googleTimestamp
+  ) {
+    return formatTimestampWithTz(value.kind.value);
+  }
+  if (value.kind?.case === "valueValue") {
+    return JSON.stringify(value.kind.value);
+  }
+
+  return Object.values(plainObject)[0];
 };
 
 const formatTimestamp = (timestamp: RowValue_Timestamp) => {
-  const fullDayjs = dayjs(getDateForPbTimestamp(timestamp.googleTimestamp)).utc();
-  const microseconds = Math.floor((timestamp.googleTimestamp?.nanos ?? 0) / Math.pow(10, 9 - timestamp.accuracy));
+  const fullDayjs = dayjs(
+    getDateForPbTimestampProtoEs(timestamp.googleTimestamp)
+  ).utc();
+  const microseconds = Math.floor(
+    (timestamp.googleTimestamp?.nanos ?? 0) /
+      Math.pow(10, 9 - timestamp.accuracy)
+  );
   const formattedTimestamp =
     microseconds > 0
       ? `${fullDayjs.format("YYYY-MM-DD HH:mm:ss")}.${microseconds.toString().padStart(timestamp.accuracy, "0")}`
@@ -88,7 +108,9 @@ const formatTimestamp = (timestamp: RowValue_Timestamp) => {
 };
 
 const formatTimestampWithTz = (timestampTzValue: RowValue_TimestampTZ) => {
-  const fullDayjs = dayjs(getDateForPbTimestamp(timestampTzValue.googleTimestamp))
+  const fullDayjs = dayjs(
+    getDateForPbTimestampProtoEs(timestampTzValue.googleTimestamp)
+  )
     .utc()
     .add(timestampTzValue.offset, "seconds");
 
@@ -98,9 +120,11 @@ const formatTimestampWithTz = (timestampTzValue: RowValue_TimestampTZ) => {
     hourOffset > 0
       ? `+${timezoneOffsetPrefix}${hourOffset}`
       : `-${timezoneOffsetPrefix}${Math.abs(hourOffset)}`;
-  timestampTzValue.accuracy = (timestampTzValue.accuracy === 0) ? 6 : timestampTzValue.accuracy;
+  timestampTzValue.accuracy =
+    timestampTzValue.accuracy === 0 ? 6 : timestampTzValue.accuracy;
   const microseconds = Math.floor(
-    (timestampTzValue.googleTimestamp?.nanos ?? 0) / Math.pow(10, 9 - timestampTzValue.accuracy) 
+    (timestampTzValue.googleTimestamp?.nanos ?? 0) /
+      Math.pow(10, 9 - timestampTzValue.accuracy)
   );
   const formattedTimestamp =
     microseconds > 0
@@ -123,6 +147,7 @@ export const wrapSQLIdentifier = (id: string, engine: Engine) => {
       Engine.REDSHIFT,
       Engine.COCKROACHDB,
       Engine.CASSANDRA,
+      Engine.TRINO,
     ].includes(engine)
   ) {
     return `"${id}"`;
@@ -278,20 +303,21 @@ export const compareQueryRowValues = (
 
 // extractSQLRowValueRaw extracts a raw value from a RowValue.
 const extractSQLRowValueRaw = (value: RowValue | undefined) => {
-  if (
-    typeof value === "undefined" ||
-    value.nullValue === NullValue.NULL_VALUE
-  ) {
+  if (typeof value === "undefined" || value.kind?.case === "nullValue") {
     return null;
   }
-  const keys = Object.keys(RowValue.toJSON(value) as Record<string, any>);
+  const j = toJson(RowValueSchema, value);
+  if (j === null) {
+    return undefined;
+  }
+  const keys = Object.keys(j);
   if (keys.length === 0) {
     return undefined;
   }
-  return (value as any)[keys[0]];
+  return value.kind?.value;
 };
 
-const toInt = (a: any) => {
+const toInt = (a: unknown) => {
   return typeof a === "number"
     ? a
     : typeof a === "string"
@@ -299,7 +325,7 @@ const toInt = (a: any) => {
       : Number(a);
 };
 
-const toFloat = (a: any) => {
+const toFloat = (a: unknown) => {
   return typeof a === "number"
     ? a
     : typeof a === "string"

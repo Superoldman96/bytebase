@@ -28,6 +28,7 @@ import MaskSpinner from "@/components/misc/MaskSpinner.vue";
 import { useEmitteryEventListener } from "@/composables/useEmitteryEventListener";
 import { useSettingV1Store } from "@/store";
 import type { ComposedProject } from "@/types";
+import { Setting_SettingName } from "@/types/proto-es/v1/setting_service_pb";
 import Aside from "./Aside";
 import Editor from "./Editor.vue";
 import { useAlgorithm } from "./algorithm";
@@ -62,7 +63,9 @@ const state = reactive<LocalState>({
 
 // Prepare schema template contexts.
 onMounted(async () => {
-  await settingStore.getOrFetchSettingByName("bb.workspace.schema-template");
+  await settingStore.getOrFetchSettingByName(
+    Setting_SettingName.SCHEMA_TEMPLATE
+  );
   state.initialized = true;
 });
 

@@ -72,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import { asyncComputed } from "@vueuse/core";
 import { FileIcon, HistoryIcon } from "lucide-vue-next";
 import { NButton, NRadio, NRadioGroup } from "naive-ui";
@@ -86,9 +87,9 @@ import {
   useChangelogStore,
   useLocalSheetStore,
 } from "@/store";
-import type { Changelist_Change as Change } from "@/types/proto/v1/changelist_service";
-import { Changelist } from "@/types/proto/v1/changelist_service";
-import { ChangelogView } from "@/types/proto/v1/database_service";
+import type { Changelist_Change as Change } from "@/types/proto-es/v1/changelist_service_pb";
+import { ChangelistSchema } from "@/types/proto-es/v1/changelist_service_pb";
+import { ChangelogView } from "@/types/proto-es/v1/database_service_pb";
 import {
   getChangelistChangeSourceType,
   getSheetStatement,
@@ -149,10 +150,9 @@ const doAddChange = async () => {
       if (sourceType === "CHANGELOG") {
         const changelog = await useChangelogStore().getOrFetchChangelogByName(
           change.source,
-          ChangelogView.CHANGELOG_VIEW_FULL
+          ChangelogView.FULL
         );
         setSheetStatement(sheet, changelog?.statement || "");
-        change.version = changelog?.version || "";
       }
       const created = await localSheetStore.saveLocalSheetToRemote(sheet);
       change.sheet = created.name;
@@ -160,10 +160,7 @@ const doAddChange = async () => {
 
     const sourceType = getChangelistChangeSourceType(change);
     if (sourceType === "CHANGELOG") {
-      const changelog = await useChangelogStore().getOrFetchChangelogByName(
-        change.source
-      );
-      change.version = changelog?.version || "";
+      await useChangelogStore().getOrFetchChangelogByName(change.source);
     }
     return change;
   };
@@ -174,10 +171,10 @@ const doAddChange = async () => {
         await createSheetForPendingAddChange(pendingAddChanges.value[i])
       );
     }
-    const changelistPatch = {
-      ...Changelist.fromPartial(changelist.value),
+    const changelistPatch = create(ChangelistSchema, {
+      ...changelist.value,
       changes: [...changelist.value.changes, ...newChanges],
-    };
+    });
     await useChangelistStore().patchChangelist(changelistPatch, ["changes"]);
     pushNotification({
       module: "bytebase",
