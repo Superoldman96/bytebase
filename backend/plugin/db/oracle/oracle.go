@@ -23,12 +23,12 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	plsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -49,7 +49,7 @@ type Driver struct {
 	connectionCtx db.ConnectionContext
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -170,15 +170,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		if err != nil {
 			opts.LogCommandResponse(indexes, 0, nil, err.Error())
 			return 0, &db.ErrorWithPosition{
-				Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-				Start: &storepb.TaskRunResult_Position{
-					Line:   int32(command.FirstStatementLine),
-					Column: int32(command.FirstStatementColumn),
-				},
-				End: &storepb.TaskRunResult_Position{
-					Line:   int32(command.LastLine),
-					Column: int32(command.LastColumn),
-				},
+				Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+				Start: command.Start,
+				End:   command.End,
 			}
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
@@ -225,7 +219,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if _, err := conn.ExecContext(ctx, fmt.Sprintf("EXPLAIN PLAN SET STATEMENT_ID = '%s' FOR %s", randomID, statement)); err != nil {
 				return nil, err
 			}
-			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates",FILTER_PREDICATES "Filter Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
+			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
 		}
 
 		if !queryContext.Explain && queryContext.Limit > 0 {
@@ -267,7 +261,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {
@@ -298,7 +292,7 @@ func (d *Driver) getStatementWithResultLimit(stmt string, queryContext db.QueryC
 	if err != nil {
 		return "", err
 	}
-	if ok, err := skipAddLimit(stmt); err != nil && ok {
+	if ok, err := skipAddLimit(stmt); err == nil && ok {
 		return stmt, nil
 	}
 	switch {

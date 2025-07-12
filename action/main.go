@@ -1,71 +1,37 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
-	"strings"
+	"os/signal"
+	"syscall"
 
-	"github.com/pkg/errors"
-
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/action/args"
+	"github.com/bytebase/bytebase/action/command"
+	"github.com/bytebase/bytebase/action/world"
 )
 
-func run(platform JobPlatform) error {
-	url, serviceAccount, serviceAccountSecret := os.Getenv("BYTEBASE_URL"), os.Getenv("BYTEBASE_SERVICE_ACCOUNT"), os.Getenv("BYTEBASE_SERVICE_ACCOUNT_SECRET")
-	if url == "" {
-		return errors.Errorf("environment BYTEBASE_URL is not set")
-	}
-	if serviceAccount == "" {
-		return errors.Errorf("environment BYTEBASE_SERVICE_ACCOUNT is not set")
-	}
-	if serviceAccountSecret == "" {
-		return errors.Errorf("environment BYTEBASE_SERVICE_ACCOUNT_SECRET is not set")
-	}
-	project, bytebaseTargets, filePattern := os.Getenv("BYTEBASE_PROJECT"), os.Getenv("BYTEBASE_TARGETS"), os.Getenv("FILE_PATTERN")
-	if project == "" {
-		return errors.Errorf("environment BYTEBASE_PROJECT is not set")
-	}
-	if bytebaseTargets == "" {
-		return errors.Errorf("environment BYTEBASE_TARGETS is not set")
-	}
-	if filePattern == "" {
-		return errors.Errorf("environment FILE_PATTERN is not set")
-	}
-	targets := strings.Split(bytebaseTargets, ",")
-
-	client, err := NewClient(url, serviceAccount, serviceAccountSecret)
-	if err != nil {
-		return err
-	}
-
-	releaseFiles, err := getReleaseFiles(filePattern)
-	if err != nil {
-		return err
-	}
-	checkReleaseResponse, err := client.checkRelease(project, &v1pb.CheckReleaseRequest{
-		Release: &v1pb.Release{Files: releaseFiles},
-		Targets: targets,
-	})
-	if err != nil {
-		return err
-	}
-	switch platform {
-	case GitLab:
-		if err := writeReleaseCheckToCodeQualityJSON(checkReleaseResponse); err != nil {
-			return err
-		}
-	case AzureDevOps:
-		if err := loggingReleaseChecks(checkReleaseResponse); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func main() {
-	platform := getJobPlatform()
-	fmt.Printf("Hello, World - %s!\n", platform.String())
-	if err := run(platform); err != nil {
-		panic(err)
+	slog.Info("bytebase-action version " + args.Version + " built at commit " + args.Gitcommit)
+	ctx, cancel := context.WithCancel(context.Background())
+	c := make(chan os.Signal, 1)
+	// Trigger graceful shutdown on SIGINT or SIGTERM.
+	// The default signal sent by the `kill` command is SIGTERM,
+	// which is taken as the graceful shutdown signal for many systems, eg., Kubernetes, Gunicorn.
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := <-c
+		slog.Info(fmt.Sprintf("%s received.", sig.String()))
+		cancel()
+	}()
+
+	w := world.NewWorld()
+	cmd := command.NewRootCommand(w)
+
+	if err := cmd.ExecuteContext(ctx); err != nil {
+		slog.Error("failed to execute command", "error", fmt.Sprintf("%+v", err))
+		os.Exit(1)
 	}
 }

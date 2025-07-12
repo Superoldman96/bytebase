@@ -1,20 +1,11 @@
 - statement: |-
     CREATE TABLE t(a int);
     ALTER TABLE t MODIFY COLUMN a int
-  changeType: 0
-  want:
-    - status: 2
-      code: 407
-      title: column.disallow-changing-order
-      content: '"ALTER TABLE t MODIFY COLUMN a int" changes column order'
-      startposition:
-        line: 1
-        column: 0
-      endposition: null
+  changeType: 1
 - statement: |-
     CREATE TABLE t(a int);
     ALTER TABLE t MODIFY COLUMN a int FIRST
-  changeType: 0
+  changeType: 1
   want:
     - status: 2
       code: 407
@@ -27,7 +18,7 @@
 - statement: |-
     CREATE TABLE t(b int, a1 int);
     ALTER TABLE t CHANGE COLUMN a1 a int FIRST
-  changeType: 0
+  changeType: 1
   want:
     - status: 2
       code: 407
@@ -40,7 +31,7 @@
 - statement: |-
     CREATE TABLE t(a int, b int);
     ALTER TABLE t MODIFY COLUMN a int AFTER b
-  changeType: 0
+  changeType: 1
   want:
     - status: 2
       code: 407
@@ -53,7 +44,7 @@
 - statement: |-
     CREATE TABLE t(a1 int, b int);
     ALTER TABLE t CHANGE COLUMN a1 a int AFTER b
-  changeType: 0
+  changeType: 1
   want:
     - status: 2
       code: 407

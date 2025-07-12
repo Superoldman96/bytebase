@@ -1,13 +1,22 @@
 <template>
   <div v-if="visible">
     <template v-if="readonly || !state.manualEdit">
-      <div v-if="state.resourceId" class="textinfolabel text-sm">
+      <div class="textinfolabel text-sm gap-x-1 flex items-center">
         {{ $t("resource-id.self", { resource: resourceName }) }}:
-        <span class="text-gray-600 font-medium mr-1">{{
-          state.resourceId
-        }}</span>
+        <div
+          v-if="state.resourceId"
+          class="text-gray-600 font-medium mr-1 flex items-center gap-x-1"
+        >
+          {{ state.resourceId }}
+          <CopyButton v-if="readonly" :content="value" />
+        </div>
+        <span v-else class="text-control-placeholder italic">
+          &lt;EMPTY&gt;
+        </span>
         <template v-if="!readonly">
-          {{ $t("resource-id.cannot-be-changed-later") }}
+          <span>
+            {{ $t("resource-id.cannot-be-changed-later") }}
+          </span>
           <span
             class="text-accent font-medium cursor-pointer hover:opacity-80"
             @click="state.manualEdit = true"
@@ -28,6 +37,7 @@
       <NInput
         :value="state.resourceId"
         :status="inputStatus"
+        :placeholder="$t('resource-id.self', { resource: resourceName })"
         v-bind="inputProps"
         @update:value="handleResourceIdInput($event)"
       />
@@ -52,11 +62,14 @@
 </template>
 
 <script lang="ts" setup>
+import { Code } from "@connectrpc/connect";
 import { NInput, type InputProps } from "naive-ui";
 import { computed, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { CopyButton } from "@/components/v2";
 import type { ResourceId, ValidatedMessage } from "@/types";
 import { randomString } from "@/utils";
+import { getErrorCode } from "@/utils/grpcweb";
 
 // characters is the validated characters for resource id.
 const characters = "abcdefghijklmnopqrstuvwxyz1234567890-";
@@ -85,7 +98,6 @@ type ResourceType =
   | "idp"
   | "role"
   | "database-group"
-  | "schema-group"
   | "changelist"
   | "review-config";
 
@@ -99,6 +111,8 @@ const props = withDefaults(
     inputProps?: Partial<InputProps>;
     editingClass?: string;
     validate?: (resourceId: ResourceId) => Promise<ValidatedMessage[]>;
+    // fetchResource will be used to check if the resource id is duplicate.
+    fetchResource?: (resourceId: ResourceId) => Promise<any>;
   }>(),
   {
     value: "",
@@ -126,11 +140,11 @@ let initialized = false;
 const randomSuffix = randomString(4).toLowerCase();
 
 const resourceName = computed(() => {
-  return t(`resource.${props.resourceType}`);
+  return t(`dynamic.resource.${props.resourceType}`);
 });
 
 const visible = computed(() => {
-  if (props.readonly || !state.manualEdit) {
+  if (props.readonly) {
     return !!state.resourceId;
   }
   return true;
@@ -158,13 +172,15 @@ const handleResourceIdChange = async (newValue: string) => {
 
   emit("update:value", newValue);
 
-  // if the resource id is empty, do not validate.
-  if (newValue === "" && !state.manualEdit) {
-    return;
-  }
-
   // common validation for resource id (min length, max length, pattern).
-  if (state.resourceId.length < 1) {
+  if (state.resourceId === "") {
+    state.validatedMessages.push({
+      type: "error",
+      message: t("resource-id.validation.empty", {
+        resource: resourceName.value,
+      }),
+    });
+  } else if (state.resourceId.length < 1) {
     state.validatedMessages.push({
       type: "error",
       message: t("resource-id.validation.minlength", {
@@ -192,6 +208,24 @@ const handleResourceIdChange = async (newValue: string) => {
     const messages = await props.validate(state.resourceId);
     if (Array.isArray(messages)) {
       state.validatedMessages.push(...messages);
+    }
+  }
+
+  if (props.fetchResource && state.resourceId) {
+    try {
+      const resource = await props.fetchResource(state.resourceId);
+      if (resource) {
+        state.validatedMessages.push({
+          type: "error",
+          message: t("resource-id.validation.duplicated", {
+            resource: resourceName.value,
+          }),
+        });
+      }
+    } catch (error) {
+      if (getErrorCode(error) !== Code.NotFound) {
+        throw error;
+      }
     }
   }
 };

@@ -8,9 +8,10 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -88,7 +89,7 @@ func (checker *namingUKConventionChecker) Enter(in ast.Node) (ast.Node, bool) {
 				Code:          advisor.NamingUKConventionMismatch.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Unique key in table `%s` mismatches the naming convention, expect %q but found `%s`", indexData.tableName, regex, indexData.indexName),
-				StartPosition: advisor.ConvertANTLRLineToPosition(indexData.line),
+				StartPosition: common.ConvertANTLRLineToPosition(indexData.line),
 			})
 		}
 		if checker.maxLength > 0 && len(indexData.indexName) > checker.maxLength {
@@ -97,7 +98,7 @@ func (checker *namingUKConventionChecker) Enter(in ast.Node) (ast.Node, bool) {
 				Code:          advisor.NamingUKConventionMismatch.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Unique key `%s` in table `%s` mismatches the naming convention, its length should be within %d characters", indexData.indexName, indexData.tableName, checker.maxLength),
-				StartPosition: advisor.ConvertANTLRLineToPosition(indexData.line),
+				StartPosition: common.ConvertANTLRLineToPosition(indexData.line),
 			})
 		}
 	}

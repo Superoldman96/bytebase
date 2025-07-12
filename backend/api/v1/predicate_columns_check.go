@@ -5,10 +5,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func (s *QueryResultMasker) ExtractSensitivePredicateColumns(ctx context.Context, spans []*base.QuerySpan, instance *store.InstanceMessage, user *store.UserMessage, action storepb.MaskingExceptionPolicy_MaskingException_Action) ([][]base.ColumnResource, error) {
@@ -140,11 +140,11 @@ func (s *QueryResultMasker) getSensitiveColumnsForPredicate(
 }
 
 func (m *maskingLevelEvaluator) isSensitiveColumn(database *store.DatabaseMessage, column base.ColumnResource, classificationConfigID string, columnConfig *storepb.ColumnCatalog, exception []*storepb.MaskingExceptionPolicy_MaskingException) (bool, error) {
-	semanticTypeID, err := m.evaluateSemanticTypeOfColumn(database, column.Schema, column.Table, column.Column, classificationConfigID, columnConfig, exception)
+	evaluation, err := m.evaluateSemanticTypeOfColumn(database, column.Schema, column.Table, column.Column, classificationConfigID, columnConfig, exception)
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to evaluate semantic type of column")
 	}
-	return semanticTypeID != "", nil
+	return evaluation != nil && evaluation.SemanticTypeID != "", nil
 }
 
 func isPredicateColumnsCheckEnabled(engine storepb.Engine) bool {

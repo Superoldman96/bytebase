@@ -7,8 +7,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -49,7 +50,7 @@ func (*StatementDisallowMixInDMLAdvisor) Check(_ context.Context, checkCtx advis
 				Title:         title,
 				Content:       fmt.Sprintf("Data change can only run DML, \"%s\" is not DML", stmtNode.Text()),
 				Code:          advisor.StatementDisallowMixDDLDML.Int32(),
-				StartPosition: advisor.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
+				StartPosition: common.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
 			})
 		}
 	}

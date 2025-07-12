@@ -9,9 +9,10 @@ import (
 	mysql "github.com/bytebase/mysql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -96,7 +97,7 @@ func (checker *collationAllowlistChecker) checkCollation(collation string, lineN
 			Code:          advisor.DisabledCollation.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("\"%s\" used disabled collation '%s'", checker.text, collation),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + lineNumber),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + lineNumber),
 		})
 	}
 }

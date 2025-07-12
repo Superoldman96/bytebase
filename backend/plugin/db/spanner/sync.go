@@ -2,7 +2,7 @@ package spanner
 
 import (
 	"context"
-	"sort"
+	"slices"
 
 	"cloud.google.com/go/spanner"
 	"cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
@@ -13,8 +13,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // SyncInstance syncs the instance.
@@ -93,7 +93,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	for schemaName := range schemaNameMap {
 		schemaNames = append(schemaNames, schemaName)
 	}
-	sort.Strings(schemaNames)
+	slices.Sort(schemaNames)
 	for _, schemaName := range schemaNames {
 		databaseMetadata.Schemas = append(databaseMetadata.Schemas, &storepb.SchemaMetadata{
 			Name:   schemaName,
@@ -195,8 +195,8 @@ func getColumn(ctx context.Context, tx *spanner.ReadOnlyTransaction) (map[db.Tab
 		}
 		column.Position = int32(position)
 		if defaultStr.Valid {
-			// TODO: use correct default type
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.StringVal}
+			// Store in Default field (migration from DefaultExpression to Default)
+			column.Default = defaultStr.StringVal
 		}
 		key := db.TableKey{Schema: schemaName, Table: tableName}
 		columnsMap[key] = append(columnsMap[key], column)

@@ -35,8 +35,9 @@ import {
   DEFAULT_PROJECT_NAME,
   UNKNOWN_PROJECT_NAME,
   isValidProjectName,
+  DEBOUNCE_SEARCH_DELAY,
 } from "@/types";
-import type { Project } from "@/types/proto/v1/project_service";
+import type { Project } from "@/types/proto-es/v1/project_service_pb";
 import { hasWorkspacePermissionV2, getDefaultPagination } from "@/utils";
 import ResourceSelect from "./ResourceSelect.vue";
 
@@ -166,7 +167,7 @@ const handleSearch = useDebounceFn(async (search: string) => {
   } finally {
     state.loading = false;
   }
-}, 200);
+}, DEBOUNCE_SEARCH_DELAY);
 
 onMounted(async () => {
   await handleSearch("");

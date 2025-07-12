@@ -20,7 +20,7 @@
         <div class="textinfolabel flex items-center gap-x-2">
           {{ getRuleLocalization(rule.type, rule.engine).title }}
           <a
-            :href="`https://www.bytebase.com/docs/sql-review/review-rules#${rule.type}`"
+            :href="`https://docs.bytebase.com/sql-review/review-rules#${rule.type}`"
             target="__blank"
             class="flex flex-row space-x-2 items-center text-base text-gray-500 hover:text-gray-900"
           >
@@ -93,7 +93,7 @@ import { nextTick, reactive, watch, ref } from "vue";
 import { BBModal, BBTextField } from "@/bbkit";
 import { payloadValueListToComponentList } from "@/components/SQLReview/components";
 import { RichEngineName } from "@/components/v2";
-import { SQLReviewRuleLevel } from "@/types/proto/v1/org_policy_service";
+import { SQLReviewRuleLevel } from "@/types/proto-es/v1/org_policy_service_pb";
 import type { RuleTemplateV2 } from "@/types/sqlReview";
 import { getRuleLocalization } from "@/types/sqlReview";
 import RuleConfig from "./RuleConfigComponents/RuleConfig.vue";

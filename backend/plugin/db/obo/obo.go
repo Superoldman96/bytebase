@@ -16,12 +16,12 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	plsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 
 	// Register OceanBase Oracle mode driver.
 	_ "github.com/mattn/go-oci8"
@@ -36,7 +36,7 @@ type Driver struct {
 	databaseName string
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -109,15 +109,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		sqlResult, err := tx.ExecContext(ctx, singleSQL.Text)
 		if err != nil {
 			return 0, &db.ErrorWithPosition{
-				Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-				Start: &storepb.TaskRunResult_Position{
-					Line:   int32(singleSQL.FirstStatementLine),
-					Column: int32(singleSQL.FirstStatementColumn),
-				},
-				End: &storepb.TaskRunResult_Position{
-					Line:   int32(singleSQL.LastLine),
-					Column: int32(singleSQL.LastColumn),
-				},
+				Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+				Start: singleSQL.Start,
+				End:   singleSQL.End,
 			}
 		}
 		rowsAffected, err := sqlResult.RowsAffected()
@@ -158,7 +152,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if _, err := conn.ExecContext(ctx, fmt.Sprintf("EXPLAIN PLAN SET STATEMENT_ID = '%s' FOR %s", randomID, statement)); err != nil {
 				return nil, err
 			}
-			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates",FILTER_PREDICATES "Filter Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
+			statement = fmt.Sprintf(`SELECT LPAD(' ', LEVEL-1) || OPERATION || ' (' || OPTIONS || ')' "Operation", OBJECT_NAME "Object", OPTIMIZER "Optimizer", COST "Cost", CARDINALITY "Cardinality", BYTES "Bytes", PARTITION_START "Partition Start", PARTITION_ID "Partition ID", ACCESS_PREDICATES "Access Predicates" FROM PLAN_TABLE START WITH ID = 0 AND statement_id = '%s' CONNECT BY PRIOR ID=PARENT_ID AND statement_id = '%s' ORDER BY id`, randomID, randomID)
 		}
 
 		if !queryContext.Explain && queryContext.Limit > 0 {
@@ -195,7 +189,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

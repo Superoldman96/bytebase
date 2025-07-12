@@ -1,24 +1,26 @@
 package v1
 
 import (
+	"context"
 	"encoding/base64"
 	"regexp"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/ebnf"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
+	"github.com/bytebase/bytebase/backend/store"
 )
 
 type OperatorType string
 
 const (
-	setupExternalURLError = "external URL isn't setup yet, see https://www.bytebase.com/docs/get-started/install/external-url"
+	setupExternalURLError = "external URL isn't setup yet, see https://docs.bytebase.com/get-started/install/external-url"
 
 	ComparatorTypeEqual        OperatorType = "="
 	ComparatorTypeLess         OperatorType = "<"
@@ -419,10 +421,10 @@ func parseLimitAndOffset(size *pageSize) (*pageOffset, error) {
 	if size.token != "" {
 		var token storepb.PageToken
 		if err := unmarshalPageToken(size.token, &token); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid page token: %v", err)
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.Wrapf(err, "invalid page token"))
 		}
 		if token.Limit < 0 {
-			return nil, status.Errorf(codes.InvalidArgument, "page size cannot be negative")
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("page size cannot be negative"))
 		}
 		offset.limit = int(size.limit)
 		offset.offset = int(token.Offset)
@@ -464,4 +466,36 @@ func convertToExportFormat(format v1pb.ExportFormat) storepb.ExportFormat {
 		return storepb.ExportFormat_XLSX
 	}
 	return storepb.ExportFormat_FORMAT_UNSPECIFIED
+}
+
+// getDatabaseMessage retrieves a database by parsing the database resource name.
+// This is a common utility function to avoid code duplication across services.
+func getDatabaseMessage(ctx context.Context, s *store.Store, databaseResourceName string) (*store.DatabaseMessage, error) {
+	instanceID, databaseName, err := common.GetInstanceDatabaseID(databaseResourceName)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to parse %q", databaseResourceName)
+	}
+
+	instance, err := s.GetInstanceV2(ctx, &store.FindInstanceMessage{ResourceID: &instanceID})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get instance %s", instanceID)
+	}
+	if instance == nil {
+		return nil, errors.Errorf("instance not found")
+	}
+
+	find := &store.FindDatabaseMessage{
+		InstanceID:      &instanceID,
+		DatabaseName:    &databaseName,
+		IsCaseSensitive: store.IsObjectCaseSensitive(instance),
+		ShowDeleted:     true,
+	}
+	database, err := s.GetDatabaseV2(ctx, find)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get database")
+	}
+	if database == nil {
+		return nil, errors.Errorf("database %q not found", databaseResourceName)
+	}
+	return database, nil
 }

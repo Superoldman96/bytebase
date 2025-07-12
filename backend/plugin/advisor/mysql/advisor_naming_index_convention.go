@@ -10,10 +10,11 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -160,9 +161,8 @@ func (checker *namingIndexConventionChecker) EnterAlterTable(ctx *mysql.AlterTab
 				// Unique index naming convention should in advisor_naming_unique_key_convention.go
 				continue
 			}
-			columnList := indexState.ExpressionList()
 			metaData := map[string]string{
-				advisor.ColumnListTemplateToken: strings.Join(columnList, "_"),
+				advisor.ColumnListTemplateToken: strings.Join(indexState.ExpressionList(), "_"),
 				advisor.TableNameTemplateToken:  tableName,
 			}
 			indexData := &indexMetaData{
@@ -236,7 +236,7 @@ func (checker *namingIndexConventionChecker) handleIndexList(indexDataList []*in
 				Code:          advisor.NamingIndexConventionMismatch.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Index in table `%s` mismatches the naming convention, expect %q but found `%s`", indexData.tableName, regex, indexData.indexName),
-				StartPosition: advisor.ConvertANTLRLineToPosition(indexData.line),
+				StartPosition: common.ConvertANTLRLineToPosition(indexData.line),
 			})
 		}
 		if checker.maxLength > 0 && len(indexData.indexName) > checker.maxLength {
@@ -245,7 +245,7 @@ func (checker *namingIndexConventionChecker) handleIndexList(indexDataList []*in
 				Code:          advisor.NamingIndexConventionMismatch.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Index `%s` in table `%s` mismatches the naming convention, its length should be within %d characters", indexData.indexName, indexData.tableName, checker.maxLength),
-				StartPosition: advisor.ConvertANTLRLineToPosition(indexData.line),
+				StartPosition: common.ConvertANTLRLineToPosition(indexData.line),
 			})
 		}
 	}

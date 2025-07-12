@@ -36,10 +36,11 @@
 </template>
 
 <script setup lang="ts">
+import { computedAsync } from "@vueuse/core";
 import { FileIcon, HistoryIcon } from "lucide-vue-next";
 import { computed } from "vue";
 import { useChangelogStore } from "@/store";
-import type { Changelist_Change as Change } from "@/types/proto/v1/changelist_service";
+import type { Changelist_Change as Change } from "@/types/proto-es/v1/changelist_service_pb";
 import { extractIssueUID, getChangelistChangeSourceType } from "@/utils";
 
 const props = defineProps<{
@@ -50,8 +51,10 @@ const type = computed(() => {
   return getChangelistChangeSourceType(props.change);
 });
 
-const changelog = computed(() => {
+const changelog = computedAsync(async () => {
   if (type.value !== "CHANGELOG") return undefined;
-  return useChangelogStore().getChangelogByName(props.change.source);
+  return await useChangelogStore().getOrFetchChangelogByName(
+    props.change.source
+  );
 });
 </script>

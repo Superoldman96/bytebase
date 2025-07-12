@@ -9,9 +9,10 @@ import (
 	parser "github.com/bytebase/plsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	plsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -74,7 +75,7 @@ func (l *namingIdentifierNoKeywordListener) EnterId_expression(ctx *parser.Id_ex
 			Code:          advisor.NameIsKeywordIdentifier.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Identifier %q is a keyword and should be avoided", identifier),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
 		})
 	}
 }

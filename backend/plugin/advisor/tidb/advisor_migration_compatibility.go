@@ -6,8 +6,9 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
 	"github.com/pingcap/tidb/pkg/parser/ast"
 )
@@ -155,7 +156,7 @@ func (v *compatibilityChecker) Enter(in ast.Node) (ast.Node, bool) {
 			Code:          code.Int32(),
 			Title:         v.title,
 			Content:       fmt.Sprintf("\"%s\" may cause incompatibility with the existing data and code", in.Text()),
-			StartPosition: advisor.ConvertANTLRLineToPosition(in.OriginTextPosition()),
+			StartPosition: common.ConvertANTLRLineToPosition(in.OriginTextPosition()),
 		})
 	}
 	return in, false

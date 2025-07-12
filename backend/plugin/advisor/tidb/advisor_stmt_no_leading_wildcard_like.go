@@ -8,8 +8,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/format"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
@@ -53,7 +54,7 @@ func (*NoLeadingWildcardLikeAdvisor) Check(_ context.Context, checkCtx advisor.C
 				Code:          advisor.StatementLeadingWildcardLike.Int32(),
 				Title:         string(checkCtx.Rule.Type),
 				Content:       fmt.Sprintf("\"%s\" uses leading wildcard LIKE", checker.text),
-				StartPosition: advisor.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
+				StartPosition: common.ConvertANTLRLineToPosition(stmtNode.OriginTextPosition()),
 			})
 		}
 	}

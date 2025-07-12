@@ -9,8 +9,9 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 )
@@ -71,7 +72,7 @@ func (*MaximumTableSizeAdvisor) Check(_ context.Context, checkCtx advisor.Contex
 							Code:          advisor.TableExceedLimitSize.Int32(),
 							Title:         checkCtx.Rule.Type,
 							Content:       fmt.Sprintf("Apply DDL on large table '%s' ( %d rows ) will lock table for a long time", tabName, tableRows),
-							StartPosition: advisor.ConvertANTLRLineToPosition(statementBaseLine + tableSizeChecker.baseLine),
+							StartPosition: common.ConvertANTLRLineToPosition(statementBaseLine + tableSizeChecker.baseLine),
 						})
 					}
 				}

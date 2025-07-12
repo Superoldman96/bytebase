@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
-
-	"google.golang.org/protobuf/types/known/wrapperspb"
+	"time"
 
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
+	"github.com/bytebase/bytebase/backend/plugin/db/mysql"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
@@ -45,12 +45,12 @@ var (
 	}()
 
 	pkAutoRandomBitsRegex = regexp.MustCompile(`PK_AUTO_RANDOM_BITS=(\d+)`)
-	RangeBitsRegex        = regexp.MustCompile(`RANGE BITS=(\d+)`)
+	rangeBitsRegex        = regexp.MustCompile(`RANGE BITS=(\d+)`)
 )
 
 // SyncInstance syncs the instance.
 func (d *Driver) SyncInstance(ctx context.Context) (*db.InstanceMetadata, error) {
-	version, _, err := d.getVersion(ctx)
+	version, err := d.getVersion(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -136,46 +136,47 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 
 	// Query index info.
 	indexMap := make(map[db.TableKey]map[string]*storepb.IndexMetadata)
+
 	indexQuery := `
 		SELECT
 			TABLE_NAME,
-			INDEX_NAME,
+			KEY_NAME,
 			COLUMN_NAME,
-			EXPRESSION,
 			SEQ_IN_INDEX,
-			INDEX_TYPE,
-			CASE NON_UNIQUE WHEN 0 THEN 1 ELSE 0 END AS IS_UNIQUE,
-			1,
-			INDEX_COMMENT
-		FROM information_schema.STATISTICS
-		WHERE TABLE_SCHEMA = ?
-		ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX`
+			NON_UNIQUE,
+			INDEX_COMMENT,
+			SUB_PART,
+			EXPRESSION
+		FROM information_schema.TIDB_INDEXES
+		WHERE TABLE_SCHEMA = ?`
 	indexRows, err := d.db.QueryContext(ctx, indexQuery, d.databaseName)
 	if err != nil {
 		return nil, util.FormatErrorWithQuery(err, indexQuery)
 	}
 	defer indexRows.Close()
+
 	for indexRows.Next() {
-		var tableName, indexName, indexType, comment, expression string
-		var columnName sql.NullString
-		var expressionName sql.NullString
+		var tableName, keyName, comment string
+		var columnName, expressionName sql.NullString
 		var position int
-		var unique, visible bool
+		var nonUnique bool
+		var subPart sql.NullInt64
+
 		if err := indexRows.Scan(
 			&tableName,
-			&indexName,
+			&keyName,
 			&columnName,
-			&expressionName,
 			&position,
-			&indexType,
-			&unique,
-			&visible,
+			&nonUnique,
 			&comment,
+			&subPart,
+			&expressionName,
 		); err != nil {
 			return nil, err
 		}
-		// TiDB use string "NULL" instead of NULL, so we check expression first which is
-		// different between TiDB and MySQL.
+
+		// Determine expression from column name or expression field
+		var expression string
 		if expressionName.Valid {
 			expression = fmt.Sprintf("(%s)", expressionName.String)
 		} else if columnName.Valid {
@@ -186,54 +187,21 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		if _, ok := indexMap[key]; !ok {
 			indexMap[key] = make(map[string]*storepb.IndexMetadata)
 		}
-		if _, ok := indexMap[key][indexName]; !ok {
-			indexMap[key][indexName] = &storepb.IndexMetadata{
-				Name:    indexName,
-				Type:    indexType,
-				Unique:  unique,
-				Primary: indexName == "PRIMARY",
-				Visible: visible,
+		if _, ok := indexMap[key][keyName]; !ok {
+			indexMap[key][keyName] = &storepb.IndexMetadata{
+				Name:    keyName,
+				Type:    "BTREE", // Default to BTREE as TiDB generally uses BTREE indexes
+				Unique:  !nonUnique,
+				Primary: keyName == "PRIMARY",
+				Visible: true, // Visible is always true for TiDB indexes
 				Comment: comment,
 			}
 		}
-		indexMap[key][indexName].Expressions = append(indexMap[key][indexName].Expressions, expression)
-	}
-	if err := indexRows.Err(); err != nil {
-		return nil, util.FormatErrorWithQuery(err, indexQuery)
-	}
 
-	// Query index key length info.
-	indexKeyLengthQuery := `
-		SELECT
-			TABLE_NAME,
-			KEY_NAME,
-			COLUMN_NAME,
-			SUB_PART
-		FROM information_schema.TIDB_INDEXES
-		WHERE TABLE_SCHEMA = ?
-		ORDER BY TABLE_NAME, KEY_NAME, SEQ_IN_INDEX`
-	indexKeyLengthRows, err := d.db.QueryContext(ctx, indexKeyLengthQuery, d.databaseName)
-	if err != nil {
-		return nil, util.FormatErrorWithQuery(err, indexKeyLengthQuery)
-	}
-	defer indexKeyLengthRows.Close()
-	for indexKeyLengthRows.Next() {
-		var tableName, keyName, columnName string
-		var subPart sql.NullInt64
-		if err := indexKeyLengthRows.Scan(
-			&tableName,
-			&keyName,
-			&columnName,
-			&subPart,
-		); err != nil {
-			return nil, err
-		}
+		// Add expression to index metadata
+		indexMap[key][keyName].Expressions = append(indexMap[key][keyName].Expressions, expression)
 
-		key := db.TableKey{Schema: "", Table: tableName}
-		if _, ok := indexMap[key]; !ok {
-			slog.Debug("trying to sync key length but index not found", slog.String("tableName", tableName), slog.String("keyName", keyName))
-			continue
-		}
+		// Add key length to index metadata
 		if subPart.Valid {
 			indexMap[key][keyName].KeyLength = append(indexMap[key][keyName].KeyLength, subPart.Int64)
 		} else {
@@ -241,8 +209,9 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			indexMap[key][keyName].KeyLength = append(indexMap[key][keyName].KeyLength, -1)
 		}
 	}
-	if err := indexKeyLengthRows.Err(); err != nil {
-		return nil, util.FormatErrorWithQuery(err, indexKeyLengthQuery)
+
+	if err := indexRows.Err(); err != nil {
+		return nil, util.FormatErrorWithQuery(err, indexQuery)
 	}
 
 	// Query column info.
@@ -269,7 +238,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	defer columnRows.Close()
 	for columnRows.Next() {
 		column := &storepb.ColumnMetadata{}
-		var tableName, nullable, extra, tp string
+		var tableName, nullable, extra string
 		var defaultStr sql.NullString
 		if err := columnRows.Scan(
 			&tableName,
@@ -277,7 +246,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			&column.Position,
 			&defaultStr,
 			&nullable,
-			&tp,
+			&column.Type,
 			&column.CharacterSet,
 			&column.Collation,
 			&column.Comment,
@@ -285,17 +254,13 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		); err != nil {
 			return nil, err
 		}
-		// Quoted string has a single quote around it.
-		column.Comment = stripSingleQuote(column.Comment)
-		if defaultStr.Valid {
-			defaultStr.String = stripSingleQuote(defaultStr.String)
-		}
+		// Quoted string has a single quote around it and is escaped by QUOTE().
+		column.Comment = unquoteMySQLString(column.Comment)
 
 		nullableBool, err := util.ConvertYesNo(nullable)
 		if err != nil {
 			return nil, err
 		}
-		column.Type = GetColumnTypeCanonicalSynonym(tp)
 		column.Nullable = nullableBool
 		setColumnMetadataDefault(column, defaultStr, nullableBool, extra)
 		key := db.TableKey{Schema: "", Table: tableName}
@@ -328,6 +293,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		}
 		key := db.TableKey{Schema: "", Table: view.Name}
 		view.Columns = columnMap[key]
+		// Note: TiDB/MySQL does not support view comments, so view.Comment remains empty
 		viewMap[key] = view
 	}
 	if err := viewRows.Err(); err != nil {
@@ -336,6 +302,12 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 
 	// Query foreign key info.
 	foreignKeysMap, err := d.getForeignKeyList(ctx, d.databaseName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query sequence info.
+	sequences, err := d.getSequenceList(ctx, d.databaseName)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +331,8 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			IFNULL(DATA_FREE, 0),
 			IFNULL(CREATE_OPTIONS, ''),
 			QUOTE(IFNULL(TABLE_COMMENT, '')),
-			IFNULL(TIDB_ROW_ID_SHARDING_INFO, '')
+			IFNULL(TIDB_ROW_ID_SHARDING_INFO, ''),
+			IFNULL(TIDB_PK_TYPE, '')
 		FROM information_schema.TABLES
 		WHERE TABLE_SCHEMA = ?
 		ORDER BY TABLE_NAME`
@@ -370,7 +343,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	}
 	defer tableRows.Close()
 	for tableRows.Next() {
-		var tableName, tableType, engine, collation, createOptions, comment, shardingInfo string
+		var tableName, tableType, engine, collation, createOptions, comment, shardingInfo, pkType string
 		var rowCount, dataSize, indexSize, dataFree int64
 		// Workaround TiDB bug https://github.com/pingcap/tidb/issues/27970
 		var tableCollation sql.NullString
@@ -386,11 +359,12 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			&createOptions,
 			&comment,
 			&shardingInfo,
+			&pkType,
 		); err != nil {
 			return nil, err
 		}
-		// Quoted string has a single quote around it.
-		comment = stripSingleQuote(comment)
+		// Quoted string has a single quote around it and is escaped by QUOTE().
+		comment = unquoteMySQLString(comment)
 
 		key := db.TableKey{Schema: "", Table: tableName}
 		switch tableType {
@@ -400,7 +374,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			if strings.Contains(shardingInfo, pkAutoRandomBitsSymbol) {
 				autoRandText := autoRandSymbol
 				if randomBitsMatch := pkAutoRandomBitsRegex.FindStringSubmatch(shardingInfo); len(randomBitsMatch) > 1 {
-					if rangeBitsMatch := RangeBitsRegex.FindStringSubmatch(shardingInfo); len(rangeBitsMatch) > 1 {
+					if rangeBitsMatch := rangeBitsRegex.FindStringSubmatch(shardingInfo); len(rangeBitsMatch) > 1 {
 						autoRandText += fmt.Sprintf("(%s, %s)", randomBitsMatch[1], rangeBitsMatch[1])
 					} else {
 						autoRandText += fmt.Sprintf("(%s)", randomBitsMatch[1])
@@ -414,7 +388,8 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 								for i, column := range columns {
 									if column.Name == columnName {
 										newColumn := columns[i]
-										newColumn.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: autoRandText}
+										// Store AUTO_RANDOM in Default field (migration from DefaultExpression to Default)
+										newColumn.Default = autoRandText
 										break
 									}
 								}
@@ -425,18 +400,21 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 			}
 
 			tableMetadata := &storepb.TableMetadata{
-				Name:          tableName,
-				Columns:       columns,
-				ForeignKeys:   foreignKeysMap[key],
-				Engine:        engine,
-				Collation:     collation,
-				RowCount:      rowCount,
-				DataSize:      dataSize,
-				IndexSize:     indexSize,
-				DataFree:      dataFree,
-				CreateOptions: createOptions,
-				Comment:       comment,
-				Partitions:    partitionTables[key],
+				Name:           tableName,
+				Columns:        columns,
+				ForeignKeys:    foreignKeysMap[key],
+				Engine:         engine,
+				Collation:      collation,
+				RowCount:       rowCount,
+				DataSize:       dataSize,
+				IndexSize:      indexSize,
+				DataFree:       dataFree,
+				CreateOptions:  createOptions,
+				Comment:        comment,
+				Charset:        convertCollationToCharset(collation),
+				Partitions:     partitionTables[key],
+				ShardingInfo:   shardingInfo,
+				PrimaryKeyType: pkType,
 			}
 			if tableCollation.Valid {
 				tableMetadata.Collation = tableCollation.String
@@ -446,7 +424,7 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 				for indexName := range indexes {
 					indexNames = append(indexNames, indexName)
 				}
-				sort.Strings(indexNames)
+				slices.Sort(indexNames)
 				for _, indexName := range indexNames {
 					tableMetadata.Indexes = append(tableMetadata.Indexes, indexes[indexName])
 				}
@@ -462,6 +440,9 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	if err := tableRows.Err(); err != nil {
 		return nil, util.FormatErrorWithQuery(err, tableQuery)
 	}
+
+	// Add sequences to schema metadata
+	schemaMetadata.Sequences = sequences
 
 	databaseMetadata := &storepb.DatabaseSchemaMetadata{
 		Name:    d.databaseName,
@@ -487,29 +468,54 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	return databaseMetadata, err
 }
 
+func convertCollationToCharset(collation string) string {
+	// See mappings from "SHOW CHARACTER SET;".
+	tokens := strings.Split(collation, "_")
+	return tokens[0]
+}
+
+func isTimeConstant(s string) bool {
+	// 0000-00-00 00:00:00 is a special case in TiDB.
+	if s == "0000-00-00 00:00:00" {
+		return true
+	}
+	_, err := time.Parse(time.DateTime, s)
+	return err == nil
+}
+
 func setColumnMetadataDefault(column *storepb.ColumnMetadata, defaultStr sql.NullString, nullableBool bool, extra string) {
 	if defaultStr.Valid {
-		// In TiDB 7, the extra value is empty for a column with CURRENT_TIMESTAMP default.
+		// TiDB is MySQL-compatible, so use MySQL's default handling approach
+		unquotedDefault := mysql.UnquoteMySQLString(defaultStr.String)
 		switch {
-		case isCurrentTimestampLike(defaultStr.String):
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
+		case mysql.IsCurrentTimestampLike(unquotedDefault):
+			column.Default = unquotedDefault
 		case strings.Contains(extra, "DEFAULT_GENERATED"):
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: fmt.Sprintf("(%s)", defaultStr.String)}
+			// for case:
+			//  CREATE TABLE t1(
+			//    update_time TIMESTAMP DEFAULT '0000-00-00 00:00:00' ON UPDATE CURRENT_TIMESTAMP,
+			//  );
+			// In this case, the extra value is "DEFAULT_GENERATED on update CURRENT_TIMESTAMP".
+			// But the default value is a constant.
+			if isTimeConstant(defaultStr.String) {
+				column.Default = defaultStr.String
+			} else {
+				unescapedDefault := mysql.UnescapeExpressionDefault(unquotedDefault)
+				column.Default = fmt.Sprintf("(%s)", unescapedDefault)
+			}
 		default:
-			// For non-generated and non CURRENT_XXX default value, use string.
-			column.DefaultValue = &storepb.ColumnMetadata_Default{Default: &wrapperspb.StringValue{Value: defaultStr.String}}
+			// For non-generated and non CURRENT_XXX default value, preserve quotes for mysqldump compatibility
+			column.Default = defaultStr.String
 		}
 	} else if strings.Contains(strings.ToUpper(extra), autoIncrementSymbol) {
 		// TODO(zp): refactor column default value.
 		// Use the upper case to consistent with MySQL Dump.
-		column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: autoIncrementSymbol}
+		column.Default = autoIncrementSymbol
 	} else if nullableBool {
 		// This is NULL if the column has an explicit default of NULL,
 		// or if the column definition includes no DEFAULT clause.
 		// https://dev.mysql.com/doc/refman/8.0/en/information-schema-columns-table.html
-		column.DefaultValue = &storepb.ColumnMetadata_DefaultNull{
-			DefaultNull: true,
-		}
+		column.Default = "NULL"
 	}
 
 	if strings.Contains(extra, "on update CURRENT_TIMESTAMP") {
@@ -522,17 +528,6 @@ func setColumnMetadataDefault(column *storepb.ColumnMetadata, defaultStr sql.Nul
 			column.OnUpdate = "CURRENT_TIMESTAMP"
 		}
 	}
-}
-
-func isCurrentTimestampLike(s string) bool {
-	upper := strings.ToUpper(s)
-	if strings.HasPrefix(upper, "CURRENT_TIMESTAMP") {
-		return true
-	}
-	if strings.HasPrefix(upper, "CURRENT_DATE") {
-		return true
-	}
-	return false
 }
 
 func (d *Driver) listPartitionTables(ctx context.Context, databaseName string) (map[db.TableKey][]*storepb.TablePartitionMetadata, error) {
@@ -761,4 +756,113 @@ func stripSingleQuote(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
+}
+
+// unquoteMySQLString unescapes a string that was escaped by MySQL's QUOTE() function.
+// MySQL's QUOTE() function escapes:
+// - \ → \\
+// - ' → \'
+// - ASCII NUL (0x00) → \0
+// - Control-Z (0x1A) → \Z
+func unquoteMySQLString(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+
+	// First remove surrounding quotes if present
+	s = stripSingleQuote(s)
+
+	// Now unescape the content
+	result := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			switch s[i+1] {
+			case '\\':
+				result = append(result, '\\')
+				i++ // skip next character
+			case '\'':
+				result = append(result, '\'')
+				i++ // skip next character
+			case '0':
+				result = append(result, 0) // ASCII NUL
+				i++                        // skip next character
+			case 'Z':
+				result = append(result, 0x1A) // Control-Z
+				i++                           // skip next character
+			case 'n':
+				result = append(result, '\n') // newline
+				i++                           // skip next character
+			case 't':
+				result = append(result, '\t') // tab
+				i++                           // skip next character
+			case 'r':
+				result = append(result, '\r') // carriage return
+				i++                           // skip next character
+			case 'b':
+				result = append(result, '\b') // backspace
+				i++                           // skip next character
+			default:
+				// Unknown escape sequence, keep the backslash
+				result = append(result, s[i])
+			}
+		} else {
+			result = append(result, s[i])
+		}
+	}
+	return string(result)
+}
+
+func (d *Driver) getSequenceList(ctx context.Context, databaseName string) ([]*storepb.SequenceMetadata, error) {
+	query := `
+		SELECT
+			SEQUENCE_NAME,
+			START,
+			MIN_VALUE,
+			MAX_VALUE,
+			INCREMENT,
+			CYCLE,
+			CACHE_VALUE,
+			IFNULL(COMMENT, '')
+		FROM information_schema.SEQUENCES
+		WHERE SEQUENCE_SCHEMA = ?
+		ORDER BY SEQUENCE_NAME`
+
+	rows, err := d.db.QueryContext(ctx, query, databaseName)
+	if err != nil {
+		return nil, util.FormatErrorWithQuery(err, query)
+	}
+	defer rows.Close()
+
+	var sequences []*storepb.SequenceMetadata
+	for rows.Next() {
+		sequence := &storepb.SequenceMetadata{}
+		var cycleOption int64
+
+		if err := rows.Scan(
+			&sequence.Name,
+			&sequence.Start,
+			&sequence.MinValue,
+			&sequence.MaxValue,
+			&sequence.Increment,
+			&cycleOption,
+			&sequence.CacheSize,
+			&sequence.Comment,
+		); err != nil {
+			return nil, err
+		}
+
+		// TiDB sequences are always numeric, set default data type
+		sequence.DataType = "BIGINT"
+
+		// Convert cycle option to boolean (TiDB uses 0/1 instead of YES/NO)
+		sequence.Cycle = cycleOption != 0
+
+		sequences = append(sequences, sequence)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, util.FormatErrorWithQuery(err, query)
+	}
+
+	return sequences, nil
 }

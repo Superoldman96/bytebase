@@ -9,9 +9,9 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestGetMongoDBConnectionURL(t *testing.T) {
@@ -73,6 +73,26 @@ func TestGetMongoDBConnectionURL(t *testing.T) {
 				Password: "passwd",
 			},
 			want: "mongodb+srv://bytebase:passwd@cluster0.sample.mongodb.net/sampleDB?appName=bytebase&authSource=admin",
+		},
+		{
+			connConfig: db.ConnectionConfig{
+				DataSource: &storepb.DataSource{
+					Host:     "cluster0.sample.mongodb.net",
+					Port:     "",
+					Username: "bytebase",
+					Password: "passwd",
+					Srv:      true,
+					ExtraConnectionParameters: map[string]string{
+						"readPreference":     "secondary",
+						"readPreferenceTags": "dc:ny",
+					},
+				},
+				ConnectionContext: db.ConnectionContext{
+					DatabaseName: "sampleDB",
+				},
+				Password: "passwd",
+			},
+			want: "mongodb+srv://bytebase:passwd@cluster0.sample.mongodb.net/sampleDB?appName=bytebase&authSource=admin&readPreference=secondary&readPreferenceTags=dc%3Any",
 		},
 		{
 			connConfig: db.ConnectionConfig{
@@ -152,6 +172,12 @@ func TestGetSimpleStatementResult(t *testing.T) {
     "$numberLong": "1546786128982089728"
   }
 }`
+	relaxedTestData1 := `{
+  "_id": {
+    "$oid": "66f62cad7195ccc0dbdfafbb"
+  },
+  "a": 1546786128982089728
+}`
 
 	testData2 := `{
   "_id": {
@@ -176,7 +202,7 @@ func TestGetSimpleStatementResult(t *testing.T) {
 				Rows: []*v1pb.QueryRow{
 					{
 						Values: []*v1pb.RowValue{
-							{Kind: &v1pb.RowValue_StringValue{StringValue: testData1}},
+							{Kind: &v1pb.RowValue_StringValue{StringValue: relaxedTestData1}},
 						},
 					},
 					{

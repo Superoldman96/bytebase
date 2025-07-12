@@ -11,9 +11,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -88,7 +89,7 @@ func (checker *columnDisallowDropChecker) EnterAlterTable(ctx *mysql.AlterTableC
 			Code:          advisor.DropColumn.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("drops column \"%s\" of table \"%s\"", columnName, tableName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + item.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + item.GetStart().GetLine()),
 		})
 	}
 }

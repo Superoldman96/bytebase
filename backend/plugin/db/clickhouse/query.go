@@ -12,19 +12,19 @@ import (
 	"time"
 
 	"github.com/bytebase/bytebase/backend/common/log"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 
+	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/wkt"
 	"github.com/shopspring/decimal"
-	"github.com/xtgo/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/plugin/parser/standard"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // QueryConn queries a SQL statement in a given connection.
@@ -77,7 +77,7 @@ func (*Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, 
 			if err != nil {
 				slog.Error("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {
@@ -103,8 +103,8 @@ func getStatementWithResultLimit(statement string, limit int) string {
 }
 
 func makeValueByTypeName(typeName string, columnType *sql.ColumnType) any {
-	if strings.HasPrefix(typeName, "TUPLE") || strings.HasPrefix(typeName, "ARRAY") || strings.HasPrefix(typeName, "MAP") {
-		// For TUPLE, ARRAY, MAP type in ClickHouse, we pass any and the driver will do the rest.
+	if strings.HasPrefix(typeName, "TUPLE") || strings.HasPrefix(typeName, "ARRAY") || strings.HasPrefix(typeName, "MAP") || strings.HasPrefix(typeName, "JSON") {
+		// For TUPLE, ARRAY, MAP, JSON type in ClickHouse, we pass any and the driver will do the rest.
 		var it any
 		return &it
 	}
@@ -114,7 +114,7 @@ func makeValueByTypeName(typeName string, columnType *sql.ColumnType) any {
 }
 
 func convertValue(_ string, _ *sql.ColumnType, value any) *v1pb.RowValue {
-	// handle TUPLE ARRAY MAP
+	// handle TUPLE ARRAY MAP JSON
 	if v, ok := value.(*any); ok && v != nil {
 		value, err := json.Marshal(v)
 		if err != nil {

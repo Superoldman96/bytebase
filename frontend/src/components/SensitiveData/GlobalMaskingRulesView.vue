@@ -51,7 +51,7 @@
     <div class="textinfolabel">
       {{ $t("settings.sensitive-data.global-rules.description") }}
       <LearnMoreLink
-        url="https://www.bytebase.com/docs/security/data-masking/overview/?source=console"
+        url="https://docs.bytebase.com/security/data-masking/overview/?source=console"
       />
     </div>
     <NEmpty
@@ -112,6 +112,7 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import {
   PlusIcon,
   PencilIcon,
@@ -137,12 +138,17 @@ import {
   useProjectV1Store,
   useInstanceV1Store,
 } from "@/store";
-import type { Policy } from "@/types/proto/v1/org_policy_service";
+import type { Policy } from "@/types/proto-es/v1/org_policy_service_pb";
+import type { MaskingRulePolicy_MaskingRule } from "@/types/proto-es/v1/org_policy_service_pb";
+import {
+  MaskingRulePolicySchema,
+  MaskingRulePolicy_MaskingRuleSchema,
+} from "@/types/proto-es/v1/org_policy_service_pb";
 import {
   PolicyType,
   PolicyResourceType,
-  MaskingRulePolicy_MaskingRule,
-} from "@/types/proto/v1/org_policy_service";
+} from "@/types/proto-es/v1/org_policy_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import {
   arraySwap,
   hasWorkspacePermissionV2,
@@ -182,7 +188,7 @@ const policyStore = usePolicyV1Store();
 const hasPermission = computed(() => {
   return hasWorkspacePermissionV2("bb.policies.update");
 });
-const hasSensitiveDataFeature = featureToRef("bb.feature.sensitive-data");
+const hasSensitiveDataFeature = featureToRef(PlanFeature.FEATURE_DATA_MASKING);
 const layout = {
   mainContainerRef: ref<HTMLDivElement>(),
 };
@@ -199,14 +205,14 @@ const updateList = async () => {
     return;
   }
 
-  state.maskingRuleItemList = (policy.maskingRulePolicy?.rules ?? []).map(
-    (rule) => {
-      return {
-        mode: "NORMAL",
-        rule,
-      };
-    }
-  );
+  state.maskingRuleItemList = (
+    policy.policy?.case === "maskingRulePolicy" ? policy.policy.value.rules : []
+  ).map((rule) => {
+    return {
+      mode: "NORMAL",
+      rule,
+    };
+  });
 };
 
 onMounted(async () => {
@@ -216,7 +222,7 @@ onMounted(async () => {
 const addNewRule = () => {
   state.maskingRuleItemList.push({
     mode: "CREATE",
-    rule: MaskingRulePolicy_MaskingRule.fromPartial({
+    rule: create(MaskingRulePolicy_MaskingRuleSchema, {
       id: uuidv4(),
     }),
   });
@@ -317,10 +323,13 @@ const onPolicyUpsert = async () => {
   const patch: Partial<Policy> = {
     type: PolicyType.MASKING_RULE,
     resourceType: PolicyResourceType.WORKSPACE,
-    maskingRulePolicy: {
-      rules: state.maskingRuleItemList
-        .filter((item) => item.mode === "NORMAL")
-        .map((item) => item.rule),
+    policy: {
+      case: "maskingRulePolicy",
+      value: create(MaskingRulePolicySchema, {
+        rules: state.maskingRuleItemList
+          .filter((item) => item.mode === "NORMAL")
+          .map((item) => item.rule),
+      }),
     },
   };
 

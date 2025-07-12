@@ -9,8 +9,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -110,7 +111,7 @@ func (checker *indexKeyNumberLimitChecker) Enter(in ast.Node) (ast.Node, bool) {
 			Code:          advisor.IndexKeyNumberExceedsLimit.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("The number of index `%s` in table `%s` should be not greater than %d", index.index, index.table, checker.max),
-			StartPosition: advisor.ConvertANTLRLineToPosition(index.line),
+			StartPosition: common.ConvertANTLRLineToPosition(index.line),
 		})
 	}
 

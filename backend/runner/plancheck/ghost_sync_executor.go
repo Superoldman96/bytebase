@@ -16,10 +16,10 @@ import (
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/component/ghost"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/store"
 	"github.com/bytebase/bytebase/backend/utils"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // NewGhostSyncExecutor creates a gh-ost sync check executor.
@@ -128,10 +128,12 @@ func (e *GhostSyncExecutor) Run(ctx context.Context, config *storepb.PlanCheckRu
 			}
 			defer driver.Close(ctx)
 
+			// Use the backup database name of MySQL as the ghost database name.
+			ghostDBName := common.BackupDatabaseNameOfEngine(storepb.Engine_MYSQL)
 			sql := fmt.Sprintf("DROP TABLE IF EXISTS `%s`.`%s`; DROP TABLE IF EXISTS `%s`.`%s`;",
-				"bbdataarchive",
+				ghostDBName,
 				migrationContext.GetGhostTableName(),
-				"bbdataarchive",
+				ghostDBName,
 				migrationContext.GetChangelogTableName(),
 			)
 

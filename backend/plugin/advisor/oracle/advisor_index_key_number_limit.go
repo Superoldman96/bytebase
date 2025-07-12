@@ -9,8 +9,9 @@ import (
 	parser "github.com/bytebase/plsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -81,7 +82,7 @@ func (l *indexKeyNumberLimitListener) EnterTable_index_clause(ctx *parser.Table_
 			Code:          advisor.IndexKeyNumberExceedsLimit.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Index key number should be less than or equal to %d", l.max),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
 		})
 	}
 }
@@ -95,7 +96,7 @@ func (l *indexKeyNumberLimitListener) EnterOut_of_line_constraint(ctx *parser.Ou
 			Code:          advisor.IndexKeyNumberExceedsLimit.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Index key number should be less than or equal to %d", l.max),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
 		})
 	}
 }

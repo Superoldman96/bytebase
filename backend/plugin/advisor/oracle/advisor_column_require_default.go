@@ -4,14 +4,15 @@ package oracle
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/plsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -70,7 +71,7 @@ func (l *columnRequireDefaultListener) generateAdvice() ([]*storepb.Advice, erro
 	for columnID := range l.noDefaultColumns {
 		columnIDs = append(columnIDs, columnID)
 	}
-	sort.Strings(columnIDs)
+	slices.Sort(columnIDs)
 	for _, columnID := range columnIDs {
 		line := l.noDefaultColumns[columnID]
 		advice = append(advice, &storepb.Advice{
@@ -78,7 +79,7 @@ func (l *columnRequireDefaultListener) generateAdvice() ([]*storepb.Advice, erro
 			Code:          advisor.NoDefault.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Column %q doesn't have default value", lastIdentifier(columnID)),
-			StartPosition: advisor.ConvertANTLRLineToPosition(line),
+			StartPosition: common.ConvertANTLRLineToPosition(line),
 		})
 	}
 

@@ -19,19 +19,21 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	pgparser "github.com/bytebase/bytebase/backend/plugin/parser/pg"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
 	excludedDatabaseList = map[string]bool{
 		// Skip internal databases from cloud service providers
 		// aws
-		"padb_harvest": true,
+		"padb_harvest":   true,
+		"awsdatacatalog": true,
+		"sys:internal":   true,
 		// system templates.
 		"template0": true,
 		"template1": true,
@@ -60,7 +62,7 @@ type Driver struct {
 	datashare        bool
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -81,7 +83,13 @@ func (d *Driver) Open(_ context.Context, _ storepb.Engine, config db.ConnectionC
 	}
 	pgxConnConfig.User = config.DataSource.Username
 	pgxConnConfig.Password = config.Password
-	pgxConnConfig.Database = config.ConnectionContext.DatabaseName
+	if config.ConnectionContext.DatabaseName != "" {
+		pgxConnConfig.Database = config.ConnectionContext.DatabaseName
+	} else if config.DataSource.GetDatabase() != "" {
+		pgxConnConfig.Database = config.DataSource.GetDatabase()
+	} else {
+		pgxConnConfig.Database = "dev"
+	}
 
 	if config.DataSource.GetSslCert() != "" {
 		tlscfg, err := util.GetTLSConfig(config.DataSource)
@@ -204,15 +212,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 			sqlResult, err := tx.ExecContext(ctx, command.Text)
 			if err != nil {
 				return 0, &db.ErrorWithPosition{
-					Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-					Start: &storepb.TaskRunResult_Position{
-						Line:   int32(command.FirstStatementLine),
-						Column: int32(command.FirstStatementColumn),
-					},
-					End: &storepb.TaskRunResult_Position{
-						Line:   int32(command.LastLine),
-						Column: int32(command.LastColumn),
-					},
+					Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+					Start: command.Start,
+					End:   command.End,
 				}
 			}
 			rowsAffected, err := sqlResult.RowsAffected()
@@ -362,7 +364,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

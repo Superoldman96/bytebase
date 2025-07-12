@@ -5,9 +5,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -49,13 +50,11 @@ func (*StatementCheckSetRoleVariable) Check(_ context.Context, checkCtx advisor.
 
 	if !hasSetRole {
 		return []*storepb.Advice{{
-			Status:  level,
-			Code:    advisor.StatementCheckSetRoleVariable.Int32(),
-			Title:   string(checkCtx.Rule.Type),
-			Content: "No SET ROLE statement found.",
-			StartPosition: &storepb.Position{
-				Line: 1,
-			},
+			Status:        level,
+			Code:          advisor.StatementCheckSetRoleVariable.Int32(),
+			Title:         string(checkCtx.Rule.Type),
+			Content:       "No SET ROLE statement found.",
+			StartPosition: common.FirstLinePosition,
 		}}, nil
 	}
 

@@ -11,9 +11,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -150,7 +151,7 @@ func (checker *columnAutoIncrementMustUnsignedChecker) checkFieldDefinition(tabl
 			Code:          advisor.AutoIncrementColumnSigned.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Auto-increment column `%s`.`%s` is not UNSIGNED type", tableName, columnName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 		})
 	}
 }

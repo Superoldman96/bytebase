@@ -5,7 +5,6 @@
         <h1 class="text-2xl font-bold">
           {{ title }}
         </h1>
-        <FeatureBadge feature="bb.feature.ai-assistant" />
       </div>
       <span v-if="!allowEdit" class="text-sm text-gray-400">
         {{ $t("settings.general.workspace.only-admin-can-edit") }}
@@ -18,7 +17,7 @@
             <Switch
               v-model:value="state.enabled"
               :text="true"
-              :disabled="!allowEdit || !hasAIFeature"
+              :disabled="!allowEdit"
               @update:value="toggleAIEnabled"
             />
             <span class="font-medium">
@@ -32,7 +31,7 @@
           <div class="mt-1 mb-3 text-sm text-gray-400">
             {{ $t("settings.general.workspace.ai-assistant.description") }}
             <LearnMoreLink
-              url="https://www.bytebase.com/docs/ai-assistant?source=console"
+              url="https://docs.bytebase.com/ai-assistant?source=console"
               class="ml-1 text-sm"
             />
           </div>
@@ -48,6 +47,7 @@
               style="width: 12rem"
               v-model:value="state.provider"
               :options="providerOptions"
+              :disabled="!allowEdit"
               :consistent-menu-width="true"
             />
           </div>
@@ -79,7 +79,7 @@
               <template #trigger>
                 <BBTextField
                   v-model:value="state.apiKey"
-                  :disabled="!allowEdit || !hasAIFeature"
+                  :disabled="!allowEdit"
                   :placeholder="
                     $t(
                       'settings.general.workspace.ai-assistant.api-key.placeholder'
@@ -111,7 +111,7 @@
                 <BBTextField
                   v-model:value="state.endpoint"
                   :required="true"
-                  :disabled="!allowEdit || !hasAIFeature"
+                  :disabled="!allowEdit"
                   :placeholder="providerDefault.endpoint"
                 />
               </template>
@@ -137,7 +137,7 @@
                 <BBTextField
                   v-model:value="state.model"
                   :required="true"
-                  :disabled="!allowEdit || !hasAIFeature"
+                  :disabled="!allowEdit"
                 />
               </template>
               <span class="text-sm text-gray-400 -translate-y-2">
@@ -152,20 +152,21 @@
 </template>
 
 <script lang="ts" setup>
-import { NTooltip, NSelect } from "naive-ui";
+import { create } from "@bufbuild/protobuf";
+import { NSelect, NTooltip } from "naive-ui";
 import scrollIntoView from "scroll-into-view-if-needed";
-import { computed, onMounted, reactive, ref, watchEffect, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { BBTextField } from "@/bbkit";
 import LearnMoreLink from "@/components/LearnMoreLink.vue";
 import { Switch } from "@/components/v2";
-import { hasFeature } from "@/store";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
 import {
-  AISetting,
+  AISettingSchema,
   AISetting_Provider,
-} from "@/types/proto/v1/setting_service";
-import { FeatureBadge } from "../FeatureGuard";
+  Setting_SettingName,
+  ValueSchema as SettingValueSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
 
 interface LocalState {
   enabled: boolean;
@@ -192,11 +193,13 @@ const state = reactive<LocalState>({
   provider: AISetting_Provider.OPEN_AI,
 });
 
-const aiSetting = computed(
-  () => settingV1Store.getSettingByName("bb.ai")?.value?.aiSetting
-);
-
-const hasAIFeature = computed(() => hasFeature("bb.feature.ai-assistant"));
+const aiSetting = computed(() => {
+  const setting = settingV1Store.getSettingByName(Setting_SettingName.AI);
+  if (setting?.value?.value?.case === "aiSetting") {
+    return setting.value.value.value;
+  }
+  return undefined;
+});
 
 const getInitialState = (): LocalState => {
   return {
@@ -294,17 +297,20 @@ const toggleAIEnabled = (on: boolean) => {
 
 const updateAISetting = async () => {
   await settingV1Store.upsertSetting({
-    name: "bb.ai",
-    value: {
-      aiSetting: AISetting.fromPartial({
-        ...(aiSetting.value ?? {}),
-        enabled: state.enabled,
-        apiKey: state.apiKey,
-        endpoint: state.endpoint,
-        model: state.model,
-        provider: state.provider,
-      }),
-    },
+    name: Setting_SettingName.AI,
+    value: create(SettingValueSchema, {
+      value: {
+        case: "aiSetting",
+        value: create(AISettingSchema, {
+          enabled: state.enabled,
+          apiKey: state.apiKey,
+          endpoint: state.endpoint,
+          model: state.model,
+          provider: state.provider,
+          version: aiSetting.value?.version ?? "",
+        }),
+      },
+    }),
   });
 
   Object.assign(state, getInitialState());

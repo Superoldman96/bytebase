@@ -4,7 +4,7 @@
       <span class="mr-2">
         {{ $t("settings.general.workspace.query-data-policy.timeout.self") }}
       </span>
-      <FeatureBadge feature="bb.feature.access-control" />
+      <FeatureBadge :feature="PlanFeature.FEATURE_QUERY_POLICY" />
     </p>
     <p class="text-sm text-gray-400 mt-1">
       {{
@@ -20,7 +20,9 @@
         :precision="0"
         @update:value="handleInput"
       >
-        <template #suffix>Seconds</template>
+        <template #suffix>{{
+          $t("settings.general.workspace.query-data-policy.seconds")
+        }}</template>
       </NInputNumber>
     </div>
     <p class="text-sm textinfolabel mt-1" v-if="seconds <= 0">
@@ -32,23 +34,26 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { NInputNumber } from "naive-ui";
-import { ref, computed } from "vue";
+import { computed, ref } from "vue";
 import {
   featureToRef,
   usePolicyByParentAndType,
   usePolicyV1Store,
 } from "@/store";
-import { Duration } from "@/types/proto/google/protobuf/duration";
 import {
   PolicyResourceType,
   PolicyType,
-} from "@/types/proto/v1/org_policy_service";
+  QueryDataPolicySchema,
+} from "@/types/proto-es/v1/org_policy_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import { FeatureBadge } from "../FeatureGuard";
 
 const policyV1Store = usePolicyV1Store();
-const hasAccessControlFeature = featureToRef("bb.feature.access-control");
+const hasQueryPolicyFeature = featureToRef(PlanFeature.FEATURE_QUERY_POLICY);
 
 const { policy: queryDataPolicy } = usePolicyByParentAndType(
   computed(() => ({
@@ -60,13 +65,17 @@ const { policy: queryDataPolicy } = usePolicyByParentAndType(
 const allowEdit = computed(
   () =>
     hasWorkspacePermissionV2("bb.policies.update") &&
-    hasAccessControlFeature.value
+    hasQueryPolicyFeature.value
 );
 
 const initialState = () => {
-  return (
-    queryDataPolicy.value?.queryDataPolicy?.timeout?.seconds.toNumber() ?? 0
-  );
+  if (
+    queryDataPolicy.value?.policy.case === "queryDataPolicy" &&
+    queryDataPolicy.value.policy.value.timeout
+  ) {
+    return Number(queryDataPolicy.value.policy.value.timeout.seconds);
+  }
+  return 0;
 };
 
 // limit in seconds.
@@ -82,8 +91,11 @@ const updateChange = async () => {
     policy: {
       type: PolicyType.DATA_QUERY,
       resourceType: PolicyResourceType.WORKSPACE,
-      queryDataPolicy: {
-        timeout: Duration.fromPartial({ seconds: seconds.value }),
+      policy: {
+        case: "queryDataPolicy",
+        value: create(QueryDataPolicySchema, {
+          timeout: create(DurationSchema, { seconds: BigInt(seconds.value) }),
+        }),
       },
     },
   });

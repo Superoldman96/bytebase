@@ -5,7 +5,7 @@
         <h1 class="text-2xl font-bold">
           {{ title }}
         </h1>
-        <FeatureBadge feature="bb.feature.branding" />
+        <FeatureBadge :feature="PlanFeature.FEATURE_CUSTOM_LOGO" />
       </div>
       <span v-if="!allowEdit" class="text-sm text-gray-400">
         {{ $t("settings.general.workspace.only-admin-can-edit") }}
@@ -55,18 +55,24 @@
   </div>
 
   <FeatureModal
-    feature="bb.feature.branding"
+    :feature="PlanFeature.FEATURE_CUSTOM_LOGO"
     :open="state.showFeatureModal"
     @cancel="state.showFeatureModal = false"
   />
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { NButton, NTooltip } from "naive-ui";
 import { computed, reactive } from "vue";
 import { featureToRef } from "@/store";
 import { useActuatorV1Store } from "@/store/modules/v1/actuator";
 import { useSettingV1Store } from "@/store/modules/v1/setting";
+import {
+  Setting_SettingName,
+  ValueSchema as SettingValueSchema,
+} from "@/types/proto-es/v1/setting_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { FeatureBadge, FeatureModal } from "../FeatureGuard";
 import SingleFileSelector from "../SingleFileSelector.vue";
 
@@ -105,7 +111,7 @@ const allowSave = computed((): boolean => {
   return state.logoUrl !== settingV1Store.brandingLogo;
 });
 
-const hasBrandingFeature = featureToRef("bb.feature.branding");
+const hasBrandingFeature = featureToRef(PlanFeature.FEATURE_CUSTOM_LOGO);
 
 const doUpdate = async (content: string) => {
   if (state.loading) {
@@ -114,10 +120,13 @@ const doUpdate = async (content: string) => {
   state.loading = true;
   try {
     await settingV1Store.upsertSetting({
-      name: "bb.branding.logo",
-      value: {
-        stringValue: content,
-      },
+      name: Setting_SettingName.BRANDING_LOGO,
+      value: create(SettingValueSchema, {
+        value: {
+          case: "stringValue",
+          value: content,
+        },
+      }),
     });
     useActuatorV1Store().setLogo(content);
   } finally {

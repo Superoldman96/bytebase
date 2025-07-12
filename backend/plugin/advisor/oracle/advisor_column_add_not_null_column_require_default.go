@@ -9,8 +9,9 @@ import (
 	parser "github.com/bytebase/plsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -100,7 +101,7 @@ func (l *columnAddNotNullColumnRequireDefaultListener) ExitColumn_definition(ctx
 			Code:          advisor.NotNullColumnWithNoDefault.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Adding not null column %q requires default.", normalizeIdentifier(ctx.Column_name(), l.currentDatabase)),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
 		})
 	}
 }

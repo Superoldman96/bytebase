@@ -7,8 +7,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -66,7 +67,7 @@ func (v *noSelectAllChecker) Enter(in ast.Node) (ast.Node, bool) {
 					Code:          advisor.StatementSelectAll.Int32(),
 					Title:         v.title,
 					Content:       fmt.Sprintf("\"%s\" uses SELECT all", v.text),
-					StartPosition: advisor.ConvertANTLRLineToPosition(v.line),
+					StartPosition: common.ConvertANTLRLineToPosition(v.line),
 				})
 				break
 			}

@@ -10,9 +10,9 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	plsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/plsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -105,7 +105,7 @@ func (l *tableCommentConventionListener) generateAdvices() ([]*storepb.Advice, e
 					Code:          advisor.CommentEmpty.Int32(),
 					Title:         l.title,
 					Content:       fmt.Sprintf("Comment is required for table %s", normalizeIdentifierName(tableName)),
-					StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
+					StartPosition: common.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 				})
 			}
 		} else {
@@ -115,7 +115,7 @@ func (l *tableCommentConventionListener) generateAdvices() ([]*storepb.Advice, e
 					Code:          advisor.CommentTooLong.Int32(),
 					Title:         l.title,
 					Content:       fmt.Sprintf("Table %s comment is too long. The length of comment should be within %d characters", normalizeIdentifierName(tableName), l.payload.MaxLength),
-					StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
+					StartPosition: common.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 				})
 			}
 			if l.payload.RequiredClassification {
@@ -125,7 +125,7 @@ func (l *tableCommentConventionListener) generateAdvices() ([]*storepb.Advice, e
 						Code:          advisor.CommentMissingClassification.Int32(),
 						Title:         l.title,
 						Content:       fmt.Sprintf("Table %s comment requires classification", normalizeIdentifierName(tableName)),
-						StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
+						StartPosition: common.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 					})
 				}
 			}

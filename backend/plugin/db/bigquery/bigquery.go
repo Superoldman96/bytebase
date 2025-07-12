@@ -17,10 +17,10 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -41,7 +41,7 @@ type Driver struct {
 	databaseName string
 }
 
-func newDriver(_ db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -187,7 +187,7 @@ func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, statement string, q
 			}
 			switch r := status.Statistics.Details.(type) {
 			case *bigquery.QueryStatistics:
-				return util.BuildAffectedRowsResult(r.NumDMLAffectedRows), nil
+				return util.BuildAffectedRowsResult(r.NumDMLAffectedRows, nil), nil
 			default:
 				return nil, errors.New("invalid status statistics detail type")
 			}

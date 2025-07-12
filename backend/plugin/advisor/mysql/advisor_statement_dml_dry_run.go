@@ -13,9 +13,9 @@ import (
 	mysql "github.com/bytebase/mysql-parser"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -109,7 +109,7 @@ func (checker *statementDmlDryRunChecker) handleStmt(text string, lineNumber int
 			Code:          advisor.StatementDMLDryRunFailed.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("\"%s\" dry runs failed: %s", text, err.Error()),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line + lineNumber),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.line + lineNumber),
 		})
 	}
 }

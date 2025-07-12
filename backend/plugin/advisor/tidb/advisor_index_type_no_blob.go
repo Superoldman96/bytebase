@@ -12,9 +12,10 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/types"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -116,7 +117,7 @@ func (v *indexTypeNoBlobChecker) Enter(in ast.Node) (ast.Node, bool) {
 			Code:          advisor.IndexTypeNoBlob.Int32(),
 			Title:         v.title,
 			Content:       fmt.Sprintf("Columns in index must not be BLOB but `%s`.`%s` is %s", pd.table, pd.column, pd.columnType),
-			StartPosition: advisor.ConvertANTLRLineToPosition(pd.line),
+			StartPosition: common.ConvertANTLRLineToPosition(pd.line),
 		})
 	}
 	return in, false

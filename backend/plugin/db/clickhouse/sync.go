@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // SyncInstance syncs the instance.
@@ -110,15 +110,10 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 		}
 		column.Nullable = nullableBool
 		if defaultValueExpression == "" {
-			if nullableBool {
-				column.DefaultValue = &storepb.ColumnMetadata_DefaultNull{
-					DefaultNull: true,
-				}
-			}
+			column.Default = "NULL"
 		} else {
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{
-				DefaultExpression: defaultValueExpression,
-			}
+			// Store in Default field (migration from DefaultExpression to Default)
+			column.Default = defaultValueExpression
 		}
 		columnMap[tableName] = append(columnMap[tableName], column)
 	}

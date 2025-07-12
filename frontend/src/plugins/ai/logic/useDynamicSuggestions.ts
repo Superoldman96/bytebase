@@ -1,8 +1,13 @@
+import { create as createProto } from "@bufbuild/protobuf";
 import { head, uniq, values } from "lodash-es";
 import { computed, reactive, ref } from "vue";
 import { hashCode } from "@/bbkit/BBUtil";
-import { sqlServiceClient } from "@/grpcweb";
-import { type AICompletionRequest_Message } from "@/types/proto/v1/sql_service";
+import { sqlServiceClientConnect } from "@/grpcweb";
+import {
+  type AICompletionRequest_Message,
+  AICompletionRequest_MessageSchema,
+  AICompletionRequestSchema,
+} from "@/types/proto-es/v1/sql_service_pb";
 import { WebStorageHelper } from "@/utils";
 import { useAIContext } from "./context";
 import * as promptUtils from "./prompt";
@@ -21,13 +26,13 @@ export type SuggestionContext = {
 };
 
 const cache = ref(new Map<string, SuggestionContext>());
-const storage = new WebStorageHelper("bb.plugin.open-ai.suggestions");
 const MAX_STORED_SUGGESTIONS = 10;
 
 const keyOf = (metadata: string) => String(hashCode(metadata));
 
 export const useDynamicSuggestions = () => {
   const context = useAIContext();
+  const storage = new WebStorageHelper("bb.plugin.open-ai.suggestions");
 
   const metadata = computed(() => {
     const meta = context.databaseMetadata.value;
@@ -43,7 +48,8 @@ export const useDynamicSuggestions = () => {
   const requestAI = async (messages: AICompletionRequest_Message[]) => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     try {
-      const response = await sqlServiceClient.aICompletion({ messages });
+      const request = createProto(AICompletionRequestSchema, { messages });
+      const response = await sqlServiceClientConnect.aICompletion(request);
       const text =
         head(head(response.candidates)?.content?.parts)?.text?.trim() ?? "";
       const card = JSON.parse(text) as Record<string, string>;
@@ -85,14 +91,14 @@ export const useDynamicSuggestions = () => {
           new Set([...used.values(), ...suggestions])
         );
         const messages: AICompletionRequest_Message[] = [
-          {
+          createProto(AICompletionRequest_MessageSchema, {
             role: "system",
             content: command,
-          },
-          {
+          }),
+          createProto(AICompletionRequest_MessageSchema, {
             role: "user",
             content: prompt,
-          },
+          }),
         ];
         console.debug("[DynamicSuggestions]");
         console.debug(command);

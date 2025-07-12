@@ -1,3 +1,4 @@
+import importMetaUrlPlugin from "@codingame/esbuild-import-meta-url-plugin";
 import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
 import yaml from "@rollup/plugin-yaml";
 import legacy from "@vitejs/plugin-legacy";
@@ -50,10 +51,35 @@ export default defineConfig({
     }),
   ],
   build: {
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
         "explain-visualizer": resolve(__dirname, "explain-visualizer.html"),
+      },
+      output: {
+        manualChunks: (id) => {
+          // Monaco Editor - separate chunk
+          if (id.includes("monaco-editor") || id.includes("monaco-vscode")) {
+            return "monaco-editor";
+          }
+          // SQL tools - separate chunk
+          if (id.includes("sql-formatter") || id.includes("antlr4")) {
+            return "sql-tools";
+          }
+          // UI framework
+          if (id.includes("naive-ui")) {
+            return "ui-framework";
+          }
+          // Utilities
+          if (
+            id.includes("lodash") ||
+            id.includes("dayjs") ||
+            id.includes("axios")
+          ) {
+            return "utils";
+          }
+        },
       },
     },
   },
@@ -93,11 +119,19 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
-      "@public": fileURLToPath(new URL("./public", import.meta.url)),
+    },
+  },
+  optimizeDeps: {
+    include: ["vscode-textmate", "vscode-oniguruma"],
+    esbuildOptions: {
+      plugins: [importMetaUrlPlugin],
     },
   },
   envPrefix: ["BB_", "GIT_COMMIT"],
   define: {
     _global: {},
+  },
+  worker: {
+    format: "es",
   },
 });

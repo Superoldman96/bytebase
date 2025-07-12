@@ -3,10 +3,10 @@ package redshift
 import (
 	"fmt"
 	"io"
-	"sort"
+	"slices"
 	"strings"
 
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 type databaseState struct {
@@ -71,8 +71,14 @@ func (t *tableState) toString(buf *strings.Builder) error {
 	for _, column := range t.columns {
 		columns = append(columns, column)
 	}
-	sort.Slice(columns, func(i, j int) bool {
-		return columns[i].id < columns[j].id
+	slices.SortFunc(columns, func(a, b *columnState) int {
+		if a.id < b.id {
+			return -1
+		}
+		if a.id > b.id {
+			return 1
+		}
+		return 0
 	})
 	for i, column := range columns {
 		if i > 0 {
@@ -89,14 +95,20 @@ func (t *tableState) toString(buf *strings.Builder) error {
 	for _, index := range t.indexes {
 		indexes = append(indexes, index)
 	}
-	sort.Slice(indexes, func(i, j int) bool {
-		if indexes[i].primary {
-			return true
+	slices.SortFunc(indexes, func(a, b *indexState) int {
+		if a.primary && !b.primary {
+			return -1
 		}
-		if indexes[j].primary {
-			return false
+		if !a.primary && b.primary {
+			return 1
 		}
-		return indexes[i].name < indexes[j].name
+		if a.name < b.name {
+			return -1
+		}
+		if a.name > b.name {
+			return 1
+		}
+		return 0
 	})
 
 	for i, index := range indexes {
@@ -114,8 +126,14 @@ func (t *tableState) toString(buf *strings.Builder) error {
 	for _, fk := range t.foreignKeys {
 		foreignKeys = append(foreignKeys, fk)
 	}
-	sort.Slice(foreignKeys, func(i, j int) bool {
-		return foreignKeys[i].name < foreignKeys[j].name
+	slices.SortFunc(foreignKeys, func(a, b *foreignKeyState) int {
+		if a.name < b.name {
+			return -1
+		}
+		if a.name > b.name {
+			return 1
+		}
+		return 0
 	})
 
 	for i, fk := range foreignKeys {
@@ -322,19 +340,13 @@ func convertToColumnState(id int, column *storepb.ColumnMetadata) *columnState {
 		nullable: column.Nullable,
 		comment:  column.Comment,
 	}
-	if column.GetDefaultValue() != nil {
-		switch value := column.GetDefaultValue().(type) {
-		case *storepb.ColumnMetadata_DefaultNull:
-			result.defaultValue = &defaultValueNull{}
-		case *storepb.ColumnMetadata_Default:
-			if value.Default == nil {
-				result.defaultValue = &defaultValueNull{}
-			} else {
-				result.defaultValue = &defaultValueString{value: value.Default.GetValue()}
-			}
-		case *storepb.ColumnMetadata_DefaultExpression:
-			result.defaultValue = &defaultValueExpression{value: value.DefaultExpression}
-		}
+	// Handle default values based on the new field structure
+	if column.DefaultNull {
+		result.defaultValue = &defaultValueNull{}
+	} else if column.Default != "" {
+		result.defaultValue = &defaultValueString{value: column.Default}
+	} else if column.DefaultExpression != "" {
+		result.defaultValue = &defaultValueExpression{value: column.DefaultExpression}
 	}
 	return result
 }

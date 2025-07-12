@@ -23,13 +23,14 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { groupBy } from "lodash-es";
 import { PlusIcon } from "lucide-vue-next";
 import { NButton } from "naive-ui";
 import { computed, watch } from "vue";
 import { useRiskStore } from "@/store";
 import { PresetRiskLevelList, useSupportedSourceList } from "@/types";
-import { Risk, Risk_Source } from "@/types/proto/v1/risk_service";
+import { Risk_Source, RiskSchema } from "@/types/proto-es/v1/risk_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import { RiskFilter, orderByLevelDesc, useRiskFilter } from "../common";
 import RiskSection from "./RiskSection.vue";
@@ -39,7 +40,7 @@ const context = useRiskCenterContext();
 const riskStore = useRiskStore();
 const filter = useRiskFilter();
 const { hasFeature, showFeatureModal } = context;
-const SupportedSourceList = useSupportedSourceList();
+const supportedSourceList = useSupportedSourceList();
 
 const allowCreateRisk = computed(() => {
   return hasWorkspacePermissionV2("bb.risks.create");
@@ -65,7 +66,7 @@ const filteredRiskList = computed(() => {
 
 const riskListGroupBySource = computed(() => {
   const groupBySource = groupBy(filteredRiskList.value, (risk) => risk.source);
-  const groups = SupportedSourceList.value.map((source) => {
+  const groups = supportedSourceList.value.map((source) => {
     const riskList = groupBySource[source] ?? [];
     riskList.sort(orderByLevelDesc);
     return { source, riskList };
@@ -83,11 +84,11 @@ const riskListGroupBySource = computed(() => {
 const addRisk = () => {
   let source = filter.source.value;
   if (source === Risk_Source.SOURCE_UNSPECIFIED) {
-    source = SupportedSourceList.value[0];
+    source = supportedSourceList.value[0];
   }
-  const risk = Risk.fromPartial({
+  const risk = create(RiskSchema, {
     level: PresetRiskLevelList[0].level,
-    source,
+    source: source,
     active: true,
   });
   if (!hasFeature.value) {

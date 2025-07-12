@@ -1,37 +1,41 @@
 <template>
-  <div
-    v-bind="$attrs"
-    class="text-sm flex flex-col lg:flex-row items-start lg:items-center bg-blue-100 py-3 px-4 text-main gap-y-2 gap-x-4 overflow-x-auto"
-  >
-    {{
-      $t("database.selected-n-databases", {
-        n: databases.length,
-      })
-    }}
-    <div class="flex items-center">
-      <template v-for="action in actions" :key="action.text">
-        <NTooltip :disabled="!action.disabled || !action.tooltip(action.text)">
-          <template #trigger>
-            <NButton
-              quaternary
-              size="small"
-              type="primary"
-              :disabled="action.disabled"
-              @click="action.click"
-            >
-              <template #icon>
-                <component :is="action.icon" class="h-4 w-4" />
-              </template>
-              <span class="text-sm">{{ action.text }}</span>
-            </NButton>
-          </template>
-          <span class="w-56 text-sm">
-            {{ action.tooltip(action.text.toLowerCase()) }}
-          </span>
-        </NTooltip>
-      </template>
+  <NScrollbar x-scrollable>
+    <div
+      v-bind="$attrs"
+      class="text-sm flex flex-col lg:flex-row items-start lg:items-center bg-blue-100 py-3 px-4 text-main gap-y-2 gap-x-4"
+    >
+      <span class="whitespace-nowrap">{{
+        $t("database.selected-n-databases", {
+          n: databases.length,
+        })
+      }}</span>
+      <div class="flex items-center">
+        <template v-for="action in actions" :key="action.text">
+          <NTooltip
+            :disabled="!action.disabled || !action.tooltip(action.text)"
+          >
+            <template #trigger>
+              <NButton
+                quaternary
+                size="small"
+                type="primary"
+                :disabled="action.disabled"
+                @click="action.click"
+              >
+                <template #icon>
+                  <component :is="action.icon" class="h-4 w-4" />
+                </template>
+                <span class="text-sm">{{ action.text }}</span>
+              </NButton>
+            </template>
+            <span class="w-56 text-sm">
+              {{ action.tooltip(action.text.toLowerCase()) }}
+            </span>
+          </NTooltip>
+        </template>
+      </div>
     </div>
-  </div>
+  </NScrollbar>
 
   <SchemaEditorModal
     v-if="state.showSchemaEditorModal"
@@ -53,9 +57,8 @@
     @apply="onLabelsApply($event)"
   />
 
-  <DatabaseEditEnvironmentDrawer
+  <EditEnvironmentDrawer
     :show="state.showEditEnvironmentDrawer"
-    :databases="databases"
     @dismiss="state.showEditEnvironmentDrawer = false"
     @update="onEnvironmentUpdate($event)"
   />
@@ -97,54 +100,57 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema as FieldMaskProtoEsSchema } from "@bufbuild/protobuf/wkt";
 import { computedAsync } from "@vueuse/core";
 import {
-  UnlinkIcon,
-  RefreshCcwIcon,
-  TagIcon,
+  ArrowRightLeftIcon,
+  ChevronsDownIcon,
+  DownloadIcon,
   PencilIcon,
   PenSquareIcon,
-  ArrowRightLeftIcon,
-  DownloadIcon,
-  ChevronsDownIcon,
+  RefreshCcwIcon,
   SquareStackIcon,
+  TagIcon,
+  UnlinkIcon,
 } from "lucide-vue-next";
-import { NButton, NTooltip } from "naive-ui";
+import { NButton, NScrollbar, NTooltip, useDialog } from "naive-ui";
 import type { VNode } from "vue";
 import { computed, h, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
+import type { LocationQueryRaw } from "vue-router";
 import { BBAlert } from "@/bbkit";
 import SchemaEditorModal from "@/components/AlterSchemaPrepForm/SchemaEditorModal.vue";
-import DatabaseEditEnvironmentDrawer from "@/components/DatabaseEditEnvironmentDrawer.vue";
+import EditEnvironmentDrawer from "@/components/EditEnvironmentDrawer.vue";
 import LabelEditorDrawer from "@/components/LabelEditorDrawer.vue";
 import { TransferDatabaseForm } from "@/components/TransferDatabaseForm";
 import TransferOutDatabaseForm from "@/components/TransferOutDatabaseForm";
 import { Drawer } from "@/components/v2";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import {
-  useProjectV1Store,
-  useDatabaseV1Store,
-  useGracefulRequest,
-  useDBSchemaV1Store,
   pushNotification,
   useAppFeature,
+  useDatabaseV1Store,
+  useDBSchemaV1Store,
+  useGracefulRequest,
+  useProjectV1Store,
 } from "@/store";
 import type { ComposedDatabase } from "@/types";
 import { DEFAULT_PROJECT_NAME } from "@/types";
 import {
-  Database,
-  UpdateDatabaseRequest,
-} from "@/types/proto/v1/database_service";
+  DatabaseSchema$,
+  UpdateDatabaseRequestSchema,
+  BatchUpdateDatabasesRequestSchema,
+} from "@/types/proto-es/v1/database_service_pb";
 import {
-  isArchivedDatabaseV1,
-  instanceV1HasAlterSchema,
   allowUsingSchemaEditor,
-  generateIssueTitle,
-  hasProjectPermissionV2,
   extractProjectResourceName,
+  generateIssueTitle,
   hasPermissionToCreateChangeDatabaseIssue,
   hasPermissionToCreateDataExportIssue,
+  hasProjectPermissionV2,
+  instanceV1HasAlterSchema,
 } from "@/utils";
 
 interface DatabaseAction {
@@ -183,7 +189,7 @@ const state = reactive<LocalState>({
 
 const emit = defineEmits<{
   (event: "refresh"): void;
-  (event: "update-cache", databases: ComposedDatabase[]): void;
+  (event: "update", databases: ComposedDatabase[]): void;
 }>();
 
 const { t } = useI18n();
@@ -191,9 +197,7 @@ const router = useRouter();
 const databaseStore = useDatabaseV1Store();
 const projectStore = useProjectV1Store();
 const dbSchemaStore = useDBSchemaV1Store();
-const disableSchemaEditor = useAppFeature(
-  "bb.feature.issue.disable-schema-editor"
-);
+const dialog = useDialog();
 
 const selectedProjectNames = computed(() => {
   return new Set(props.databases.map((db) => db.project));
@@ -246,10 +250,8 @@ const allowChangeData = computed(() => {
 });
 
 const allowTransferOutProject = computed(() => {
-  return props.databases.every(
-    (db) =>
-      !isArchivedDatabaseV1(db) &&
-      hasProjectPermissionV2(db.projectEntity, "bb.projects.update")
+  return props.databases.every((db) =>
+    hasProjectPermissionV2(db.projectEntity, "bb.projects.update")
   );
 });
 
@@ -294,23 +296,48 @@ const operations = computed(() => {
   });
 });
 
+const showDatabaseDriftedWarningDialog = () => {
+  return new Promise((resolve) => {
+    dialog.create({
+      type: "warning",
+      positiveText: t("common.confirm"),
+      negativeText: t("common.cancel"),
+      title: t("issue.schema-drift-detected.self"),
+      content: t("issue.schema-drift-detected.description"),
+      autoFocus: false,
+      onNegativeClick: () => {
+        resolve(false);
+      },
+      onPositiveClick: () => {
+        resolve(true);
+      },
+    });
+  });
+};
+
 const generateMultiDb = async (
   type:
     | "bb.issue.database.schema.update"
     | "bb.issue.database.data.update"
     | "bb.issue.database.data.export"
 ) => {
+  // Check if any database is drifted.
+  if (props.databases.some((d) => d.drifted)) {
+    const confirmed = await showDatabaseDriftedWarningDialog();
+    if (!confirmed) {
+      return;
+    }
+  }
   if (
     props.databases.length === 1 &&
     type === "bb.issue.database.schema.update" &&
-    allowUsingSchemaEditor(props.databases) &&
-    !disableSchemaEditor.value
+    allowUsingSchemaEditor(props.databases)
   ) {
     state.showSchemaEditorModal = true;
     return;
   }
 
-  const query: Record<string, any> = {
+  const query: LocationQueryRaw = {
     template: type,
     name: generateIssueTitle(
       type,
@@ -328,7 +355,6 @@ const generateMultiDb = async (
   });
 };
 
-// TODO: batch request
 const syncSchema = async () => {
   if (state.loading) {
     return;
@@ -341,20 +367,17 @@ const syncSchema = async () => {
   try {
     state.loading = true;
     await useGracefulRequest(async () => {
-      const requests = props.databases.map((db) => {
-        databaseStore.syncDatabase(db.name).then(() => {
-          dbSchemaStore.getOrFetchDatabaseMetadata({
-            database: db.name,
-            skipCache: true,
-          });
-        });
-      });
-      await Promise.all(requests);
-      pushNotification({
-        module: "bytebase",
-        style: "SUCCESS",
-        title: t("db.successfully-synced-schema"),
-      });
+      await databaseStore.batchSyncDatabases(
+        props.databases.map((db) => db.name)
+      );
+      for (const db of props.databases) {
+        dbSchemaStore.removeCache(db.name);
+      }
+    });
+    pushNotification({
+      module: "bytebase",
+      style: "SUCCESS",
+      title: t("db.successfully-synced-schema"),
     });
   } catch {
     pushNotification({
@@ -373,18 +396,20 @@ const unAssignDatabases = async () => {
   }
   try {
     state.loading = true;
-    await databaseStore.batchUpdateDatabases({
-      parent: "-",
-      requests: assignedDatabases.value.map((database) => {
-        return UpdateDatabaseRequest.fromPartial({
-          database: {
-            name: database.name,
-            project: DEFAULT_PROJECT_NAME,
-          },
-          updateMask: ["project"],
-        });
-      }),
-    });
+    await databaseStore.batchUpdateDatabases(
+      create(BatchUpdateDatabasesRequestSchema, {
+        parent: "-",
+        requests: assignedDatabases.value.map((database) => {
+          return create(UpdateDatabaseRequestSchema, {
+            database: create(DatabaseSchema$, {
+              name: database.name,
+              project: DEFAULT_PROJECT_NAME,
+            }),
+            updateMask: create(FieldMaskProtoEsSchema, { paths: ["project"] }),
+          });
+        }),
+      })
+    );
     emit("refresh");
     pushNotification({
       module: "bytebase",
@@ -416,16 +441,17 @@ const actions = computed((): DatabaseAction[] => {
         resp.push({
           icon: h(DownloadIcon),
           text: t("custom-approval.risk-rule.risk.namespace.data_export"),
-          disabled: !allowExportData.value || props.databases.length !== 1,
+          disabled:
+            !allowExportData.value ||
+            !selectedProjectName.value ||
+            props.databases.length < 1 ||
+            selectedProjectNames.value.has(DEFAULT_PROJECT_NAME),
           click: () => generateMultiDb("bb.issue.database.data.export"),
           tooltip: (action) => {
             if (!allowExportData.value) {
               return t("database.batch-action-permission-denied", {
                 action,
               });
-            }
-            if (props.databases.length > 1) {
-              return t("database.data-export-action-disabled");
             }
             return "";
           },
@@ -586,17 +612,19 @@ const onLabelsApply = async (labelsList: { [key: string]: string }[]) => {
   const updatedDatabases = await Promise.all(
     props.databases.map(async (database, i) => {
       const label = labelsList[i];
-      const patch = {
-        ...Database.fromPartial(database),
+      const patch = create(DatabaseSchema$, {
+        ...database,
         labels: label,
-      };
-      return await databaseStore.updateDatabase({
-        database: patch,
-        updateMask: ["labels"],
       });
+      return await databaseStore.updateDatabase(
+        create(UpdateDatabaseRequestSchema, {
+          database: patch,
+          updateMask: create(FieldMaskProtoEsSchema, { paths: ["labels"] }),
+        })
+      );
     })
   );
-  emit("update-cache", updatedDatabases);
+  emit("update", updatedDatabases);
 
   pushNotification({
     module: "bytebase",
@@ -606,19 +634,23 @@ const onLabelsApply = async (labelsList: { [key: string]: string }[]) => {
 };
 
 const onEnvironmentUpdate = async (environment: string) => {
-  const updatedDatabases = await databaseStore.batchUpdateDatabases({
-    parent: "-",
-    requests: props.databases.map((database) => {
-      return UpdateDatabaseRequest.fromPartial({
-        database: {
-          name: database.name,
-          environment: environment,
-        },
-        updateMask: ["environment"],
-      });
-    }),
-  });
-  emit("update-cache", updatedDatabases);
+  const updatedDatabases = await databaseStore.batchUpdateDatabases(
+    create(BatchUpdateDatabasesRequestSchema, {
+      parent: "-",
+      requests: props.databases.map((database) => {
+        return create(UpdateDatabaseRequestSchema, {
+          database: create(DatabaseSchema$, {
+            name: database.name,
+            environment: environment,
+          }),
+          updateMask: create(FieldMaskProtoEsSchema, {
+            paths: ["environment"],
+          }),
+        });
+      }),
+    })
+  );
+  emit("update", updatedDatabases);
 
   pushNotification({
     module: "bytebase",

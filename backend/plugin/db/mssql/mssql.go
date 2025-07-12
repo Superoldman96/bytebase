@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	// Import MSSQL driver.
 
@@ -20,15 +21,16 @@ import (
 	// Kerberos Active Directory authentication outside Windows.
 	_ "github.com/microsoft/go-mssqldb/integratedauth/krb5"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
 	tsqlbatch "github.com/bytebase/bytebase/backend/plugin/parser/tsql/batch"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -48,7 +50,7 @@ type Driver struct {
 	certFilePath string
 }
 
-func newDriver(db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -105,10 +107,10 @@ func (d *Driver) Open(_ context.Context, _ storepb.Engine, config db.ConnectionC
 	password := config.Password
 	if config.DataSource.GetAuthenticationType() == storepb.DataSource_AZURE_IAM {
 		driverName = azuread.DriverName
-		if config.DataSource.GetClientSecretCredential() != nil {
+		if azureCredential := config.DataSource.GetAzureCredential(); azureCredential != nil {
 			query.Add("fedauth", azuread.ActiveDirectoryServicePrincipal)
-			query.Add("user id", fmt.Sprintf("%s@%s", config.DataSource.GetClientSecretCredential().ClientId, config.DataSource.GetClientSecretCredential().TenantId))
-			query.Add("password", config.DataSource.GetClientSecretCredential().ClientSecret)
+			query.Add("user id", fmt.Sprintf("%s@%s", azureCredential.ClientId, azureCredential.TenantId))
+			query.Add("password", azureCredential.ClientSecret)
 			password = ""
 		} else {
 			query.Add("fedauth", azuread.ActiveDirectoryDefault)
@@ -183,18 +185,18 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 
 	totalAffectRows := int64(0)
 
-	batch := NewBatch(statement)
+	batch := tsqlbatch.NewBatcher(statement)
 
 	for idx := 0; ; {
 		command, err := batch.Next()
 		if err != nil {
 			if err == io.EOF {
 				// Try send the last batch to server.
-				v := batch.String()
-				if v != "" {
+				v := batch.Batch()
+				if v != nil && len(v.Text) > 0 {
 					indexes := []int32{int32(idx)}
 					opts.LogCommandExecute(indexes)
-					rowsAffected, err := execute(ctx, tx, v)
+					rowsAffected, err := execute(ctx, tx, v.Text)
 					if err != nil {
 						opts.LogCommandResponse(indexes, 0, nil, err.Error())
 						return 0, err
@@ -204,20 +206,20 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 				}
 				break
 			}
-			return 0, errors.Wrapf(err, "failed to get next batch for statement: %s", batch.String())
+			return 0, errors.Wrapf(err, "failed to get next batch for statement: %s", batch.Batch().Text)
 		}
 		if command == nil {
 			continue
 		}
 		switch v := command.(type) {
 		case *tsqlbatch.GoCommand:
-			stmt := batch.String()
+			b := batch.Batch()
 			// Try send the batch to server.
 			indexes := []int32{int32(idx)}
 			idx++
 			for i := uint(0); i < v.Count; i++ {
 				opts.LogCommandExecute(indexes)
-				rowsAffected, err := execute(ctx, tx, stmt)
+				rowsAffected, err := execute(ctx, tx, b.Text)
 				if err != nil {
 					opts.LogCommandResponse(indexes, 0, nil, err.Error())
 					return 0, err
@@ -274,16 +276,19 @@ func unpackGoMSSQLDBError(err gomssqldb.Error) error {
 }
 
 func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string, queryContext db.QueryContext) ([]*v1pb.QueryResult, error) {
-	batch := NewBatch(statement)
+	// Special handling for EXPLAIN queries in MSSQL is now integrated into queryBatch
+
+	// Regular query processing (unchanged)
+	batch := tsqlbatch.NewBatcher(statement)
 	var results []*v1pb.QueryResult
 	for {
 		command, err := batch.Next()
 		if err != nil {
 			if err == io.EOF {
-				v := batch.String()
-				if v != "" {
+				v := batch.Batch()
+				if v != nil && len(v.Text) > 0 {
 					// Query the last batch.
-					qr, err := d.queryBatch(ctx, conn, v, queryContext)
+					qr, err := d.queryBatch(ctx, conn, v.Text, queryContext)
 					results = append(results, qr...)
 					if err != nil {
 						return results, err
@@ -292,16 +297,16 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 				batch.Reset(nil)
 				break
 			}
-			return results, errors.Wrapf(err, "failed to get next batch for statement: %s", batch.String())
+			return results, errors.Wrapf(err, "failed to get next batch for statement: %s", batch.Batch().Text)
 		}
 		if command == nil {
 			continue
 		}
 		switch v := command.(type) {
 		case *tsqlbatch.GoCommand:
-			stmt := batch.String()
+			b := batch.Batch()
 			// Query the batch.
-			qr, err := d.queryBatch(ctx, conn, stmt, queryContext)
+			qr, err := d.queryBatch(ctx, conn, b.Text, queryContext)
 			results = append(results, qr...)
 			if err != nil {
 				return results, err
@@ -326,6 +331,70 @@ func (*Driver) queryBatch(ctx context.Context, conn *sql.Conn, batch string, que
 	if len(singleSQLs) == 0 {
 		return nil, nil
 	}
+
+	// Special handling for EXPLAIN queries in MSSQL using SHOWPLAN_ALL
+	if queryContext.Explain {
+		// Enable SHOWPLAN_ALL mode once for all statements
+		if _, err := conn.ExecContext(ctx, "SET SHOWPLAN_ALL ON"); err != nil {
+			return nil, errors.Wrap(err, "failed to enable SHOWPLAN_ALL mode")
+		}
+		// Ensure SHOWPLAN_ALL is turned off after processing
+		defer func() {
+			if _, err := conn.ExecContext(ctx, "SET SHOWPLAN_ALL OFF"); err != nil {
+				slog.Warn("failed to disable SHOWPLAN_ALL mode", log.BBError(err))
+			}
+		}()
+
+		var results []*v1pb.QueryResult
+
+		// Process each statement with SHOWPLAN_ALL enabled
+		for _, singleSQL := range singleSQLs {
+			startTime := time.Now()
+
+			queryResult, err := func() (*v1pb.QueryResult, error) {
+				// Execute query to get execution plan
+				rows, err := conn.QueryContext(ctx, singleSQL.Text)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to get execution plan")
+				}
+				defer rows.Close()
+
+				// Convert to query result
+				r, err := util.RowsToQueryResult(rows, makeValueByTypeName, convertValue, queryContext.MaximumSQLResultSize)
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to convert execution plan results")
+				}
+
+				if err = rows.Err(); err != nil {
+					return nil, errors.Wrap(err, "error after processing rows")
+				}
+
+				return r, nil
+			}()
+
+			stop := false
+			if err != nil {
+				queryResult = &v1pb.QueryResult{
+					Error: err.Error(),
+				}
+				stop = true
+			}
+
+			queryResult.Statement = singleSQL.Text
+			queryResult.Latency = durationpb.New(time.Since(startTime))
+			queryResult.RowsCount = int64(len(queryResult.Rows))
+
+			results = append(results, queryResult)
+			if stop {
+				break
+			}
+		}
+
+		return results, nil
+	}
+
+	// Regular query processing for non-EXPLAIN queries
+	startTime := time.Now()
 	var stmtTypes []stmtType
 	batchBuf := new(strings.Builder)
 	for _, singleSQL := range singleSQLs {
@@ -336,7 +405,7 @@ func (*Driver) queryBatch(ctx context.Context, conn *sql.Conn, batch string, que
 		stmtTypes = append(stmtTypes, stmtType)
 		// Before sending the batch to server, we add the limit clause to the statement.
 		s := singleSQL.Text
-		if !queryContext.Explain && queryContext.Limit > 0 {
+		if queryContext.Limit > 0 {
 			s = getStatementWithResultLimit(s, queryContext.Limit)
 		}
 		if _, err := batchBuf.WriteString(s); err != nil {
@@ -385,7 +454,7 @@ func (*Driver) queryBatch(ctx context.Context, conn *sql.Conn, batch string, que
 				nextAffectedRowsIdx = getNextAffectedRowsIdx(stmtTypes, nextAffectedRowsIdx+1)
 				continue
 			}
-			queryResult = util.BuildAffectedRowsResult(m.Count)
+			queryResult = util.BuildAffectedRowsResult(m.Count, nil)
 			emptyResultSets := make([]*v1pb.QueryResult, nextAffectedRowsIdx-len(ret))
 			for i := 0; i < len(emptyResultSets); i++ {
 				emptyResultSets[i] = &v1pb.QueryResult{}
@@ -420,6 +489,13 @@ func (*Driver) queryBatch(ctx context.Context, conn *sql.Conn, batch string, que
 			skipRowsAffected = true
 		}
 	}
+
+	latency := time.Since(startTime)
+	for i, res := range ret {
+		res.Latency = durationpb.New(latency)
+		res.Statement = singleSQLs[i].Text
+	}
+
 	return ret, nil
 }
 
@@ -456,18 +532,4 @@ func getNextResultSetIdx(s []stmtType, beginIdx int) int {
 		}
 	}
 	return len(s)
-}
-
-func NewBatch(statement string) *tsqlbatch.Batch {
-	// Split to batches to support some client commands like GO.
-	s := strings.Split(statement, "\n")
-	scanner := func() (string, error) {
-		if len(s) > 0 {
-			z := s[0]
-			s = s[1:]
-			return z, nil
-		}
-		return "", io.EOF
-	}
-	return tsqlbatch.NewBatch(scanner)
 }

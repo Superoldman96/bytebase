@@ -12,9 +12,9 @@ import (
 	mysql "github.com/bytebase/mysql-parser"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -169,7 +169,7 @@ func (checker *columnCommentConventionChecker) checkFieldDefinition(tableName, c
 				Code:          advisor.CommentTooLong.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("The length of column `%s`.`%s` comment should be within %d characters", tableName, columnName, checker.payload.MaxLength),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 			})
 		}
 
@@ -180,7 +180,7 @@ func (checker *columnCommentConventionChecker) checkFieldDefinition(tableName, c
 					Code:          advisor.CommentMissingClassification.Int32(),
 					Title:         checker.title,
 					Content:       fmt.Sprintf("Column `%s`.`%s` comment requires classification", tableName, columnName),
-					StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+					StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 				})
 			}
 		}
@@ -194,7 +194,7 @@ func (checker *columnCommentConventionChecker) checkFieldDefinition(tableName, c
 			Code:          advisor.CommentEmpty.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Column `%s`.`%s` requires comments", tableName, columnName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 		})
 	}
 }

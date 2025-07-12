@@ -2,6 +2,7 @@
   <div ref="containerRef" class="h-full flex flex-col">
     <div class="border-b">
       <BannerSection v-if="!isCreating" />
+      <FeatureAttention :feature="PlanFeature.FEATURE_APPROVAL_WORKFLOW" />
       <HeaderSection />
     </div>
     <div class="flex-1 flex flex-row">
@@ -11,7 +12,6 @@
         <DataExportSection />
         <TaskRunSection v-if="!isCreating" />
         <SQLCheckSection v-if="isCreating" />
-        <PlanCheckSection v-if="!isCreating" />
         <StatementSection />
         <DescriptionSection />
         <IssueCommentSection v-if="!isCreating" />
@@ -61,13 +61,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
-import type { Task } from "@/types/proto/v1/rollout_service";
+import { computed, ref } from "vue";
+import { FeatureAttention } from "@/components/FeatureGuard";
+import { useCurrentProjectV1 } from "@/store";
+import type { Plan, Plan_Spec } from "@/types/proto-es/v1/plan_service_pb";
+import type { Task } from "@/types/proto-es/v1/rollout_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
+import { SQLCheckSection } from "../Plan/components";
+import { providePlanSQLCheckContext } from "../Plan/components/SQLCheckSection";
+import { provideSidebarContext } from "../Plan/logic";
 import { Drawer } from "../v2";
 import {
   BannerSection,
   HeaderSection,
-  PlanCheckSection,
   StatementSection,
   DescriptionSection,
   IssueCommentSection,
@@ -75,24 +81,19 @@ import {
   IssueReviewActionPanel,
   IssueStatusActionPanel,
   TaskRolloutActionPanel,
-  SQLCheckSection,
   DataExportSection,
   TaskRunSection,
 } from "./components";
-import { provideIssueSQLCheckContext } from "./components/SQLCheckSection/context";
 import type {
   IssueReviewAction,
   IssueStatusAction,
   TaskRolloutAction,
 } from "./logic";
-import {
-  provideIssueSidebarContext,
-  useIssueContext,
-  usePollIssue,
-} from "./logic";
+import { specForTask, useIssueContext, usePollIssue } from "./logic";
 
 const containerRef = ref<HTMLElement>();
-const { isCreating, events } = useIssueContext();
+const { isCreating, issue, selectedTask, events } = useIssueContext();
+const { project } = useCurrentProjectV1();
 
 const ongoingIssueReviewAction = ref<{
   action: IssueReviewAction;
@@ -126,11 +127,22 @@ events.on("perform-task-rollout-action", async ({ action, tasks }) => {
   };
 });
 
-provideIssueSQLCheckContext();
+providePlanSQLCheckContext({
+  project,
+  plan: computed(() => issue.value.planEntity as Plan),
+  selectedSpec: computed(
+    () =>
+      specForTask(
+        issue.value.planEntity as Plan,
+        selectedTask.value
+      ) as Plan_Spec
+  ),
+  selectedTask: selectedTask,
+});
 
 const {
   mode: sidebarMode,
   desktopSidebarWidth,
   mobileSidebarOpen,
-} = provideIssueSidebarContext(containerRef);
+} = provideSidebarContext(containerRef);
 </script>

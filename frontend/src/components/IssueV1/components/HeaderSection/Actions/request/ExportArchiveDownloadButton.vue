@@ -22,28 +22,39 @@
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import dayjs from "dayjs";
 import { head, last } from "lodash-es";
 import { DownloadIcon, CircleCheckBigIcon } from "lucide-vue-next";
 import { NButton } from "naive-ui";
 import { computed, reactive } from "vue";
+import { watchEffect } from "vue";
 import { useIssueContext } from "@/components/IssueV1";
-import { issueServiceClient } from "@/grpcweb";
-import { useExportData } from "@/store/modules/export";
-import { ExportFormat, exportFormatToJSON } from "@/types/proto/v1/common";
-import { IssueStatus } from "@/types/proto/v1/issue_service";
+import { issueServiceClientConnect } from "@/grpcweb";
+import { useSQLStore } from "@/store";
+import { ExportFormat } from "@/types/proto-es/v1/common_pb";
 import {
-  Plan_ExportDataConfig,
-  Plan_Spec,
-} from "@/types/proto/v1/plan_service";
-import { TaskRun_ExportArchiveStatus } from "@/types/proto/v1/rollout_service";
-import { ExportRequest } from "@/types/proto/v1/sql_service";
+  BatchUpdateIssuesStatusRequestSchema,
+  IssueStatus as NewIssueStatus,
+} from "@/types/proto-es/v1/issue_service_pb";
+import { IssueStatus } from "@/types/proto-es/v1/issue_service_pb";
+import {
+  Plan_ExportDataConfigSchema,
+  Plan_SpecSchema,
+  type Plan_ExportDataConfig,
+} from "@/types/proto-es/v1/plan_service_pb";
+import {
+  TaskRun_ExportArchiveStatus,
+  Task_Status,
+} from "@/types/proto-es/v1/rollout_service_pb";
+import { ExportRequestSchema } from "@/types/proto-es/v1/sql_service_pb";
+import { flattenTaskV1List } from "@/utils";
 
 interface LocalState {
   isExporting: boolean;
 }
 
-const { issue, events } = useIssueContext();
+const { issue, events, selectedStage } = useIssueContext();
 const state = reactive<LocalState>({
   isExporting: false,
 });
@@ -53,19 +64,36 @@ const taskRun = computed(() => {
 });
 
 const exportDataConfig = computed(() => {
+  const spec =
+    head(issue.value.planEntity?.specs) || create(Plan_SpecSchema, {});
   return (
-    (
-      head(issue.value.planEntity?.steps.flatMap((step) => step.specs)) ||
-      Plan_Spec.fromPartial({})
-    ).exportDataConfig || Plan_ExportDataConfig.fromPartial({})
+    (spec.config?.value as Plan_ExportDataConfig) ||
+    create(Plan_ExportDataConfigSchema, {})
   );
+});
+
+watchEffect(async () => {
+  if (issue.value.status === IssueStatus.OPEN) {
+    if (
+      flattenTaskV1List(issue.value.rolloutEntity).every((task) => {
+        return [Task_Status.DONE, Task_Status.SKIPPED].includes(task.status);
+      })
+    ) {
+      const request = create(BatchUpdateIssuesStatusRequestSchema, {
+        parent: issue.value.project,
+        issues: [issue.value.name],
+        status: NewIssueStatus.DONE,
+      });
+      await issueServiceClientConnect.batchUpdateIssuesStatus(request);
+    }
+  }
 });
 
 const downloadExportArchive = async () => {
   state.isExporting = true;
-  const content = await useExportData().exportData(
-    ExportRequest.fromPartial({
-      name: issue.value.name,
+  const content = await useSQLStore().exportData(
+    create(ExportRequestSchema, {
+      name: selectedStage.value.name,
     })
   );
   const fileType = getExportFileType(exportDataConfig.value);
@@ -73,21 +101,13 @@ const downloadExportArchive = async () => {
     type: fileType,
   });
   const url = window.URL.createObjectURL(blob);
-  const fileFormat = exportFormatToJSON(
-    exportDataConfig.value.format
-  ).toLowerCase();
+
   const formattedDateString = dayjs(new Date()).format("YYYY-MM-DDTHH-mm-ss");
   const filename = `export-data-${formattedDateString}`;
   const link = document.createElement("a");
-  const isZip = exportDataConfig.value.password;
-  link.download = `${filename}.${isZip ? "zip" : fileFormat}`;
+  link.download = `${filename}.zip`;
   link.href = url;
   link.click();
-  await issueServiceClient.batchUpdateIssuesStatus({
-    parent: issue.value.project,
-    issues: [issue.value.name],
-    status: IssueStatus.DONE,
-  });
   events.emit("status-changed", { eager: true });
   state.isExporting = false;
 };

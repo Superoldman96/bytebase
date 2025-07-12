@@ -44,46 +44,28 @@
       />
     </template>
   </div>
-  <FeatureModal
-    feature="bb.feature.instance-count"
-    :open="state.showFeatureModal"
-    @cancel="state.showFeatureModal = false"
-  />
 </template>
 
 <script setup lang="ts">
 import { NCheckbox } from "naive-ui";
-import { computed, ref, reactive } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRouter } from "vue-router";
 import { restartAppRoot } from "@/AppRootContext";
 import { BBButtonConfirm } from "@/bbkit";
-import {
-  useInstanceV1Store,
-  pushNotification,
-  useActuatorV1Store,
-  useSubscriptionV1Store,
-} from "@/store";
+import { INSTANCE_ROUTE_DASHBOARD } from "@/router/dashboard/workspaceRoutes";
+import { pushNotification, useInstanceV1Store } from "@/store";
 import type { ComposedInstance } from "@/types";
-import { State } from "@/types/proto/v1/common";
+import { State } from "@/types/proto-es/v1/common_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
-import { FeatureModal } from "../FeatureGuard";
-
-interface LocalState {
-  showFeatureModal: boolean;
-}
 
 const props = defineProps<{
   instance: ComposedInstance;
 }>();
 
-const state = reactive<LocalState>({
-  showFeatureModal: false,
-});
-
 const { t } = useI18n();
 const instanceStore = useInstanceV1Store();
-const actuatorStore = useActuatorV1Store();
-const subscriptionStore = useSubscriptionV1Store();
+const router = useRouter();
 
 const force = ref(false);
 
@@ -99,28 +81,28 @@ const archiveOrRestoreInstance = async (archive: boolean) => {
     await instanceStore.archiveInstance(props.instance, force.value);
     pushNotification({
       module: "bytebase",
-      style: "SUCCESS",
-      title: t("instance.successfully-archived-instance-updatedinstance-name", [
+      style: "INFO",
+      title: t("instance.successfully-archived-instance", [
         props.instance.title,
       ]),
     });
   } else {
-    if (
-      subscriptionStore.instanceCountLimit <= actuatorStore.totalInstanceCount
-    ) {
-      state.showFeatureModal = true;
-      return;
-    }
     await instanceStore.restoreInstance(props.instance);
     pushNotification({
       module: "bytebase",
       style: "SUCCESS",
-      title: t("instance.successfully-archived-instance-updatedinstance-name", [
+      title: t("instance.successfully-restored-instance", [
         props.instance.title,
       ]),
     });
   }
 
   restartAppRoot();
+
+  if (archive) {
+    router.push({
+      name: INSTANCE_ROUTE_DASHBOARD,
+    });
+  }
 };
 </script>

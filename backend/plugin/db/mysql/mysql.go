@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"cloud.google.com/go/cloudsqlconn"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
@@ -28,12 +26,12 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -60,7 +58,7 @@ type Driver struct {
 	openCleanUp []func()
 }
 
-func newDriver(_ db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -117,11 +115,11 @@ func (d *Driver) getMySQLConnection(connCfg db.ConnectionConfig) (string, error)
 			return "", err
 		}
 		d.sshClient = sshClient
+		protocol = "mysql-tcp-" + uuid.NewString()[:8]
 		// Now we register the dialer with the ssh connection as a parameter.
-		mysql.RegisterDialContext("mysql+tcp", func(_ context.Context, addr string) (net.Conn, error) {
+		mysql.RegisterDialContext(protocol, func(_ context.Context, addr string) (net.Conn, error) {
 			return sshClient.Dial("tcp", addr)
 		})
-		protocol = "mysql+tcp"
 	}
 
 	tlscfg, err := util.GetTLSConfig(connCfg.DataSource)
@@ -182,7 +180,7 @@ func registerRDSMysqlCerts(ctx context.Context) error {
 // https://repost.aws/knowledge-center/rds-mysql-access-denied
 func getRDSConnection(ctx context.Context, connCfg db.ConnectionConfig) (string, error) {
 	dbEndpoint := fmt.Sprintf("%s:%s", connCfg.DataSource.Host, connCfg.DataSource.Port)
-	cfg, err := config.LoadDefaultConfig(ctx)
+	cfg, err := util.GetAWSConnectionConfig(ctx, connCfg)
 	if err != nil {
 		return "", errors.Wrap(err, "load aws config failed")
 	}
@@ -204,10 +202,11 @@ func getRDSConnection(ctx context.Context, connCfg db.ConnectionConfig) (string,
 }
 
 func getCloudSQLConnection(ctx context.Context, connCfg db.ConnectionConfig) (string, error) {
-	d, err := cloudsqlconn.NewDialer(ctx, cloudsqlconn.WithIAMAuthN())
+	d, err := util.GetGCPConnectionConfig(ctx, connCfg)
 	if err != nil {
-		return "", err
+		return "", errors.Wrap(err, "load gcp config failed")
 	}
+
 	mysql.RegisterDialContext("cloudsqlconn",
 		func(ctx context.Context, _ string) (net.Conn, error) {
 			return d.Dial(ctx, connCfg.DataSource.Host)
@@ -350,15 +349,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 				opts.LogCommandResponse(indexes, 0, nil, err.Error())
 
 				return &db.ErrorWithPosition{
-					Err: errors.Wrapf(err, "failed to execute context in a transaction"),
-					Start: &storepb.TaskRunResult_Position{
-						Line:   int32(command.FirstStatementLine),
-						Column: int32(command.FirstStatementColumn),
-					},
-					End: &storepb.TaskRunResult_Position{
-						Line:   int32(command.LastLine),
-						Column: int32(command.LastColumn),
-					},
+					Err:   errors.Wrapf(err, "failed to execute context in a transaction"),
+					Start: command.Start,
+					End:   command.End,
 				}
 			}
 
@@ -447,7 +440,7 @@ func (d *Driver) QueryConn(ctx context.Context, conn *sql.Conn, statement string
 			if err != nil {
 				slog.Info("rowsAffected returns error", log.BBError(err))
 			}
-			return util.BuildAffectedRowsResult(affectedRows), nil
+			return util.BuildAffectedRowsResult(affectedRows, nil), nil
 		}()
 		stop := false
 		if err != nil {

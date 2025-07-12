@@ -3,7 +3,6 @@
 </template>
 
 <script lang="tsx" setup>
-import dayjs from "dayjs";
 import type { h } from "vue";
 import { defineComponent } from "vue";
 import { Translation, useI18n } from "vue-i18n";
@@ -13,17 +12,12 @@ import {
   type ComposedIssueComment,
 } from "@/store";
 import { extractUserId } from "@/store";
-import { getDateForPbTimestamp, type ComposedIssue } from "@/types";
+import { type ComposedIssue } from "@/types";
 import {
-  IssueComment_Approval,
   IssueComment_Approval_Status,
-  IssueComment_IssueUpdate,
-  IssueComment_StageEnd,
-  IssueComment_TaskPriorBackup,
-  IssueComment_TaskUpdate,
   IssueComment_TaskUpdate_Status,
   IssueStatus,
-} from "@/types/proto/v1/issue_service";
+} from "@/types/proto-es/v1/issue_service_pb";
 import { findStageByName, findTaskByName } from "@/utils";
 import StageName from "./StageName.vue";
 import StatementUpdate from "./StatementUpdate.vue";
@@ -41,10 +35,11 @@ const userStore = useUserStore();
 
 const renderActionSentence = () => {
   const { issueComment, issue } = props;
-  if (issueComment.type === IssueCommentType.APPROVAL) {
-    const { status } = IssueComment_Approval.fromPartial(
-      issueComment.approval || {}
-    );
+  if (
+    issueComment.type === IssueCommentType.APPROVAL &&
+    issueComment.event?.case === "approval"
+  ) {
+    const { status } = issueComment.event.value;
     let verb = "";
     if (status === IssueComment_Approval_Status.APPROVED) {
       verb = t("custom-approval.issue-review.approved-issue");
@@ -56,7 +51,10 @@ const renderActionSentence = () => {
     if (verb) {
       return maybeAutomaticallyVerb(issueComment, verb);
     }
-  } else if (issueComment.type === IssueCommentType.ISSUE_UPDATE) {
+  } else if (
+    issueComment.type === IssueCommentType.ISSUE_UPDATE &&
+    issueComment.event?.case === "issueUpdate"
+  ) {
     const {
       fromTitle,
       toTitle,
@@ -66,7 +64,7 @@ const renderActionSentence = () => {
       toStatus,
       fromLabels,
       toLabels,
-    } = IssueComment_IssueUpdate.fromPartial(issueComment.issueUpdate || {});
+    } = issueComment.event.value;
     if (fromTitle !== undefined && toTitle !== undefined) {
       return t("activity.sentence.changed-from-to", {
         name: t("issue.issue-name").toLowerCase(),
@@ -87,10 +85,11 @@ const renderActionSentence = () => {
     } else if (fromLabels.length !== 0 || toLabels.length !== 0) {
       return t("activity.sentence.changed-labels");
     }
-  } else if (issueComment.type === IssueCommentType.STAGE_END) {
-    const { stage } = IssueComment_StageEnd.fromPartial(
-      issueComment.stageEnd || {}
-    );
+  } else if (
+    issueComment.type === IssueCommentType.STAGE_END &&
+    issueComment.event?.case === "stageEnd"
+  ) {
+    const { stage } = issueComment.event.value;
     const stageEntity = findStageByName(issue.rolloutEntity, stage);
     const params: VerbTypeTarget = {
       issueComment,
@@ -99,15 +98,11 @@ const renderActionSentence = () => {
       verb: t("activity.sentence.completed"),
     };
     return renderVerbTypeTarget(params);
-  } else if (issueComment.type === IssueCommentType.TASK_UPDATE) {
-    const {
-      tasks,
-      fromSheet,
-      toSheet,
-      fromEarliestAllowedTime,
-      toEarliestAllowedTime,
-      toStatus,
-    } = IssueComment_TaskUpdate.fromPartial(issueComment.taskUpdate || {});
+  } else if (
+    issueComment.type === IssueCommentType.TASK_UPDATE &&
+    issueComment.event?.case === "taskUpdate"
+  ) {
+    const { tasks, fromSheet, toSheet, toStatus } = issueComment.event.value;
 
     if (toStatus !== undefined) {
       const params: VerbTypeTarget = {
@@ -165,28 +160,13 @@ const renderActionSentence = () => {
           }}
         </Translation>
       );
-    } else if (
-      fromEarliestAllowedTime !== undefined ||
-      toEarliestAllowedTime !== undefined
-    ) {
-      const oldVal = fromEarliestAllowedTime;
-      const newVal = toEarliestAllowedTime;
-      const timeFormat = "YYYY-MM-DD HH:mm:ss UTCZZ";
-      return t("activity.sentence.changed-from-to", {
-        name: t("task.rollout-time"),
-        oldValue: oldVal
-          ? dayjs(getDateForPbTimestamp(oldVal)).format(timeFormat)
-          : "Unset",
-        newValue: newVal
-          ? dayjs(getDateForPbTimestamp(newVal)).format(timeFormat)
-          : "Unset",
-      });
     }
-  } else if (issueComment.type === IssueCommentType.TASK_PRIOR_BACKUP) {
+  } else if (
+    issueComment.type === IssueCommentType.TASK_PRIOR_BACKUP &&
+    issueComment.event?.case === "taskPriorBackup"
+  ) {
     const { task, tables, originalLine, database, error } =
-      IssueComment_TaskPriorBackup.fromPartial(
-        issueComment.taskPriorBackup || {}
-      );
+      issueComment.event.value;
     if (error) {
       return t("activity.sentence.failed-to-backup", { error });
     }

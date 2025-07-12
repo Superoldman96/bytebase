@@ -9,9 +9,10 @@ import (
 	parser "github.com/bytebase/tsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -82,7 +83,7 @@ func (l *tableNoForeignKeyChecker) generateAdvice() ([]*storepb.Advice, error) {
 				Code:          advisor.TableHasFK.Int32(),
 				Title:         l.title,
 				Content:       fmt.Sprintf("FOREIGN KEY is not allowed in the table %s.", l.tableOriginalName[tableName]),
-				StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
+				StartPosition: common.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 			})
 		}
 	}

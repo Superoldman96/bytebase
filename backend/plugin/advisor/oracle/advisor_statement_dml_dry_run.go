@@ -11,9 +11,9 @@ import (
 	parser "github.com/bytebase/plsql-parser"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/plsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -98,7 +98,7 @@ func (s *statementDmlDryRunChecker) handleStmt(text string, lineNumber int) {
 			Code:          advisor.StatementDMLDryRunFailed.Int32(),
 			Title:         s.title,
 			Content:       fmt.Sprintf("Failed to dry run statement at line %d: %v", lineNumber, err),
-			StartPosition: advisor.ConvertANTLRLineToPosition(lineNumber),
+			StartPosition: common.ConvertANTLRLineToPosition(lineNumber),
 		})
 	}
 }

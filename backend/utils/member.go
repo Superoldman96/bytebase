@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/store"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func validateIAMBinding(binding *storepb.Binding) bool {
@@ -23,33 +22,43 @@ func validateIAMBinding(binding *storepb.Binding) bool {
 }
 
 // GetUsersByRoleInIAMPolicy gets users in the iam policy.
-func GetUsersByRoleInIAMPolicy(ctx context.Context, stores *store.Store, role base.Role, policy *storepb.IamPolicy) []*store.UserMessage {
-	roleFullName := common.FormatRole(role.String())
+func GetUsersByRoleInIAMPolicy(ctx context.Context, stores *store.Store, role string, policies ...*storepb.IamPolicy) []*store.UserMessage {
+	roleFullName := common.FormatRole(role)
 	var users []*store.UserMessage
 
-	for _, binding := range policy.Bindings {
-		if binding.Role != roleFullName {
-			continue
-		}
-
-		if !validateIAMBinding(binding) {
-			continue
-		}
-
-		for _, member := range binding.Members {
-			if member == base.AllUsers {
-				// TODO(d): make it more efficient.
-				allUsers, err := stores.ListUsers(ctx, &store.FindUserMessage{
-					ShowDeleted: false,
-				})
-				if err != nil {
-					slog.Error("failed to list all users for role", slog.String("role", role.String()), log.BBError(err))
-					continue
-				}
-				return allUsers
+	seen := map[string]bool{}
+	for _, policy := range policies {
+		for _, binding := range policy.Bindings {
+			if binding.Role != roleFullName {
+				continue
 			}
-			userMessages := GetUsersByMember(ctx, stores, member)
-			users = append(users, userMessages...)
+
+			if !validateIAMBinding(binding) {
+				continue
+			}
+
+			for _, member := range binding.Members {
+				if member == common.AllUsers {
+					// TODO(d): make it more efficient.
+					allUsers, err := stores.ListUsers(ctx, &store.FindUserMessage{
+						ShowDeleted: false,
+					})
+					if err != nil {
+						slog.Error("failed to list all users for role", slog.String("role", role), log.BBError(err))
+						continue
+					}
+					return allUsers
+				}
+				userMessages := GetUsersByMember(ctx, stores, member)
+
+				for _, user := range userMessages {
+					if seen[user.Email] {
+						continue
+					}
+					seen[user.Email] = true
+					users = append(users, user)
+				}
+			}
 		}
 	}
 
@@ -120,7 +129,7 @@ func GetUserIAMPolicyBindings(ctx context.Context, stores *store.Store, user *st
 
 			hasUser := false
 			for _, member := range binding.Members {
-				if member == base.AllUsers {
+				if member == common.AllUsers {
 					hasUser = true
 					break
 				}

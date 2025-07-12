@@ -13,6 +13,7 @@
 </template>
 
 <script lang="tsx" setup>
+import { create } from "@bufbuild/protobuf";
 import { orderBy } from "lodash-es";
 import { TrashIcon, InfoIcon } from "lucide-vue-next";
 import type { DataTableColumn } from "naive-ui";
@@ -48,10 +49,11 @@ import {
   isValidDatabaseName,
   type ComposedProject,
 } from "@/types";
-import { Expr } from "@/types/proto/google/type/expr";
-import { MaskingExceptionPolicy_MaskingException_Action } from "@/types/proto/v1/org_policy_service";
-import type { MaskingExceptionPolicy_MaskingException } from "@/types/proto/v1/org_policy_service";
-import { PolicyType } from "@/types/proto/v1/org_policy_service";
+import { ExprSchema } from "@/types/proto-es/google/type/expr_pb";
+import { MaskingExceptionPolicy_MaskingException_Action } from "@/types/proto-es/v1/org_policy_service_pb";
+import type { MaskingExceptionPolicy_MaskingException } from "@/types/proto-es/v1/org_policy_service_pb";
+import { MaskingExceptionPolicySchema } from "@/types/proto-es/v1/org_policy_service_pb";
+import { PolicyType } from "@/types/proto-es/v1/org_policy_service_pb";
 import { autoDatabaseRoute, hasProjectPermissionV2 } from "@/utils";
 import {
   type ConditionExpression,
@@ -159,7 +161,7 @@ const getDatabaseAccessResource = (access: AccessUser): VNodeChild => {
               <NTooltip>
                 {{
                   trigger: () => <InfoIcon class="w-4 text-red-600" />,
-                  default: t("database.not-found"),
+                  default: () => t("database.not-found"),
                 }}
               </NTooltip>
             )}
@@ -187,6 +189,7 @@ const getAccessUsers = async (
 ): Promise<AccessUser | undefined> => {
   let expirationTimestamp: number | undefined;
   const expression = exception.condition?.expression ?? "";
+  const description = exception.condition?.description ?? "";
   const matches = expirationTimeRegex.exec(expression);
   if (matches) {
     expirationTimestamp = new Date(matches[1]).getTime();
@@ -194,10 +197,11 @@ const getAccessUsers = async (
 
   const access: AccessUser = {
     type: "user",
-    key: `${exception.member}:${expression}`,
+    key: `${exception.member}:${expression}.${description}`,
     expirationTimestamp,
     supportActions: new Set([exception.action]),
     rawExpression: expression,
+    description,
     databaseResource: condition.databaseResources
       ? condition.databaseResources[0]
       : undefined,
@@ -228,12 +232,13 @@ const getMemberBinding = (access: AccessUser): string => {
 
 const updateAccessUserList = async () => {
   if (!ready.value) {
-    return [];
+    return;
   }
 
-  if (!policy.value || !policy.value.maskingExceptionPolicy) {
+  if (!policy.value || policy.value.policy?.case !== "maskingExceptionPolicy") {
+    state.rawAccessList = [];
     state.loading = false;
-    return [];
+    return;
   }
 
   // Exec data merge, we will merge data with same expiration time and level.
@@ -248,7 +253,7 @@ const updateAccessUserList = async () => {
   // - 2 cannot merge: user1, action:export, level:FULL, expires at 2023-09-04
   // - 3 & 4 is merged: user1, action:export+action, level:PARTIAL, expires at 2023-09-04
   const memberMap = new Map<string, AccessUser>();
-  const { maskingExceptions } = policy.value.maskingExceptionPolicy;
+  const { maskingExceptions } = policy.value.policy.value;
   const expressionList = maskingExceptions.map((e) =>
     e.condition?.expression ? e.condition?.expression : "true"
   );
@@ -426,6 +431,13 @@ const accessTableColumns = computed(
         },
       },
       {
+        key: "reason",
+        title: t("common.reason"),
+        render: (item: AccessUser) => {
+          return item.description;
+        },
+      },
+      {
         key: "operation",
         title: "",
         hide: !hasPermission.value,
@@ -567,16 +579,19 @@ const updateExceptionPolicy = async () => {
       exceptions.push({
         action,
         member,
-        condition: Expr.fromPartial({
+        condition: create(ExprSchema, {
+          description: accessUser.description,
           expression: expressions.join(" && "),
         }),
       });
     }
   }
 
-  policy.maskingExceptionPolicy = {
-    ...(policy.maskingExceptionPolicy ?? {}),
-    maskingExceptions: exceptions,
+  policy.policy = {
+    case: "maskingExceptionPolicy",
+    value: create(MaskingExceptionPolicySchema, {
+      maskingExceptions: exceptions,
+    }),
   };
   await policyStore.upsertPolicy({
     parentPath: props.project.name,

@@ -3,14 +3,15 @@ package mysql
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
-	"github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 type restoreCase struct {
@@ -57,12 +58,12 @@ func TestRestore(t *testing.T) {
 				Table:    t.BackupTable,
 			},
 			StartPosition: &store.Position{
-				Line:   1,
-				Column: 1,
+				Line:   0,
+				Column: 0,
 			},
 			EndPosition: &store.Position{
-				Line:   1000000000,
-				Column: 1,
+				Line:   math.MaxInt32,
+				Column: 0,
 			},
 		})
 		a.NoError(err)

@@ -9,9 +9,10 @@ import (
 	parser "github.com/bytebase/tsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	tsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/tsql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -96,7 +97,7 @@ func (l *columnNoNullChecker) ExitCreate_table(_ *parser.Create_tableContext) {
 			Code:          advisor.ColumnCannotNull.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Column [%s] is nullable, which is not allowed.", columnName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(l.currentTableColumnIsNullableLine[columnName]),
+			StartPosition: common.ConvertANTLRLineToPosition(l.currentTableColumnIsNullableLine[columnName]),
 		})
 	}
 
@@ -113,9 +114,9 @@ func (l *columnNoNullChecker) EnterTable_constraint(ctx *parser.Table_constraint
 		return
 	}
 	if ctx.PRIMARY() != nil {
-		allColumns := ctx.Column_name_list_with_order().AllId_()
+		allColumns := ctx.Column_name_list_with_order().AllColumn_name_with_order()
 		for _, column := range allColumns {
-			_, columnName := tsqlparser.NormalizeTSQLIdentifier(column)
+			_, columnName := tsqlparser.NormalizeTSQLIdentifier(column.Id_())
 			l.isCurrentTableColumnNullable[columnName] = false
 		}
 	}
@@ -172,7 +173,7 @@ func (l *columnNoNullChecker) ExitAlter_table(_ *parser.Alter_tableContext) {
 			Code:          advisor.ColumnCannotNull.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Column [%s] is nullable, which is not allowed.", columnName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(l.currentTableColumnIsNullableLine[columnName]),
+			StartPosition: common.ConvertANTLRLineToPosition(l.currentTableColumnIsNullableLine[columnName]),
 		})
 	}
 

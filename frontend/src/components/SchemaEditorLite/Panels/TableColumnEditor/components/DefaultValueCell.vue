@@ -1,5 +1,19 @@
 <template>
+  <!-- TODO: When all engines migrate to simplified input, replace NInput with InlineInput component -->
+  <NInput
+    v-if="useSimpleInput"
+    ref="inputRef"
+    :value="simpleInputValue"
+    :placeholder="simpleInputPlaceholder"
+    :disabled="disabled"
+    :style="simpleInputStyle"
+    @focus="focused = true"
+    @blur="focused = false"
+    @update:value="handleSimpleInput"
+  />
+
   <NDropdown
+    v-else
     trigger="click"
     placement="bottom-start"
     :value="dropdownValue"
@@ -69,8 +83,8 @@ import {
   getColumnDefaultDisplayString,
   getColumnDefaultValuePlaceholder,
 } from "@/components/SchemaEditorLite/utils";
-import type { Engine } from "@/types/proto/v1/common";
-import type { ColumnMetadata } from "@/types/proto/v1/database_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import type { ColumnMetadata } from "@/types/proto-es/v1/database_service_pb";
 
 type DefaultValueSelectOption = SelectOption & {
   value: string;
@@ -107,6 +121,81 @@ const inputValue = computed(() => {
 
 const placeholder = computed(() => {
   return getColumnDefaultValuePlaceholder(props.column);
+});
+
+// Computed property for engines that use simple input (all migrated engines)
+const useSimpleInput = computed(() => {
+  return (
+    props.engine === Engine.POSTGRES ||
+    props.engine === Engine.MYSQL ||
+    props.engine === Engine.MSSQL ||
+    props.engine === Engine.ORACLE ||
+    props.engine === Engine.TIDB ||
+    props.engine === Engine.MARIADB ||
+    props.engine === Engine.OCEANBASE_ORACLE ||
+    props.engine === Engine.OCEANBASE ||
+    props.engine === Engine.SNOWFLAKE ||
+    props.engine === Engine.DM ||
+    props.engine === Engine.CLICKHOUSE ||
+    props.engine === Engine.COCKROACHDB ||
+    props.engine === Engine.SPANNER ||
+    props.engine === Engine.BIGQUERY ||
+    props.engine === Engine.REDSHIFT ||
+    props.engine === Engine.RISINGWAVE ||
+    props.engine === Engine.STARROCKS ||
+    props.engine === Engine.DORIS
+  );
+});
+
+const simpleInputValue = computed(() => {
+  // For all migrated engines, we use defaultString field which contains the properly formatted expression
+  if (
+    props.engine === Engine.POSTGRES ||
+    props.engine === Engine.MYSQL ||
+    props.engine === Engine.MSSQL ||
+    props.engine === Engine.ORACLE ||
+    props.engine === Engine.TIDB ||
+    props.engine === Engine.MARIADB ||
+    props.engine === Engine.OCEANBASE_ORACLE ||
+    props.engine === Engine.OCEANBASE ||
+    props.engine === Engine.SNOWFLAKE ||
+    props.engine === Engine.DM ||
+    props.engine === Engine.CLICKHOUSE ||
+    props.engine === Engine.COCKROACHDB ||
+    props.engine === Engine.SPANNER ||
+    props.engine === Engine.BIGQUERY ||
+    props.engine === Engine.REDSHIFT ||
+    props.engine === Engine.RISINGWAVE ||
+    props.engine === Engine.STARROCKS ||
+    props.engine === Engine.DORIS
+  ) {
+    return props.column.defaultString || "";
+  }
+  return "";
+});
+
+const simpleInputPlaceholder = computed(() => {
+  return t("schema-editor.default.placeholder");
+});
+
+// TODO: This styling mimics InlineInput component. When all engines use simplified input,
+// replace NInput + simpleInputStyle with InlineInput component directly
+const simpleInputStyle = computed(() => {
+  const style: CSSProperties = {
+    cursor: "default",
+    "--n-color": "transparent",
+    "--n-color-disabled": "transparent",
+    "--n-padding-left": "6px",
+    "--n-padding-right": "4px",
+    "--n-text-color-disabled": "rgb(var(--color-main))",
+  };
+  const border = focused.value
+    ? "1px solid rgb(var(--color-control-border))"
+    : "none";
+  style["--n-border"] = border;
+  style["--n-border-disabled"] = border;
+
+  return style;
 });
 
 const options = computed((): DefaultValueSelectOption[] => {
@@ -167,6 +256,23 @@ const handleInput = (value: string) => {
     handleSelect("string");
   }
   emit("input", value);
+};
+
+const handleSimpleInput = (value: string) => {
+  // Emit the value for the input handler
+  emit("input", value);
+
+  // Also emit a select event to maintain consistency with the existing API
+  const defaultOption = {
+    key: value.trim() ? "string" : "no-default",
+    value: {
+      hasDefault: !!value.trim(),
+      defaultNull: false,
+      defaultString: value.trim(), // Both PostgreSQL and MySQL use defaultString for now
+      defaultExpression: "",
+    },
+  };
+  emit("select", defaultOption);
 };
 
 const inputStyle = computed(() => {

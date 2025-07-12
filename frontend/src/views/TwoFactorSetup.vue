@@ -2,7 +2,7 @@
   <p class="text-sm text-gray-500 mb-4">
     {{ $t("two-factor.description") }}
     <LearnMoreLink
-      url="https://www.bytebase.com/docs/administration/2fa?source=console"
+      url="https://docs.bytebase.com/administration/2fa?source=console"
     />
   </p>
   <StepTab
@@ -80,6 +80,9 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
+import { FieldMaskSchema } from "@bufbuild/protobuf/wkt";
+import type { ConnectError } from "@connectrpc/connect";
 import * as QRCode from "qrcode";
 import { computed, onMounted, reactive, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -91,8 +94,8 @@ import TwoFactorSecretModal from "@/components/TwoFactorSecretModal.vue";
 import { StepTab } from "@/components/v2";
 import { AUTH_2FA_SETUP_MODULE } from "@/router/auth";
 import { SETTING_ROUTE_PROFILE } from "@/router/dashboard/workspaceSetting";
-import { pushNotification, useAuthStore, useUserStore } from "@/store";
-import { UpdateUserRequest } from "@/types/proto/v1/user_service";
+import { pushNotification, useCurrentUserV1, useUserStore } from "@/store";
+import { UpdateUserRequestSchema } from "@/types/proto-es/v1/user_service_pb";
 
 const issuerName = "Bytebase";
 
@@ -115,7 +118,6 @@ const props = defineProps<{
 
 const { t } = useI18n();
 const router = useRouter();
-const authStore = useAuthStore();
 const userStore = useUserStore();
 const state = reactive<LocalState>({
   currentStep: SETUP_AUTH_APP_STEP,
@@ -124,6 +126,7 @@ const state = reactive<LocalState>({
   otpCode: "",
   recoveryCodesDownloaded: false,
 });
+const currentUser = useCurrentUserV1();
 
 const stepTabList = computed(() => {
   return [
@@ -131,7 +134,7 @@ const stepTabList = computed(() => {
     { title: t("two-factor.setup-steps.download-recovery-codes.self") },
   ];
 });
-const currentUser = computed(() => authStore.currentUser);
+
 const allowNext = computed(() => {
   if (state.currentStep === SETUP_AUTH_APP_STEP) {
     return state.otpCode.length >= 6;
@@ -146,11 +149,13 @@ onMounted(async () => {
 
 const regenerateTempMfaSecret = async () => {
   await userStore.updateUser(
-    UpdateUserRequest.fromPartial({
+    create(UpdateUserRequestSchema, {
       user: {
         name: currentUser.value.name,
       },
-      updateMask: [],
+      updateMask: create(FieldMaskSchema, {
+        paths: [],
+      }),
       regenerateTempMfaSecret: true,
     })
   );
@@ -159,19 +164,21 @@ const regenerateTempMfaSecret = async () => {
 const verifyTOPCode = async () => {
   try {
     await userStore.updateUser(
-      UpdateUserRequest.fromPartial({
+      create(UpdateUserRequestSchema, {
         user: {
           name: currentUser.value.name,
         },
-        updateMask: [],
+        updateMask: create(FieldMaskSchema, {
+          paths: [],
+        }),
         otpCode: state.otpCode,
       })
     );
-  } catch (error: any) {
+  } catch (error) {
     pushNotification({
       module: "bytebase",
       style: "CRITICAL",
-      title: error.details,
+      title: (error as ConnectError).message,
     });
     return false;
   }
@@ -200,12 +207,14 @@ const tryChangeStep = async (nextStepIndex: number) => {
 
 const tryFinishSetup = async () => {
   await userStore.updateUser(
-    UpdateUserRequest.fromPartial({
+    create(UpdateUserRequestSchema, {
       user: {
         name: currentUser.value.name,
         mfaEnabled: true,
       },
-      updateMask: ["mfa_enabled"],
+      updateMask: create(FieldMaskSchema, {
+        paths: ["mfa_enabled"],
+      }),
     })
   );
   pushNotification({

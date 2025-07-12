@@ -3,35 +3,34 @@ package common
 import (
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/google/cel-go/cel"
 	celtypes "github.com/google/cel-go/common/types"
 	"github.com/pkg/errors"
 	exprproto "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 	"google.golang.org/genproto/googleapis/type/expr"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const celLimit = 1024 * 1024
 
 // RiskFactors are the variables when evaluating the risk level.
 var RiskFactors = []cel.EnvOption{
-	// string factors
-	// use environment.resource_id
-	cel.Variable("environment_id", cel.StringType),
-	// use project.resource_id
-	cel.Variable("project_id", cel.StringType),
-	cel.Variable("database_name", cel.StringType),
+	cel.Variable("environment_id", cel.StringType), // use environment.resource_id
+	cel.Variable("project_id", cel.StringType),     // use project.resource_id
 	cel.Variable("db_engine", cel.StringType),
-	cel.Variable("sql_type", cel.StringType),
-	cel.Variable("sql_statement", cel.StringType),
+
+	cel.Variable("database_name", cel.StringType),
+	cel.Variable("schema_name", cel.StringType),
 	cel.Variable("table_name", cel.StringType),
 
-	// number factors
 	cel.Variable("affected_rows", cel.IntType),
+	cel.Variable("table_rows", cel.IntType),
+	cel.Variable("sql_type", cel.StringType),
+	cel.Variable("sql_statement", cel.StringType),
+
 	cel.Variable("expiration_days", cel.IntType),
 	cel.Variable("export_rows", cel.IntType),
-	cel.Variable("table_rows", cel.IntType),
+	cel.Variable("role", cel.StringType),
 }
 
 // ApprovalFactors are the variables when finding the approval template.
@@ -88,11 +87,11 @@ func ConvertUnparsedRisk(expression *expr.Expr) (*exprproto.ParsedExpr, error) {
 
 	ast, issues := e.Parse(expression.Expression)
 	if issues != nil && issues.Err() != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse expression: %v", issues.Err())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to parse expression: %v", issues.Err()))
 	}
 	expr, err := cel.AstToParsedExpr(ast)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert ast to parsed expression: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert ast to parsed expression: %v", err))
 	}
 	return expr, nil
 }
@@ -109,11 +108,11 @@ func ConvertUnparsedApproval(expression *expr.Expr) (*exprproto.ParsedExpr, erro
 
 	ast, issues := e.Parse(expression.Expression)
 	if issues != nil && issues.Err() != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse expression: %v", issues.Err())
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("failed to parse expression: %v", issues.Err()))
 	}
 	expr, err := cel.AstToParsedExpr(ast)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to convert ast to parsed expression: %v", err)
+		return nil, connect.NewError(connect.CodeInternal, errors.Errorf("failed to convert ast to parsed expression: %v", err))
 	}
 	return expr, nil
 }
@@ -143,15 +142,15 @@ func ValidateMaskingRuleCELExpr(expr string) (cel.Program, error) {
 		MaskingRulePolicyCELAttributes...,
 	)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	ast, issues := e.Compile(expr)
 	if issues != nil && issues.Err() != nil {
-		return nil, status.Error(codes.InvalidArgument, issues.Err().Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, issues.Err())
 	}
 	prog, err := e.Program(ast)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return prog, nil
 }
@@ -173,23 +172,23 @@ func validateCELExpr(expression *expr.Expr, conditionCELAttributes []cel.EnvOpti
 		conditionCELAttributes...,
 	)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	ast, issues := e.Compile(expression.Expression)
 	if issues != nil && issues.Err() != nil {
-		return nil, status.Error(codes.InvalidArgument, issues.Err().Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, issues.Err())
 	}
 	prog, err := e.Program(ast)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	return prog, nil
 }
 
 // QueryExportFactors is the factors for query and export.
 type QueryExportFactors struct {
-	DatabaseNames []string
-	ExportRows    int64
+	Databases  []string
+	ExportRows int64
 }
 
 // GetQueryExportFactors is used to get risk factors from query and export expressions.
@@ -228,12 +227,12 @@ func findField(callExpr *exprproto.Expr_Call, factors *QueryExportFactors) {
 				factors.ExportRows = callExpr.Args[1].GetConstExpr().GetInt64Value()
 			}
 			if idExpr.Name == "resource.database" && callExpr.Function == "_==_" {
-				factors.DatabaseNames = append(factors.DatabaseNames, callExpr.Args[1].GetConstExpr().GetStringValue())
+				factors.Databases = append(factors.Databases, callExpr.Args[1].GetConstExpr().GetStringValue())
 			}
 			if idExpr.Name == "resource.database" && callExpr.Function == "@in" {
 				list := callExpr.Args[1].GetListExpr()
 				for _, element := range list.Elements {
-					factors.DatabaseNames = append(factors.DatabaseNames, element.GetConstExpr().GetStringValue())
+					factors.Databases = append(factors.Databases, element.GetConstExpr().GetStringValue())
 				}
 			}
 			return

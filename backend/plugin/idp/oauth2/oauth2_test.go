@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 func TestNewIdentityProvider(t *testing.T) {
@@ -155,7 +155,7 @@ func TestIdentityProvider(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, testAccessToken, oauthToken)
 
-	userInfoResult, err := oauth2.UserInfo(oauthToken)
+	userInfoResult, _, err := oauth2.UserInfo(oauthToken)
 	require.NoError(t, err)
 
 	wantUserInfo := &storepb.IdentityProviderUserInfo{
@@ -228,7 +228,7 @@ func TestIdentityProvider_SelfSigned(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testAccessToken, oauthToken)
 
-		userInfoResult, err := oauth2.UserInfo(oauthToken)
+		userInfoResult, _, err := oauth2.UserInfo(oauthToken)
 		require.NoError(t, err)
 
 		wantUserInfo := &storepb.IdentityProviderUserInfo{

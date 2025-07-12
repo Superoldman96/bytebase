@@ -9,9 +9,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -77,7 +78,7 @@ func (checker *insertDisallowOrderByRandChecker) Visit(in ast.Node) ast.Visitor 
 			Code:          code.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("The INSERT statement uses ORDER BY random() or random_between(), related statement \"%s\"", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(in.LastLine()),
+			StartPosition: common.ConvertPGParserLineToPosition(in.LastLine()),
 		})
 	}
 

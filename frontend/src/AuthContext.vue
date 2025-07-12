@@ -4,75 +4,92 @@
 </template>
 
 <script setup lang="ts">
-import { useDialog, type DialogReactive } from "naive-ui";
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { isAuthRelatedRoute } from "@/utils/auth";
 import SigninModal from "@/views/auth/SigninModal.vue";
 import { t } from "./plugins/i18n";
+import { AUTH_PASSWORD_RESET_MODULE } from "./router/auth";
 import { WORKSPACE_ROOT_MODULE } from "./router/dashboard/workspaceRoutes";
-import { useActuatorV1Store, useAuthStore, pushNotification } from "./store";
+import { useAuthStore, pushNotification, useWorkspaceV1Store } from "./store";
+import { isDev } from "./utils";
 
-// Check expiration every 15 sec and:
-// 1. logout if expired.
-// 2. refresh pages if login as another user.
-const CHECK_LOGGEDIN_STATE_DURATION = 15 * 1000;
+// This interval is used to check if the user's session is still valid.
+// In development, it checks every minute, while in production, it checks every 5 minutes.
+const CHECK_AUTHORIZATION_INTERVAL = isDev() ? 60 * 1000 : 60 * 1000 * 5;
 
 const router = useRouter();
 const authStore = useAuthStore();
-const actuatorStore = useActuatorV1Store();
-const dialog = useDialog();
-const $dialog = ref<DialogReactive | undefined>();
-const prevLoggedIn = ref(false);
+const workspaceStore = useWorkspaceV1Store();
+
+const authCheckIntervalId = ref<NodeJS.Timeout>();
 
 onMounted(() => {
-  prevLoggedIn.value = authStore.isLoggedIn();
-
-  setInterval(() => {
-    if (!actuatorStore.initialized) {
+  // Periodically checks if the user's session is still valid.
+  // Skips check if user is not logged in or on an auth-related route.
+  authCheckIntervalId.value = setInterval(async () => {
+    if (!authStore.isLoggedIn || authStore.unauthenticatedOccurred) {
+      return;
+    }
+    if (
+      router.currentRoute.value.name &&
+      isAuthRelatedRoute(router.currentRoute.value.name.toString())
+    ) {
       return;
     }
 
-    const loggedIn = authStore.isLoggedIn();
+    await authStore.fetchCurrentUser();
+  }, CHECK_AUTHORIZATION_INTERVAL);
+});
 
-    if (prevLoggedIn.value != loggedIn) {
-      prevLoggedIn.value = loggedIn;
-      if (!loggedIn) {
-        authStore.showLoginModal = true;
-        pushNotification({
-          module: "bytebase",
-          style: "WARN",
-          title: t("auth.token-expired-title"),
-          description: t("auth.token-expired-description"),
-        });
-        return;
-      }
-    }
+onUnmounted(() => {
+  // Clean up the interval when component is unmounted.
+  if (authCheckIntervalId.value) {
+    clearInterval(authCheckIntervalId.value);
+  }
+});
+
+// When current user changed, we need to redirect to the workspace root page.
+watch(
+  () => authStore.currentUserName,
+  (currentUserName, prevCurrentUserName) => {
     if (
-      loggedIn &&
-      authStore.currentUserId !== authStore.getUserIdFromCookie() &&
-      $dialog.value === undefined
+      currentUserName &&
+      prevCurrentUserName &&
+      currentUserName !== prevCurrentUserName
     ) {
-      $dialog.value = dialog.create({
+      router.push({
+        name: WORKSPACE_ROOT_MODULE,
+        // to force route reload
+        query: { _r: Date.now() },
+      });
+      pushNotification({
+        module: "bytebase",
+        style: "INFO",
         title: t("auth.login-as-another.title"),
-        content: t("auth.login-as-another.content"),
-        type: "warning",
-        autoFocus: false,
-        closable: false,
-        maskClosable: false,
-        closeOnEsc: false,
-        onPositiveClick() {
-          authStore.restoreUser().then(() => {
-            router.push({
-              name: WORKSPACE_ROOT_MODULE,
-              // to force route reload
-              query: { _r: Date.now() },
-            });
-          });
-        },
-        positiveText: t("common.confirm"),
-        showIcon: false,
+        description: t("auth.login-as-another.content"),
       });
     }
-  }, CHECK_LOGGEDIN_STATE_DURATION);
-});
+  }
+);
+
+watch(
+  () => authStore.isLoggedIn,
+  async () => {
+    if (!authStore.isLoggedIn) {
+      return;
+    }
+
+    await workspaceStore.fetchIamPolicy();
+    if (authStore.requireResetPassword) {
+      router.replace({
+        name: AUTH_PASSWORD_RESET_MODULE,
+      });
+      return;
+    }
+  },
+  {
+    immediate: true,
+  }
+);
 </script>

@@ -4,15 +4,16 @@ package snowflake
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/antlr4-go/antlr/v4"
 	parser "github.com/bytebase/snowsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	snowsqlparser "github.com/bytebase/bytebase/backend/plugin/parser/snowflake"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -116,16 +117,14 @@ func (l *columnRequireChecker) ExitCreate_table(ctx *parser.Create_tableContext)
 		return
 	}
 
-	sort.Slice(columnNames, func(i, j int) bool {
-		return columnNames[i] < columnNames[j]
-	})
+	slices.Sort(columnNames)
 	for _, column := range columnNames {
 		l.adviceList = append(l.adviceList, &storepb.Advice{
 			Status:        l.level,
 			Code:          advisor.NoRequiredColumn.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Table %s missing required column %q", l.currentOriginalTableName, column),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.Column_decl_item_list().GetStop().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.Column_decl_item_list().GetStop().GetLine()),
 		})
 	}
 	l.currentOriginalTableName = ""
@@ -162,16 +161,14 @@ func (l *columnRequireChecker) ExitAlter_table(ctx *parser.Alter_tableContext) {
 		return
 	}
 
-	sort.Slice(columnNames, func(i, j int) bool {
-		return columnNames[i] < columnNames[j]
-	})
+	slices.Sort(columnNames)
 	for _, column := range columnNames {
 		l.adviceList = append(l.adviceList, &storepb.Advice{
 			Status:        l.level,
 			Code:          advisor.NoRequiredColumn.Int32(),
 			Title:         l.title,
 			Content:       fmt.Sprintf("Table %s missing required column %q", l.currentOriginalTableName, column),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.Table_column_action().GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.Table_column_action().GetStart().GetLine()),
 		})
 	}
 	l.currentOriginalTableName = ""

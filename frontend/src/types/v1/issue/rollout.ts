@@ -1,11 +1,14 @@
+import { create } from "@bufbuild/protobuf";
 import { EMPTY_ID, UNKNOWN_ID } from "@/types/const";
-import {
-  Stage,
-  Task,
-  Task_Type,
+import type {
   TaskRun,
   TaskRunLog,
-} from "@/types/proto/v1/rollout_service";
+} from "@/types/proto-es/v1/rollout_service_pb";
+import {
+  StageSchema,
+  TaskSchema,
+  Task_Type,
+} from "@/types/proto-es/v1/rollout_service_pb";
 import { EMPTY_ROLLOUT_NAME, UNKNOWN_ROLLOUT_NAME } from "@/types/rollout";
 import {
   EMPTY_ENVIRONMENT_NAME,
@@ -16,36 +19,28 @@ export const EMPTY_STAGE_NAME = `${EMPTY_ROLLOUT_NAME}/stages/${EMPTY_ID}`;
 export const UNKNOWN_STAGE_NAME = `${UNKNOWN_ROLLOUT_NAME}/stages/${UNKNOWN_ID}`;
 
 export const emptyStage = () => {
-  return Stage.fromJSON({
+  return create(StageSchema, {
     name: EMPTY_STAGE_NAME,
-    uid: String(EMPTY_ID),
     environment: EMPTY_ENVIRONMENT_NAME,
-    title: "",
   });
 };
 export const unknownStage = () => {
-  return Stage.fromJSON({
+  return create(StageSchema, {
     name: UNKNOWN_STAGE_NAME,
-    uid: String(UNKNOWN_ID),
     environment: UNKNOWN_ENVIRONMENT_NAME,
-    title: "<<Unknown stage>>",
   });
 };
 
 export const EMPTY_TASK_NAME = `${EMPTY_STAGE_NAME}/tasks/${EMPTY_ID}`;
 export const UNKNOWN_TASK_NAME = `${UNKNOWN_STAGE_NAME}/tasks/${UNKNOWN_ID}`;
 export const emptyTask = () => {
-  return Task.fromJSON({
+  return create(TaskSchema, {
     name: EMPTY_TASK_NAME,
-    uid: String(EMPTY_ID),
-    title: "",
   });
 };
 export const unknownTask = () => {
-  return Task.fromJSON({
+  return create(TaskSchema, {
     name: UNKNOWN_TASK_NAME,
-    uid: String(UNKNOWN_ID),
-    title: "<<Unknown task>>",
   });
 };
 
@@ -53,11 +48,10 @@ export const TaskTypeListWithStatement: Task_Type[] = [
   Task_Type.GENERAL,
   Task_Type.DATABASE_CREATE,
   Task_Type.DATABASE_DATA_UPDATE,
-  Task_Type.DATABASE_SCHEMA_BASELINE,
   Task_Type.DATABASE_SCHEMA_UPDATE,
   Task_Type.DATABASE_SCHEMA_UPDATE_SDL,
   Task_Type.DATABASE_SCHEMA_UPDATE_GHOST,
-  Task_Type.DATABASE_DATA_EXPORT,
+  Task_Type.DATABASE_EXPORT,
 ];
 
 export interface ComposedTaskRun extends TaskRun {

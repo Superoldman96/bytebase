@@ -1,17 +1,16 @@
 <template>
   <NDropdown
-    v-if="allowSyncInstance"
     :trigger="'click'"
     :options="syncInstnceOptions"
     :render-label="renderDropdownLabel"
-    :disabled="disabled || syncingSchema"
+    :disabled="!allowSyncInstance || disabled || syncingSchema"
     @select="syncSchema"
   >
     <NButton
       icon-placement="right"
       :loading="syncingSchema"
       :quaternary="quaternary"
-      :disabled="disabled"
+      :disabled="!allowSyncInstance || disabled"
       :size="size"
       :type="type"
     >
@@ -29,10 +28,10 @@
 </template>
 
 <script lang="tsx" setup>
+import type { ConnectError } from "@connectrpc/connect";
 import { ChevronDownIcon } from "lucide-vue-next";
 import type { DropdownOption } from "naive-ui";
 import { NButton, NDropdown, NTooltip } from "naive-ui";
-import type { ClientError } from "nice-grpc-web";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { pushNotification } from "@/store";
@@ -113,7 +112,7 @@ const syncSchema = async (option: SyncInstanceOption) => {
       module: "bytebase",
       style: "CRITICAL",
       title: t("db.failed-to-sync-schema"),
-      description: (error as ClientError).details,
+      description: (error as ConnectError).message,
     });
   } finally {
     syncingSchema.value = false;

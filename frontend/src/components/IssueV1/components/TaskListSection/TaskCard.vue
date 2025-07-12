@@ -10,9 +10,9 @@
     :data-task-name="isCreating ? '-creating-' : task.name"
     @click="onClickTask(task)"
   >
-    <div class="flex-1 flex flex-col gap-y-1">
-      <div class="flex items-start">
-        <div class="flex items-center flex-1 gap-x-1">
+    <div class="w-full flex-1 flex flex-col gap-y-1">
+      <div class="w-full flex items-start gap-1">
+        <div class="w-full flex items-center flex-1 gap-x-1 overflow-x-auto">
           <TaskStatusIcon
             :status="task.status"
             :task="task"
@@ -43,17 +43,8 @@
         <TaskExtraActionsButton :task="task" />
       </div>
       <div class="flex items-center justify-between px-1 text-sm">
-        <div
-          v-if="secondaryViewMode === 'INSTANCE'"
-          class="flex flex-1 items-center whitespace-pre-wrap"
-        >
-          <InstanceV1Name :instance="database.instanceResource" :link="false" />
-        </div>
-        <div
-          v-if="secondaryViewMode === 'TASK_TITLE'"
-          class="flex flex-1 items-center whitespace-pre-wrap break-all"
-        >
-          {{ taskTitle }}
+        <div class="flex flex-1 items-center whitespace-pre-wrap">
+          <InstanceV1Name :instance="instance" :link="false" />
         </div>
       </div>
     </div>
@@ -66,30 +57,24 @@ import { NTag, NTooltip } from "naive-ui";
 import { twMerge } from "tailwind-merge";
 import { computed } from "vue";
 import { InstanceV1Name } from "@/components/v2";
+import { useCurrentProjectV1 } from "@/store";
 import { isValidDatabaseName } from "@/types";
-import { Plan_ChangeDatabaseConfig_Type } from "@/types/proto/v1/plan_service";
-import { Task } from "@/types/proto/v1/rollout_service";
-import { Task_Type, task_StatusToJSON } from "@/types/proto/v1/rollout_service";
+import { Plan_ChangeDatabaseConfig_Type } from "@/types/proto-es/v1/plan_service_pb";
+import type { Task } from "@/types/proto-es/v1/rollout_service_pb";
+import { Task_Type, Task_Status } from "@/types/proto-es/v1/rollout_service_pb";
+import { databaseForTask } from "@/utils";
 import { databaseV1Url, extractSchemaVersionFromTask, isDev } from "@/utils";
-import { databaseForTask, specForTask, useIssueContext } from "../../logic";
+import { useInstanceForTask, specForTask, useIssueContext } from "../../logic";
 import TaskStatusIcon from "../TaskStatusIcon.vue";
 import TaskExtraActionsButton from "./TaskExtraActionsButton.vue";
-
-type SecondaryViewMode = "INSTANCE" | "TASK_TITLE";
 
 const props = defineProps<{
   task: Task;
 }>();
 
 const { isCreating, issue, selectedTask, events } = useIssueContext();
+const { project } = useCurrentProjectV1();
 const selected = computed(() => props.task === selectedTask.value);
-
-const secondaryViewMode = computed((): SecondaryViewMode => {
-  if ([Task_Type.DATABASE_CREATE].includes(props.task.type)) {
-    return "TASK_TITLE";
-  }
-  return "INSTANCE";
-});
 
 const schemaVersion = computed(() => {
   const v = extractSchemaVersionFromTask(props.task);
@@ -99,7 +84,15 @@ const schemaVersion = computed(() => {
   }
 
   // Always show the schema version for tasks from a release source.
-  if (issue.value.planEntity?.releaseSource?.release) {
+  if (
+    (
+      issue.value.planEntity?.specs?.filter(
+        (spec) =>
+          spec.config?.case === "changeDatabaseConfig" &&
+          spec.config.value?.release
+      ) ?? []
+    ).length > 0
+  ) {
     return v;
   }
   if (isCreating.value) return "";
@@ -108,9 +101,10 @@ const schemaVersion = computed(() => {
 
 const showGhostTag = computed(() => {
   if (isCreating.value) {
+    const spec = specForTask(issue.value.planEntity, props.task);
     return (
-      specForTask(issue.value.planEntity, props.task)?.changeDatabaseConfig
-        ?.type === Plan_ChangeDatabaseConfig_Type.MIGRATE_GHOST
+      spec?.config?.case === "changeDatabaseConfig" &&
+      spec.config.value?.type === Plan_ChangeDatabaseConfig_Type.MIGRATE_GHOST
     );
   }
   return props.task.type === Task_Type.DATABASE_SCHEMA_UPDATE_GHOST;
@@ -121,15 +115,12 @@ const taskClass = computed(() => {
   const classes: string[] = [];
   if (selected.value) classes.push("selected");
   if (isCreating.value) classes.push("create");
-  classes.push(`status_${task_StatusToJSON(task.status).toLowerCase()}`);
+  classes.push(`status_${Task_Status[task.status].toLowerCase()}`);
   return classes;
 });
 
-const taskTitle = computed(() => {
-  return props.task.target;
-});
-
-const database = computed(() => databaseForTask(issue.value, props.task));
+const database = computed(() => databaseForTask(project.value, props.task));
+const { instance } = useInstanceForTask(props.task);
 
 const onClickTask = (task: Task) => {
   events.emit("select-task", { task });
@@ -141,7 +132,7 @@ const onClickTask = (task: Task) => {
   @apply border-info bg-info bg-opacity-5;
 }
 .task .name {
-  @apply whitespace-pre-wrap break-all;
+  @apply whitespace-nowrap break-all;
 }
 .task.status_done .name {
   @apply text-control;

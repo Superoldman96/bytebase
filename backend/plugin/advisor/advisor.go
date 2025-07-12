@@ -12,9 +12,9 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
@@ -37,7 +37,7 @@ func NewStatusBySQLReviewRuleLevel(level storepb.SQLReviewRuleLevel) (storepb.Ad
 type Context struct {
 	DBSchema              *storepb.DatabaseSchemaMetadata
 	ChangeType            storepb.PlanCheckRunConfig_ChangeDatabaseType
-	PreUpdateBackupDetail *storepb.PreUpdateBackupDetail
+	EnablePriorBackup     bool
 	ClassificationConfig  *storepb.DataClassificationSetting_DataClassificationConfig
 	ListDatabaseNamesFunc base.ListDatabaseNamesFunc
 	InstanceID            string

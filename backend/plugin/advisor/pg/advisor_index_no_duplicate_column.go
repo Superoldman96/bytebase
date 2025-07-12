@@ -6,9 +6,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func init() {
@@ -124,7 +125,7 @@ func (checker *indexNoDuplicateColumnChecker) Visit(node ast.Node) ast.Visitor {
 			Code:          advisor.DuplicateColumnInIndex.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("%s \"%s\" has duplicate column \"%s\".\"%s\"", column.constraintType, column.index, column.table, column.column),
-			StartPosition: advisor.ConvertANTLRLineToPosition(column.line),
+			StartPosition: common.ConvertPGParserLineToPosition(column.line),
 		})
 	}
 

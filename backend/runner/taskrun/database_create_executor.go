@@ -8,14 +8,15 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
 	"github.com/bytebase/bytebase/backend/component/config"
 	"github.com/bytebase/bytebase/backend/component/dbfactory"
 	"github.com/bytebase/bytebase/backend/component/state"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/runner/schemasync"
 	"github.com/bytebase/bytebase/backend/store"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // NewDatabaseCreateExecutor creates a database create task executor.
@@ -36,13 +37,6 @@ type DatabaseCreateExecutor struct {
 	schemaSyncer *schemasync.Syncer
 	stateCfg     *state.State
 	profile      *config.Profile
-}
-
-var cannotCreateDatabase = map[storepb.Engine]bool{
-	storepb.Engine_REDIS:            true,
-	storepb.Engine_ORACLE:           true,
-	storepb.Engine_DM:               true,
-	storepb.Engine_OCEANBASE_ORACLE: true,
 }
 
 // RunOnce will run the database create task executor once.
@@ -70,8 +64,8 @@ func (exec *DatabaseCreateExecutor) RunOnce(ctx context.Context, driverCtx conte
 		return true, nil, err
 	}
 
-	if cannotCreateDatabase[instance.Metadata.GetEngine()] {
-		return true, nil, errors.Errorf("Creating database is not supported")
+	if !common.EngineSupportCreateDatabase(instance.Metadata.GetEngine()) {
+		return true, nil, errors.Errorf("creating database is not supported for engine %v", instance.Metadata.GetEngine().String())
 	}
 
 	pipeline, err := exec.store.GetPipelineV2ByID(ctx, task.PipelineID)

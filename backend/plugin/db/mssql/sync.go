@@ -4,14 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // SyncInstance syncs the instance.
@@ -91,6 +91,26 @@ func (d *Driver) SyncDBSchema(ctx context.Context) (*storepb.DatabaseSchemaMetad
 	procedureMap, err := getProcedures(txn)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get procedures from database %q", d.databaseName)
+	}
+	tableTriggers, viewTriggers, err := getTriggers(txn)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get triggers from database %q", d.databaseName)
+	}
+	for schemaName, tables := range tableMap {
+		for i := range tables {
+			table := tables[i]
+			if triggers, ok := tableTriggers[db.TableKey{Schema: schemaName, Table: table.Name}]; ok {
+				table.Triggers = append(table.Triggers, triggers...)
+			}
+		}
+	}
+	for schemaName, views := range viewMap {
+		for i := range views {
+			view := views[i]
+			if triggers, ok := viewTriggers[db.TableKey{Schema: schemaName, Table: view.Name}]; ok {
+				view.Triggers = append(view.Triggers, triggers...)
+			}
+		}
 	}
 
 	if err := txn.Commit(); err != nil {
@@ -340,7 +360,7 @@ func getForeignKeys(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.F
 		for _, v := range m {
 			foreignkeyNames = append(foreignkeyNames, v.Name)
 		}
-		sort.Strings(foreignkeyNames)
+		slices.Sort(foreignkeyNames)
 		for _, fkName := range foreignkeyNames {
 			result[k] = append(result[k], m[fkName])
 		}
@@ -381,6 +401,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 		c.is_nullable,
 		c.is_identity,
 		d.definition AS default_value,
+		d.default_name AS default_name,
 		CAST(p.[value] AS nvarchar(4000)) AS comment,
 		id.seed_value AS seed_value,
 		id.increment_value AS increment_value
@@ -402,7 +423,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var schemaName, tableName, columnName, typeName, definition, collationName, defaultValue, comment sql.NullString
+		var schemaName, tableName, columnName, typeName, definition, collationName, defaultValue, defaultName, comment sql.NullString
 		var isComputed, isPersisted, isNullable, isIdentity sql.NullBool
 		var maxLength, precision, scale, seedValue, incrementValue sql.NullInt64
 		if err := rows.Scan(
@@ -420,6 +441,7 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 			&isNullable,
 			&isIdentity,
 			&defaultValue,
+			&defaultName,
 			&comment,
 			&seedValue,
 			&incrementValue,
@@ -445,7 +467,10 @@ func getTableColumns(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.
 			column.Collation = collationName.String
 		}
 		if defaultValue.Valid {
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultValue.String}
+			column.Default = defaultValue.String
+		}
+		if defaultName.Valid {
+			column.DefaultConstraintName = defaultName.String
 		}
 		column.Nullable = true
 		if isNullable.Valid && !isNullable.Bool {
@@ -516,7 +541,13 @@ func getColumnType(definition, typeName sql.NullString, isComputed, isPersisted 
 					return "", err
 				}
 			} else {
-				if _, err := fmt.Fprintf(&buf, "(%d)", maxLength.Int64); err != nil {
+				// For Unicode types (nchar, nvarchar), SQL Server stores byte count in max_length
+				// Each Unicode character takes 2 bytes, so we need to divide by 2
+				length := maxLength.Int64
+				if typeName.String == "nchar" || typeName.String == "nvarchar" {
+					length /= 2
+				}
+				if _, err := fmt.Fprintf(&buf, "(%d)", length); err != nil {
 					return "", err
 				}
 			}
@@ -580,6 +611,20 @@ func getIndexes(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.Index
 			}
 			if typeDesc.Valid {
 				index.Type = typeDesc.String
+				// If this is a spatial index, populate basic spatial config
+				if typeDesc.String == "SPATIAL" {
+					index.SpatialConfig = &storepb.SpatialIndexConfig{
+						Method: "SPATIAL",
+						Tessellation: &storepb.TessellationConfig{
+							Scheme: "UNKNOWN", // Will be updated by getSpatialIndexes if available
+						},
+						Storage: &storepb.StorageConfig{},
+						Dimensional: &storepb.DimensionalConfig{
+							DataType:   "GEOMETRY", // Default, will be updated if available
+							Dimensions: 2,
+						},
+					}
+				}
 			}
 			if comment.Valid {
 				index.Comment = comment.String
@@ -603,11 +648,309 @@ func getIndexes(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.Index
 		for _, v := range m {
 			tableIndexes[k] = append(tableIndexes[k], v)
 		}
-		sort.Slice(tableIndexes[k], func(i, j int) bool {
-			return tableIndexes[k][i].Name < tableIndexes[k][j].Name
+		slices.SortFunc(tableIndexes[k], func(a, b *storepb.IndexMetadata) int {
+			if a.Name < b.Name {
+				return -1
+			}
+			if a.Name > b.Name {
+				return 1
+			}
+			return 0
 		})
 	}
+
+	// Get spatial indexes separately
+	// If sys.spatial_indexes doesn't exist (e.g., SQL Server Express), this will fail
+	// In that case, we'll just use the spatial indexes found by the regular index query
+	spatialIndexes, err := getSpatialIndexes(txn, schemas)
+	if err != nil {
+		// Ignore error - spatial indexes might have been found by regular index query
+		spatialIndexes = make(map[db.TableKey][]*storepb.IndexMetadata)
+	}
+
+	// Merge spatial indexes with regular indexes
+	// Need to replace spatial indexes found by regular query with properly configured ones
+	// Merge spatial indexes with regular indexes
+	for k, spatialIdxs := range spatialIndexes {
+		// Process table spatial indexes
+		if _, ok := tableIndexes[k]; !ok {
+			tableIndexes[k] = make([]*storepb.IndexMetadata, 0)
+		}
+
+		// Remove any spatial indexes from regular indexes first
+		var nonSpatialIndexes []*storepb.IndexMetadata
+		for _, idx := range tableIndexes[k] {
+			if idx.Type != "SPATIAL" {
+				nonSpatialIndexes = append(nonSpatialIndexes, idx)
+			}
+		}
+
+		// Replace with non-spatial indexes and add properly configured spatial indexes
+		tableIndexes[k] = nonSpatialIndexes
+		tableIndexes[k] = append(tableIndexes[k], spatialIdxs...)
+	}
+
 	return tableIndexes, nil
+}
+
+func getSpatialIndexes(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.IndexMetadata, error) {
+	indexMap := make(map[db.TableKey]map[string]*storepb.IndexMetadata)
+
+	// Use proper sys.spatial_indexes and sys.spatial_index_tessellations views
+	// Reference: https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-spatial-indexes-transact-sql
+	// Reference: https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-spatial-index-tessellations-transact-sql
+	query := fmt.Sprintf(`
+	SELECT
+		s.name AS schema_name,
+		o.name AS table_name,
+		i.name AS index_name,
+		col.name AS column_name,
+		si.spatial_index_type,
+		si.spatial_index_type_desc,
+		si.tessellation_scheme,
+		COALESCE(sit.bounding_box_xmin, 0) AS bounding_box_xmin,
+		COALESCE(sit.bounding_box_ymin, 0) AS bounding_box_ymin,
+		COALESCE(sit.bounding_box_xmax, 0) AS bounding_box_xmax,
+		COALESCE(sit.bounding_box_ymax, 0) AS bounding_box_ymax,
+		COALESCE(sit.level_1_grid_desc, '') AS level_1_grid_desc,
+		COALESCE(sit.level_2_grid_desc, '') AS level_2_grid_desc,
+		COALESCE(sit.level_3_grid_desc, '') AS level_3_grid_desc,
+		COALESCE(sit.level_4_grid_desc, '') AS level_4_grid_desc,
+		COALESCE(sit.cells_per_object, 0) AS cells_per_object,
+		col.system_type_id,
+		i.filter_definition,
+		i.fill_factor,
+		CASE WHEN i.is_padded = 1 THEN 1 ELSE 0 END AS is_padded,
+		CASE WHEN i.allow_row_locks = 1 THEN 1 ELSE 0 END AS allow_row_locks,
+		CASE WHEN i.allow_page_locks = 1 THEN 1 ELSE 0 END AS allow_page_locks,
+		'NONE' AS data_compression_desc,
+		CAST(ep.value AS NVARCHAR(MAX)) AS comment
+	FROM
+		sys.spatial_indexes si
+		INNER JOIN sys.indexes i ON si.object_id = i.object_id AND si.index_id = i.index_id
+		INNER JOIN sys.objects o ON i.object_id = o.object_id
+		INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+		LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+		LEFT JOIN sys.columns col ON ic.object_id = col.object_id AND ic.column_id = col.column_id
+		LEFT JOIN sys.spatial_index_tessellations sit ON si.object_id = sit.object_id AND si.index_id = sit.index_id
+		LEFT JOIN sys.extended_properties ep ON ep.class = 7 AND i.object_id = ep.major_id AND ep.minor_id = i.index_id AND ep.name = 'MS_Description'
+	WHERE
+		s.name IN (%s)
+		AND o.type IN ('U', 'S', 'V')
+	ORDER BY s.name, o.name, i.name, ic.key_ordinal
+	`, quoteList(schemas))
+
+	rows, err := txn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var schemaName, tableName, indexName, columnName sql.NullString
+		var spatialIndexType sql.NullInt32
+		var spatialIndexTypeDesc, tessellationScheme sql.NullString
+		var boundingBoxXmin, boundingBoxYmin, boundingBoxXmax, boundingBoxYmax sql.NullFloat64
+		var level1Grid, level2Grid, level3Grid, level4Grid sql.NullString
+		var cellsPerObject sql.NullInt32
+		var systemTypeID sql.NullInt32
+		var filterDefinition sql.NullString
+		var fillFactor sql.NullInt32
+		var isPadded, allowRowLocks, allowPageLocks sql.NullInt32
+		var dataCompressionDesc, comment sql.NullString
+
+		if err := rows.Scan(&schemaName, &tableName, &indexName, &columnName,
+			&spatialIndexType, &spatialIndexTypeDesc, &tessellationScheme,
+			&boundingBoxXmin, &boundingBoxYmin, &boundingBoxXmax, &boundingBoxYmax,
+			&level1Grid, &level2Grid, &level3Grid, &level4Grid, &cellsPerObject,
+			&systemTypeID, &filterDefinition, &fillFactor, &isPadded,
+			&allowRowLocks, &allowPageLocks, &dataCompressionDesc, &comment); err != nil {
+			return nil, err
+		}
+
+		if !schemaName.Valid || !tableName.Valid || !indexName.Valid || !columnName.Valid {
+			continue
+		}
+
+		key := db.TableKey{Schema: schemaName.String, Table: tableName.String}
+		if _, ok := indexMap[key]; !ok {
+			indexMap[key] = make(map[string]*storepb.IndexMetadata)
+		}
+
+		if _, ok := indexMap[key][indexName.String]; !ok {
+			// Create new spatial index metadata
+			index := &storepb.IndexMetadata{
+				Name:    indexName.String,
+				Type:    "SPATIAL",
+				Unique:  false,
+				Primary: false,
+				SpatialConfig: &storepb.SpatialIndexConfig{
+					Method: "SPATIAL",
+				},
+			}
+
+			// Set comment if available
+			if comment.Valid {
+				index.Comment = comment.String
+			}
+
+			// Determine data type from spatial_index_type_desc (more reliable)
+			dataType := "GEOMETRY"
+			if spatialIndexTypeDesc.Valid {
+				dataType = spatialIndexTypeDesc.String
+			} else if systemTypeID.Valid {
+				// Fallback: system_type_id 240 = GEOMETRY, 241 = GEOGRAPHY
+				if systemTypeID.Int32 == 241 {
+					dataType = "GEOGRAPHY"
+				}
+			}
+
+			// Configure tessellation with complete metadata
+			index.SpatialConfig.Tessellation = &storepb.TessellationConfig{}
+
+			if tessellationScheme.Valid {
+				index.SpatialConfig.Tessellation.Scheme = tessellationScheme.String
+			} else {
+				// Fallback based on data type
+				index.SpatialConfig.Tessellation.Scheme = fmt.Sprintf("%s_GRID", dataType)
+			}
+
+			// Add bounding box (for GEOMETRY indexes or when explicitly provided)
+			if boundingBoxXmin.Valid && boundingBoxYmin.Valid &&
+				boundingBoxXmax.Valid && boundingBoxYmax.Valid &&
+				(boundingBoxXmin.Float64 != 0 || boundingBoxYmin.Float64 != 0 ||
+					boundingBoxXmax.Float64 != 0 || boundingBoxYmax.Float64 != 0) {
+				index.SpatialConfig.Tessellation.BoundingBox = &storepb.BoundingBox{
+					Xmin: boundingBoxXmin.Float64,
+					Ymin: boundingBoxYmin.Float64,
+					Xmax: boundingBoxXmax.Float64,
+					Ymax: boundingBoxYmax.Float64,
+				}
+			}
+
+			// Add grid levels with proper descriptions
+			gridLevels := []*storepb.GridLevel{}
+			if level1Grid.Valid && level1Grid.String != "" {
+				gridLevels = append(gridLevels, &storepb.GridLevel{Level: 1, Density: level1Grid.String})
+			}
+			if level2Grid.Valid && level2Grid.String != "" {
+				gridLevels = append(gridLevels, &storepb.GridLevel{Level: 2, Density: level2Grid.String})
+			}
+			if level3Grid.Valid && level3Grid.String != "" {
+				gridLevels = append(gridLevels, &storepb.GridLevel{Level: 3, Density: level3Grid.String})
+			}
+			if level4Grid.Valid && level4Grid.String != "" {
+				gridLevels = append(gridLevels, &storepb.GridLevel{Level: 4, Density: level4Grid.String})
+			}
+			index.SpatialConfig.Tessellation.GridLevels = gridLevels
+
+			// Add cells per object
+			if cellsPerObject.Valid && cellsPerObject.Int32 > 0 {
+				index.SpatialConfig.Tessellation.CellsPerObject = cellsPerObject.Int32
+			}
+
+			// Configure storage options - always create storage config
+			index.SpatialConfig.Storage = &storepb.StorageConfig{}
+
+			if fillFactor.Valid && fillFactor.Int32 > 0 {
+				index.SpatialConfig.Storage.Fillfactor = fillFactor.Int32
+			}
+
+			if isPadded.Valid && isPadded.Int32 == 1 {
+				index.SpatialConfig.Storage.PadIndex = true
+			}
+
+			if allowRowLocks.Valid && allowRowLocks.Int32 == 1 {
+				index.SpatialConfig.Storage.AllowRowLocks = true
+			}
+
+			if allowPageLocks.Valid && allowPageLocks.Int32 == 1 {
+				index.SpatialConfig.Storage.AllowPageLocks = true
+			}
+
+			if dataCompressionDesc.Valid && dataCompressionDesc.String != "" && dataCompressionDesc.String != "NONE" {
+				index.SpatialConfig.Storage.DataCompression = dataCompressionDesc.String
+			}
+
+			// Configure dimensional properties
+			index.SpatialConfig.Dimensional = &storepb.DimensionalConfig{
+				DataType:   dataType,
+				Dimensions: 2, // SQL Server spatial indexes are always 2D
+			}
+
+			// Note: Filter definitions for spatial indexes are not currently supported in the proto
+			// but we've retrieved the data in case it's needed in the future
+
+			indexMap[key][indexName.String] = index
+		}
+
+		// Add column to expressions
+		indexMap[key][indexName.String].Expressions = append(indexMap[key][indexName.String].Expressions, columnName.String)
+		indexMap[key][indexName.String].Descending = append(indexMap[key][indexName.String].Descending, false) // Spatial indexes don't support descending
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Convert to slice format
+	tableIndexes := make(map[db.TableKey][]*storepb.IndexMetadata)
+	for k, m := range indexMap {
+		for _, v := range m {
+			tableIndexes[k] = append(tableIndexes[k], v)
+		}
+	}
+
+	// Try to get additional spatial index parameters from XML showplan if available
+	// This is a best-effort attempt to retrieve MAXDOP, SORT_IN_TEMPDB, and ONLINE options
+	if len(tableIndexes) > 0 {
+		enhanceSpatialIndexesWithXMLPlan(txn, tableIndexes)
+	}
+
+	return tableIndexes, nil
+}
+
+// enhanceSpatialIndexesWithXMLPlan attempts to extract additional spatial index options
+// that are not available in system tables but might be visible in execution plans
+func enhanceSpatialIndexesWithXMLPlan(txn *sql.Tx, spatialIndexes map[db.TableKey][]*storepb.IndexMetadata) {
+	// This is a best-effort function, so we ignore errors
+	for tableKey, indexes := range spatialIndexes {
+		for _, index := range indexes {
+			if index.Type != "SPATIAL" || index.SpatialConfig == nil {
+				continue
+			}
+
+			// Try to get the index creation statement from sys.sql_modules or other sources
+			// This is SQL Server version dependent and might not always work
+			query := `
+			SELECT 
+				OBJECTPROPERTY(i.object_id, 'ExecIsAnsiNullsOn') AS ansi_nulls,
+				OBJECTPROPERTY(i.object_id, 'ExecIsQuotedIdentOn') AS quoted_ident
+			FROM sys.indexes i
+			INNER JOIN sys.objects o ON i.object_id = o.object_id
+			INNER JOIN sys.schemas s ON o.schema_id = s.schema_id
+			WHERE s.name = @schema AND o.name = @table AND i.name = @index
+			`
+			var ansiNulls, quotedIdent sql.NullInt32
+			err := txn.QueryRow(query,
+				sql.Named("schema", tableKey.Schema),
+				sql.Named("table", tableKey.Table),
+				sql.Named("index", index.Name)).Scan(&ansiNulls, &quotedIdent)
+
+			if err == nil && index.SpatialConfig.Storage == nil {
+				// If we don't have storage config yet, create a basic one
+				// These properties give us hints about the index creation context
+				if ansiNulls.Valid || quotedIdent.Valid {
+					if index.SpatialConfig.Storage == nil {
+						index.SpatialConfig.Storage = &storepb.StorageConfig{}
+					}
+					// These are indirect indicators but better than nothing
+					index.SpatialConfig.Storage.AllowRowLocks = true
+					index.SpatialConfig.Storage.AllowPageLocks = true
+				}
+			}
+		}
+	}
 }
 
 func getKeys(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.IndexMetadata, error) {
@@ -693,8 +1036,14 @@ func getKeys(txn *sql.Tx, schemas []string) (map[db.TableKey][]*storepb.IndexMet
 		for _, v := range m {
 			tableIndexes[k] = append(tableIndexes[k], v)
 		}
-		sort.Slice(tableIndexes[k], func(i, j int) bool {
-			return tableIndexes[k][i].Name < tableIndexes[k][j].Name
+		slices.SortFunc(tableIndexes[k], func(a, b *storepb.IndexMetadata) int {
+			if a.Name < b.Name {
+				return -1
+			}
+			if a.Name > b.Name {
+				return 1
+			}
+			return 0
 		})
 	}
 	return tableIndexes, nil
@@ -724,9 +1073,14 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 		SELECT
 			SCHEMA_NAME(v.schema_id) AS schema_name,
 			v.name AS view_name,
-			m.definition
+			m.definition,
+			CAST(ep.value AS NVARCHAR(MAX)) AS comment
 		FROM sys.views v
 		INNER JOIN sys.sql_modules m ON v.object_id = m.object_id
+		LEFT JOIN sys.extended_properties ep ON ep.major_id = v.object_id 
+			AND ep.minor_id = 0 
+			AND ep.class = 1 
+			AND ep.name = 'MS_Description'
 		ORDER BY schema_name, view_name;`
 	rows, err := txn.Query(query)
 	if err != nil {
@@ -736,8 +1090,8 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 	for rows.Next() {
 		view := &storepb.ViewMetadata{}
 		var schemaName string
-		var definition sql.NullString
-		if err := rows.Scan(&schemaName, &view.Name, &definition); err != nil {
+		var definition, comment sql.NullString
+		if err := rows.Scan(&schemaName, &view.Name, &definition, &comment); err != nil {
 			return nil, err
 		}
 
@@ -753,6 +1107,10 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 		}
 		view.Definition = viewDefinition
 
+		if comment.Valid {
+			view.Comment = comment.String
+		}
+
 		key := db.TableKey{Schema: schemaName, Table: view.Name}
 		view.Columns = columnMap[key]
 
@@ -765,19 +1123,104 @@ func getViews(txn *sql.Tx, columnMap map[db.TableKey][]*storepb.ColumnMetadata) 
 	return viewMap, nil
 }
 
+func getTriggers(txn *sql.Tx) (map[db.TableKey][]*storepb.TriggerMetadata, map[db.TableKey][]*storepb.TriggerMetadata, error) {
+	query := `
+SELECT
+    st.name,
+    STUFF((
+        SELECT ',' + te.type_desc
+        FROM sys.trigger_events AS te
+        WHERE te.object_id = st.object_id
+        FOR XML PATH('')
+    ), 1, 1, '') AS events,
+CASE
+        WHEN st.type = 'TR' THEN 'AFTER' -- DML triggers created with FOR or AFTER
+        WHEN st.type = 'TA' THEN 'AFTER' -- DDL triggers
+        WHEN st.type = 'TI' THEN 'INSTEAD OF' -- INSTEAD OF triggers
+        ELSE 'UNKNOWN' -- Handle other potential types
+END AS timing,
+ssm.definition AS body,
+so.name AS parentName,
+ss.name AS schemaName,
+so.type AS objectType,
+CAST(ep.value AS NVARCHAR(MAX)) AS comment
+FROM
+    sys.triggers AS st
+JOIN
+    sys.sql_modules AS ssm
+ON
+    st.object_id = ssm.object_id
+JOIN
+    sys.objects AS so
+ON
+    st.parent_id = so.object_id
+JOIN
+    sys.schemas AS ss
+ON so.schema_id = ss.schema_id
+LEFT JOIN sys.extended_properties ep ON ep.major_id = st.object_id 
+	AND ep.minor_id = 0 
+	AND ep.class = 1 
+	AND ep.name = 'MS_Description'
+WHERE st.is_disabled = 0 AND st.is_ms_shipped = 0 AND st.parent_id <> 0 AND  so.type IN ('U', 'V')
+ORDER BY st.name;
+`
+	tableTriggers := make(map[db.TableKey][]*storepb.TriggerMetadata)
+	viewTriggers := make(map[db.TableKey][]*storepb.TriggerMetadata)
+	rows, err := txn.Query(query)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name, events, timing, parentName, schemaName, parentType string
+		var body, comment sql.NullString
+		if err := rows.Scan(&name, &events, &timing, &body, &parentName, &schemaName, &parentType, &comment); err != nil {
+			return nil, nil, err
+		}
+		bodyString := fmt.Sprintf("/* Definition of trigger %s.%s.%s is encrypted. */", schemaName, parentName, name)
+		if body.Valid {
+			bodyString = body.String
+		}
+		m := tableTriggers
+		if parentType == "V" {
+			m = viewTriggers
+		}
+		trigger := &storepb.TriggerMetadata{
+			Name:   name,
+			Event:  events,
+			Timing: timing,
+			Body:   bodyString,
+		}
+		if comment.Valid {
+			trigger.Comment = comment.String
+		}
+		key := db.TableKey{Schema: schemaName, Table: parentName}
+		m[key] = append(m[key], trigger)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return tableTriggers, viewTriggers, nil
+}
+
 // getSequences gets all sequences of a database.
 func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 	query := `
 	SELECT
 		s.name,
 		seq.name,
-		tp.name
+		tp.name,
+		CAST(ep.value AS NVARCHAR(MAX)) AS comment
 	FROM
 		sys.sequences seq
 	INNER JOIN
 		sys.schemas s ON s.schema_id = seq.schema_id
 	INNER JOIN
 		sys.types tp ON tp.system_type_id = seq.system_type_id
+	LEFT JOIN sys.extended_properties ep ON ep.major_id = seq.object_id 
+		AND ep.minor_id = 0 
+		AND ep.class = 1 
+		AND ep.name = 'MS_Description'
 	ORDER BY s.name, seq.name;`
 	rows, err := txn.Query(query)
 	if err != nil {
@@ -789,8 +1232,12 @@ func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 	for rows.Next() {
 		sequence := &storepb.SequenceMetadata{}
 		var schemaName string
-		if err := rows.Scan(&schemaName, &sequence.Name, &sequence.DataType); err != nil {
+		var comment sql.NullString
+		if err := rows.Scan(&schemaName, &sequence.Name, &sequence.DataType, &comment); err != nil {
 			return nil, err
+		}
+		if comment.Valid {
+			sequence.Comment = comment.String
 		}
 		sequenceMap[schemaName] = append(sequenceMap[schemaName], sequence)
 	}
@@ -804,7 +1251,6 @@ func getSequences(txn *sql.Tx) (map[string][]*storepb.SequenceMetadata, error) {
 func getProcedures(txn *sql.Tx) (map[string][]*storepb.ProcedureMetadata, error) {
 	procedureMap := make(map[string][]*storepb.ProcedureMetadata)
 
-	// The CAST(...) = 0 means the procedure is not a system function.
 	query := `
 	SELECT
 		SCHEMA_NAME(ao.schema_id) AS schema_name,
@@ -863,9 +1309,14 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 	SELECT
 		SCHEMA_NAME(ao.schema_id) AS schema_name,
 		ao.name AS func_name,
-		asm.definition
+		asm.definition,
+		CAST(ep.value AS NVARCHAR(MAX)) AS comment
 	FROM sys.all_objects ao
         INNER JOIN sys.all_sql_modules asm ON asm.object_id = ao.object_id
+		LEFT JOIN sys.extended_properties ep ON ep.major_id = ao.object_id 
+			AND ep.minor_id = 0 
+			AND ep.class = 1 
+			AND ep.name = 'MS_Description'
 	WHERE ao.type IN ('FN', 'IF', 'TF')
 		AND ao.is_ms_shipped = 0 AND
 		(
@@ -885,8 +1336,8 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 	for rows.Next() {
 		function := &storepb.FunctionMetadata{}
 		var schemaName string
-		var definition sql.NullString
-		if err := rows.Scan(&schemaName, &function.Name, &definition); err != nil {
+		var definition, comment sql.NullString
+		if err := rows.Scan(&schemaName, &function.Name, &definition, &comment); err != nil {
 			return nil, err
 		}
 		var functionDefinition string
@@ -900,6 +1351,11 @@ func getFunctions(txn *sql.Tx) (map[string][]*storepb.FunctionMetadata, error) {
 			functionDefinition = definition.String
 		}
 		function.Definition = functionDefinition
+
+		if comment.Valid {
+			function.Comment = comment.String
+		}
+
 		funcMap[schemaName] = append(funcMap[schemaName], function)
 	}
 	if err := rows.Err(); err != nil {

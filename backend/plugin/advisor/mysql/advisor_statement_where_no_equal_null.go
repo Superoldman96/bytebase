@@ -9,9 +9,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -87,7 +88,7 @@ func (checker *statementWhereNoEqualNullChecker) EnterPrimaryExprCompare(ctx *my
 			Code:          advisor.StatementWhereNoEqualNull.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("WHERE clause contains equal null: %s", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 		})
 	}
 }

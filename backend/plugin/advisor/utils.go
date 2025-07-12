@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common/log"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 // NormalizeStatement limit the max length of the statements.
@@ -162,14 +162,4 @@ func DatabaseExists(ctx context.Context, checkCtx Context, database string) bool
 	}
 
 	return false
-}
-
-func ConvertANTLRLineToPosition(line int) *storepb.Position {
-	positionLine := line - 1
-	if line == 0 {
-		positionLine = 0
-	}
-	return &storepb.Position{
-		Line: int32(positionLine),
-	}
 }

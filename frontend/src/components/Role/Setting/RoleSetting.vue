@@ -3,7 +3,7 @@
     <div class="textinfolabel">
       {{ $t("role.setting.description") }}
       <a
-        href="https://www.bytebase.com/docs/administration/custom-roles?source=console"
+        href="https://docs.bytebase.com/administration/custom-roles?source=console"
         class="normal-link text-sm inline-flex flex-row items-center"
         target="_blank"
       >
@@ -20,11 +20,11 @@
       >
         <template #icon>
           <PlusIcon class="h-4 w-4" />
+          <FeatureBadge
+            :feature="PlanFeature.FEATURE_CUSTOM_ROLES"
+            class="mr-1 text-white"
+          />
         </template>
-        <FeatureBadge
-          feature="bb.feature.custom-role"
-          custom-class="mr-1 text-white"
-        />
         {{ $t("role.setting.add") }}
       </NButton>
     </div>
@@ -48,7 +48,7 @@
     />
 
     <FeatureModal
-      feature="bb.feature.custom-role"
+      :feature="PlanFeature.FEATURE_CUSTOM_ROLES"
       :open="showFeatureModal"
       @cancel="showFeatureModal = false"
     />
@@ -56,6 +56,7 @@
 </template>
 
 <script lang="ts" setup>
+import { create } from "@bufbuild/protobuf";
 import { sortBy } from "lodash-es";
 import { PlusIcon } from "lucide-vue-next";
 import { NButton } from "naive-ui";
@@ -64,7 +65,9 @@ import { BBSpin } from "@/bbkit";
 import { FeatureBadge, FeatureModal } from "@/components/FeatureGuard";
 import { featureToRef, useRoleStore } from "@/store";
 import { PRESET_ROLES } from "@/types";
-import { Role } from "@/types/proto/v1/role_service";
+import type { Role } from "@/types/proto-es/v1/role_service_pb";
+import { RoleSchema } from "@/types/proto-es/v1/role_service_pb";
+import { PlanFeature } from "@/types/proto-es/v1/subscription_service_pb";
 import { hasWorkspacePermissionV2 } from "@/utils";
 import { RoleDataTable, RolePanel } from "./components";
 import { provideCustomRoleSettingContext } from "./context";
@@ -92,7 +95,7 @@ const state = reactive<LocalState>({
   },
 });
 
-const hasCustomRoleFeature = featureToRef("bb.feature.custom-role");
+const hasCustomRoleFeature = featureToRef(PlanFeature.FEATURE_CUSTOM_ROLES);
 const showFeatureModal = ref(false);
 
 const allowCreateRole = computed(() => {
@@ -116,7 +119,7 @@ const filteredRoleList = computed(() => {
 });
 
 const addRole = () => {
-  selectRole(Role.fromPartial({}), "ADD");
+  selectRole(create(RoleSchema, {}), "ADD");
 };
 
 const selectRole = (role: Role | undefined, mode?: "ADD" | "EDIT") => {

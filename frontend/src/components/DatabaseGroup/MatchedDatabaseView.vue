@@ -60,9 +60,9 @@
 </template>
 
 <script lang="ts" setup>
+import type { ConnectError } from "@connectrpc/connect";
 import { useDebounceFn } from "@vueuse/core";
 import { NButton, NEllipsis, NCollapse, NCollapseItem } from "naive-ui";
-import { ClientError } from "nice-grpc-web";
 import { watch, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { BBSpin } from "@/bbkit";
@@ -70,7 +70,7 @@ import { DatabaseV1Name, InstanceV1Name } from "@/components/v2";
 import type { ConditionGroupExpr } from "@/plugins/cel";
 import { validateSimpleExpr } from "@/plugins/cel";
 import { useDatabaseV1Store, useDBGroupStore } from "@/store";
-import { isValidDatabaseName } from "@/types";
+import { DEBOUNCE_SEARCH_DELAY, isValidDatabaseName } from "@/types";
 
 interface DatabaseMatchList {
   index: number;
@@ -183,12 +183,12 @@ const updateDatabaseMatchingState = useDebounceFn(async () => {
     state.databaseMatchLists[1].databaseNameList = result.unmatchedDatabaseList;
     await Promise.all(state.databaseMatchLists.map((_, i) => loadMore(i)));
   } catch (error) {
-    state.matchingError = (error as ClientError).details;
+    state.matchingError = (error as ConnectError).message;
     state.databaseMatchLists = getInitialState();
   } finally {
     state.loading = false;
   }
-}, 500);
+}, DEBOUNCE_SEARCH_DELAY);
 
 watch(
   [() => props.project, () => props.expr],

@@ -9,20 +9,10 @@
             {{ statementTitle }}
           </span>
           <span v-if="isCreating" class="text-red-600">*</span>
-          <NButton
-            v-if="!isCreating && !hasFeature('bb.feature.sql-review')"
-            size="tiny"
-            @click.prevent="state.showFeatureModal = true"
-          >
-            🎈{{ $t("sql-review.unlock-full-feature") }}
-          </NButton>
         </div>
       </div>
 
-      <div
-        v-if="selectedTask.type !== Task_Type.DATABASE_SCHEMA_BASELINE"
-        class="flex items-center justify-end gap-x-2"
-      >
+      <div class="flex items-center justify-end gap-x-2">
         <template v-if="isCreating">
           <template v-if="allowEditStatementWhenCreating">
             <EditorActionPopover />
@@ -181,63 +171,52 @@
       />
     </div>
   </BBModal>
-
-  <FeatureModal
-    :open="state.showFeatureModal"
-    feature="bb.feature.sql-review"
-    @cancel="state.showFeatureModal = false"
-  />
 </template>
 
 <script setup lang="ts">
+import { create } from "@bufbuild/protobuf";
 import { useElementSize } from "@vueuse/core";
-import { cloneDeep, head, isEmpty, uniq } from "lodash-es";
+import { cloneDeep, head, isEmpty } from "lodash-es";
 import { ExpandIcon } from "lucide-vue-next";
 import { NButton, NTooltip, useDialog } from "naive-ui";
-import { computed, h, reactive, ref, toRef, watch } from "vue";
+import { computed, reactive, ref, toRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute } from "vue-router";
 import { BBAttention, BBModal } from "@/bbkit";
-import { FeatureModal } from "@/components/FeatureGuard";
 import { ErrorList } from "@/components/IssueV1/components/common";
 import {
-  databaseForTask,
-  useIssueContext,
   allowUserToEditStatementForTask,
-  stageForTask,
   isTaskEditable,
-  specForTask,
-  createEmptyLocalSheet,
-  notifyNotEditableLegacyIssue,
-  isGroupingChangeTaskV1,
-  databaseEngineForSpec,
+  useIssueContext,
 } from "@/components/IssueV1/logic";
 import { MonacoEditor } from "@/components/MonacoEditor";
 import { extensionNameOfLanguage } from "@/components/MonacoEditor/utils";
+import {
+  createEmptyLocalSheet,
+  databaseEngineForSpec,
+} from "@/components/Plan";
 import DownloadSheetButton from "@/components/Sheet/DownloadSheetButton.vue";
 import SQLUploadButton from "@/components/misc/SQLUploadButton.vue";
-import { planServiceClient } from "@/grpcweb";
+import { planServiceClientConnect } from "@/grpcweb";
 import { emitWindowEvent } from "@/plugins";
-import { hasFeature, pushNotification, useSheetV1Store } from "@/store";
+import {
+  pushNotification,
+  useCurrentProjectV1,
+  useSheetV1Store,
+} from "@/store";
 import type { SQLDialect } from "@/types";
+import { dialectOfEngineV1 } from "@/types";
+import { IssueStatus } from "@/types/proto-es/v1/issue_service_pb";
+import { UpdatePlanRequestSchema } from "@/types/proto-es/v1/plan_service_pb";
+import { SheetSchema } from "@/types/proto-es/v1/sheet_service_pb";
+import type { Advice } from "@/types/proto-es/v1/sql_service_pb";
+import { databaseForTask } from "@/utils";
 import {
-  EMPTY_ID,
-  TaskTypeListWithStatement,
-  dialectOfEngineV1,
-} from "@/types";
-import { IssueStatus } from "@/types/proto/v1/issue_service";
-import type { Task } from "@/types/proto/v1/rollout_service";
-import { Task_Type } from "@/types/proto/v1/rollout_service";
-import { Sheet } from "@/types/proto/v1/sheet_service";
-import type { Advice } from "@/types/proto/v1/sql_service";
-import {
-  defer,
   flattenTaskV1List,
   getSheetStatement,
+  getStatementSize,
   setSheetStatement,
   useInstanceV1EditorLanguage,
-  getStatementSize,
-  sheetNameOfTaskV1,
 } from "@/utils";
 import { useSQLAdviceMarkers } from "../useSQLAdviceMarkers";
 import EditorActionPopover from "./EditorActionPopover.vue";
@@ -258,8 +237,8 @@ const props = defineProps<{
 const { t } = useI18n();
 const route = useRoute();
 const context = useIssueContext();
-const { events, isCreating, issue, selectedTask, getPlanCheckRunsForTask } =
-  context;
+const { events, isCreating, issue, selectedTask } = context;
+const { project } = useCurrentProjectV1();
 const dialog = useDialog();
 const editorContainerElRef = ref<HTMLElement>();
 const monacoEditorRef = ref<InstanceType<typeof MonacoEditor>>();
@@ -274,7 +253,7 @@ const state = reactive<LocalState>({
 });
 
 const database = computed(() => {
-  return databaseForTask(issue.value, selectedTask.value);
+  return databaseForTask(project.value, selectedTask.value);
 });
 
 const language = useInstanceV1EditorLanguage(
@@ -301,12 +280,15 @@ const allowEditStatementWhenCreating = computed(() => {
     return false;
   }
   // Do not allow to edit statement for the plan with release source.
-  if (issue.value.planEntity?.releaseSource?.release) {
-    return false;
-  }
-  if (selectedTask.value.type === Task_Type.DATABASE_SCHEMA_BASELINE) {
-    // A baseline issue has actually no SQL statement.
-    // "-- Establish baseline using current schema" is just a comment.
+  if (
+    (
+      issue.value.planEntity?.specs?.filter(
+        (spec) =>
+          spec.config?.case === "changeDatabaseConfig" &&
+          spec.config.value.release
+      ) ?? []
+    ).length > 0
+  ) {
     return false;
   }
   return true;
@@ -320,9 +302,6 @@ const allowEditStatementWhenCreating = computed(() => {
  * - Disallowed to edit statement
  */
 const isEditorReadonly = computed(() => {
-  if (selectedTask.value.type === Task_Type.DATABASE_SCHEMA_BASELINE) {
-    return true;
-  }
   if (isCreating.value) {
     return !allowEditStatementWhenCreating.value;
   }
@@ -342,17 +321,13 @@ const isSheetOversize = computed(() => {
   if (state.isEditing) return false;
   if (!sheetReady.value) return false;
   if (!sheet.value) return false;
-  return getStatementSize(getSheetStatement(sheet.value)).lt(
-    sheet.value.contentSize
+  return (
+    getStatementSize(getSheetStatement(sheet.value)) < sheet.value.contentSize
   );
 });
 
 const denyEditStatementReasons = computed(() =>
-  allowUserToEditStatementForTask(
-    issue.value,
-    selectedTask.value,
-    context.getPlanCheckRunsForTask(selectedTask.value)
-  )
+  allowUserToEditStatementForTask(issue.value, selectedTask.value)
 );
 
 const shouldShowEditButton = computed(() => {
@@ -365,8 +340,22 @@ const shouldShowEditButton = computed(() => {
     return false;
   }
   // Do not allow to edit statement for the plan with release source.
-  if (issue.value.planEntity?.releaseSource?.release) {
+  if (
+    (
+      issue.value.planEntity?.specs?.filter(
+        (spec) =>
+          spec.config?.case === "changeDatabaseConfig" &&
+          spec.config.value.release
+      ) ?? []
+    ).length > 0
+  ) {
     return false;
+  }
+  for (const task of flattenTaskV1List(issue.value.rolloutEntity)) {
+    if (!isTaskEditable(task)) {
+      // If the task is not editable, don't show the edit button.
+      return false;
+    }
   }
   // Will show another button group as [Upload][Cancel][Save]
   // while editing
@@ -409,141 +398,6 @@ const saveEdit = async () => {
 const cancelEdit = () => {
   state.statement = sheetStatement.value;
   state.isEditing = false;
-};
-
-const chooseUpdateStatementTarget = () => {
-  type Target = "CANCELED" | "TASK" | "STAGE" | "ALL";
-  const d = defer<{ target: Target; tasks: Task[] }>();
-
-  const targets: Record<Target, Task[]> = {
-    CANCELED: [],
-    TASK: [selectedTask.value],
-    STAGE: (stageForTask(issue.value, selectedTask.value)?.tasks ?? []).filter(
-      (task) => {
-        return (
-          TaskTypeListWithStatement.includes(task.type) &&
-          isTaskEditable(task, getPlanCheckRunsForTask(task)).length === 0
-        );
-      }
-    ),
-    ALL: flattenTaskV1List(issue.value.rolloutEntity).filter((task) => {
-      return (
-        TaskTypeListWithStatement.includes(task.type) &&
-        isTaskEditable(task, getPlanCheckRunsForTask(task)).length === 0
-      );
-    }),
-  };
-
-  if (targets.STAGE.length === 1 && targets.ALL.length === 1) {
-    d.resolve({ target: "TASK", tasks: targets.TASK });
-    return d.promise;
-  }
-
-  const distinctSheetIds = uniq(
-    targets.ALL.map((task) => sheetNameOfTaskV1(task))
-  );
-  // For new multiple-database issues, one sheet is shared among multiple tasks
-  // So we should notice that the change will be applied to all tasks
-  if (distinctSheetIds.length === 1 && targets.ALL.length > 1) {
-    dialog.info({
-      title: t("issue.update-statement.self", { type: statementTitle.value }),
-      content: t(
-        "issue.update-statement.current-change-will-apply-to-all-tasks"
-      ),
-      type: "info",
-      autoFocus: false,
-      closable: false,
-      maskClosable: false,
-      closeOnEsc: false,
-      showIcon: false,
-      positiveText: t("common.confirm"),
-      negativeText: t("common.cancel"),
-      onPositiveClick: () => {
-        d.resolve({ target: "ALL", tasks: targets.ALL });
-      },
-      onNegativeClick: () => {
-        d.resolve({ target: "CANCELED", tasks: [] });
-      },
-    });
-    return d.promise;
-  }
-
-  const $d = dialog.create({
-    title: t("issue.update-statement.self", { type: statementTitle.value }),
-    content: t("issue.update-statement.apply-current-change-to"),
-    type: "info",
-    autoFocus: false,
-    closable: false,
-    maskClosable: false,
-    closeOnEsc: false,
-    showIcon: false,
-    action: () => {
-      const finish = (target: Target) => {
-        d.resolve({ target, tasks: targets[target] });
-        $d.destroy();
-      };
-
-      const CANCEL = h(
-        NButton,
-        { size: "small", onClick: () => finish("CANCELED") },
-        {
-          default: () => t("common.cancel"),
-        }
-      );
-
-      const buttons = [CANCEL];
-      // For database group change task, don't show the option to select the task.
-      if (!isGroupingChangeTaskV1(issue.value, selectedTask.value)) {
-        const TASK = h(
-          NButton,
-          { size: "small", onClick: () => finish("TASK") },
-          {
-            default: () => t("issue.update-statement.target.selected-task"),
-          }
-        );
-        buttons.push(TASK);
-
-        if (targets.STAGE.length > 1) {
-          // More than one editable tasks in stage
-          // Add "Selected stage" option
-          const STAGE = h(
-            NButton,
-            { size: "small", onClick: () => finish("STAGE") },
-            {
-              default: () => t("issue.update-statement.target.selected-stage"),
-            }
-          );
-          buttons.push(STAGE);
-        }
-      }
-      if (
-        isGroupingChangeTaskV1(issue.value, selectedTask.value) ||
-        targets.ALL.length > targets.STAGE.length
-      ) {
-        // More editable tasks in other stages
-        // Add "All tasks" option
-        const ALL = h(
-          NButton,
-          { size: "small", onClick: () => finish("ALL") },
-          {
-            default: () => t("issue.update-statement.target.all-tasks"),
-          }
-        );
-        buttons.push(ALL);
-      }
-
-      return h(
-        "div",
-        { class: "flex items-center justify-end gap-x-2" },
-        buttons
-      );
-    },
-    onClose() {
-      d.resolve({ target: "CANCELED", tasks: [] });
-    },
-  });
-
-  return d.promise;
 };
 
 const showOverwriteConfirmDialog = () => {
@@ -598,47 +452,14 @@ const handleUpdateStatement = async (statement: string, filename: string) => {
 const updateStatement = async (statement: string) => {
   const planPatch = cloneDeep(issue.value.planEntity);
   if (!planPatch) {
-    notifyNotEditableLegacyIssue();
-    return;
+    // Should not reach here.
+    throw new Error("Plan is not defined. Cannot update statement.");
   }
 
-  const specsIdList: string[] = [];
-  // - find the task related plan/step/spec
-  // - create a new sheet
-  // - update sheet id in the spec
-
-  // Find the target editing task(s)
-  // default to selectedTask
-  // also ask whether to apply the change to all tasks in the stage.
-  const { target, tasks } = await chooseUpdateStatementTarget();
-
-  if (target === "CANCELED" || tasks.length === 0) {
-    cancelEdit();
-    return;
-  }
-
-  tasks.forEach((task) => {
-    const spec = specForTask(planPatch, task);
-    if (spec) {
-      specsIdList.push(spec.id);
-    }
-  });
-
-  const distinctSpecsIds = new Set(
-    specsIdList.filter((id) => id && id !== String(EMPTY_ID))
-  );
-  if (distinctSpecsIds.size === 0) {
-    notifyNotEditableLegacyIssue();
-    return;
-  }
-
-  const specsToPatch = planPatch.steps
-    .flatMap((step) => step.specs)
-    .filter((spec) => distinctSpecsIds.has(spec.id));
-  const sheet = Sheet.fromPartial({
+  const sheet = create(SheetSchema, {
     ...createEmptyLocalSheet(),
     title: issue.value.title,
-    engine: await databaseEngineForSpec(head(specsToPatch)),
+    engine: await databaseEngineForSpec(head(planPatch.specs)),
   });
   setSheetStatement(sheet, statement);
   const createdSheet = await useSheetV1Store().createSheet(
@@ -646,24 +467,22 @@ const updateStatement = async (statement: string) => {
     sheet
   );
 
-  for (let i = 0; i < specsToPatch.length; i++) {
-    const spec = specsToPatch[i];
-    let config = undefined;
-    if (spec.changeDatabaseConfig) {
-      config = spec.changeDatabaseConfig;
-    } else if (spec.exportDataConfig) {
-      config = spec.exportDataConfig;
+  // Update all specs with the created sheet.
+  for (const spec of planPatch.specs) {
+    if (spec.config?.case === "changeDatabaseConfig") {
+      spec.config.value.sheet = createdSheet.name;
+    } else if (spec.config?.case === "exportDataConfig") {
+      spec.config.value.sheet = createdSheet.name;
     }
-    if (!config) continue;
-    config.sheet = createdSheet.name;
   }
 
-  const updatedPlan = await planServiceClient.updatePlan({
+  const request = create(UpdatePlanRequestSchema, {
     plan: planPatch,
-    updateMask: ["steps"],
+    updateMask: { paths: ["specs"] },
   });
+  const response = await planServiceClientConnect.updatePlan(request);
 
-  issue.value.planEntity = updatedPlan;
+  issue.value.planEntity = response;
 
   events.emit("status-changed", { eager: true });
 

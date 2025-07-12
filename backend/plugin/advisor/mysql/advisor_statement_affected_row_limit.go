@@ -12,9 +12,9 @@ import (
 	mysql "github.com/bytebase/mysql-parser"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -24,7 +24,6 @@ var (
 func init() {
 	advisor.Register(storepb.Engine_MYSQL, advisor.MySQLStatementAffectedRowLimit, &StatementAffectedRowLimitAdvisor{})
 	advisor.Register(storepb.Engine_MARIADB, advisor.MySQLStatementAffectedRowLimit, &StatementAffectedRowLimitAdvisor{})
-	advisor.Register(storepb.Engine_OCEANBASE, advisor.MySQLStatementAffectedRowLimit, &StatementAffectedRowLimitAdvisor{})
 }
 
 // StatementAffectedRowLimitAdvisor is the advisor checking for UPDATE/DELETE affected row limit.
@@ -111,7 +110,7 @@ func (checker *statementAffectedRowLimitChecker) handleStmt(lineNumber int) {
 			Code:          advisor.StatementAffectedRowExceedsLimit.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("\"%s\" dry runs failed: %s", checker.text, err.Error()),
-			StartPosition: advisor.ConvertANTLRLineToPosition(lineNumber),
+			StartPosition: common.ConvertANTLRLineToPosition(lineNumber),
 		})
 	} else {
 		rowCount, err := getRows(res)
@@ -121,7 +120,7 @@ func (checker *statementAffectedRowLimitChecker) handleStmt(lineNumber int) {
 				Code:          advisor.Internal.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("failed to get row count for \"%s\": %s", checker.text, err.Error()),
-				StartPosition: advisor.ConvertANTLRLineToPosition(lineNumber),
+				StartPosition: common.ConvertANTLRLineToPosition(lineNumber),
 			})
 		} else if rowCount > int64(checker.maxRow) {
 			checker.adviceList = append(checker.adviceList, &storepb.Advice{
@@ -129,7 +128,7 @@ func (checker *statementAffectedRowLimitChecker) handleStmt(lineNumber int) {
 				Code:          advisor.StatementAffectedRowExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("\"%s\" affected %d rows (estimated). The count exceeds %d.", checker.text, rowCount, checker.maxRow),
-				StartPosition: advisor.ConvertANTLRLineToPosition(lineNumber),
+				StartPosition: common.ConvertANTLRLineToPosition(lineNumber),
 			})
 		}
 	}

@@ -10,9 +10,10 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -86,7 +87,7 @@ func (checker *columnDisallowChangingTypeChecker) Enter(in ast.Node) (ast.Node, 
 			Code:          advisor.ChangeColumnType.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("\"%s\" changes column type", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 		})
 	}
 

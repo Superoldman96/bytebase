@@ -5,16 +5,17 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/pkg/errors"
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const (
@@ -212,8 +213,14 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 	for _, table := range checker.tableSet {
 		tableList = append(tableList, table)
 	}
-	sort.Slice(tableList, func(i, j int) bool {
-		return tableList[i].line < tableList[j].line
+	slices.SortFunc(tableList, func(a, b tableData) int {
+		if a.line < b.line {
+			return -1
+		}
+		if a.line > b.line {
+			return 1
+		}
+		return 0
 	})
 	for _, table := range tableList {
 		if table.defaultCurrentTimeCount > maxDefaultCurrentTimeColumCount {
@@ -222,7 +229,7 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 				Code:          advisor.DefaultCurrentTimeColumnCountExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Table `%s` has %d DEFAULT CURRENT_TIMESTAMP() columns. The count greater than %d.", table.tableName, table.defaultCurrentTimeCount, maxDefaultCurrentTimeColumCount),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.line),
+				StartPosition: common.ConvertANTLRLineToPosition(table.line),
 			})
 		}
 		if table.onUpdateCurrentTimeCount > maxOnUpdateCurrentTimeColumnCount {
@@ -231,7 +238,7 @@ func (checker *columnCurrentTimeCountLimitChecker) generateAdvice() []*storepb.A
 				Code:          advisor.OnUpdateCurrentTimeColumnCountExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Table `%s` has %d ON UPDATE CURRENT_TIMESTAMP() columns. The count greater than %d.", table.tableName, table.onUpdateCurrentTimeCount, maxOnUpdateCurrentTimeColumnCount),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.line),
+				StartPosition: common.ConvertANTLRLineToPosition(table.line),
 			})
 		}
 	}

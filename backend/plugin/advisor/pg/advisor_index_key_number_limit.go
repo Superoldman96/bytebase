@@ -6,9 +6,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -104,7 +105,7 @@ func (checker *indexKeyNumberLimitChecker) Visit(node ast.Node) ast.Visitor {
 			Code:          advisor.IndexKeyNumberExceedsLimit.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("The number of keys of index %q in table %q should be not greater than %d", index.indexName, index.tableName, checker.max),
-			StartPosition: advisor.ConvertANTLRLineToPosition(index.line),
+			StartPosition: common.ConvertPGParserLineToPosition(index.line),
 		})
 	}
 	return checker

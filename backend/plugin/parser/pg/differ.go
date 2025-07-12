@@ -7,18 +7,18 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sort"
+	"slices"
 
 	"github.com/pkg/errors"
 
 	pgquery "github.com/pganalyze/pg_query_go/v6"
 
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
 	pgrawparser "github.com/bytebase/bytebase/backend/plugin/parser/sql/engine/pg"
 	"github.com/bytebase/bytebase/backend/store/model"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func init() {
@@ -1017,9 +1017,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 			}
 			oldIndex.existsInNew = true
 			// Modify the index.
-			if err := diff.modifyIndex(oldIndex.createIndex, stmt); err != nil {
-				return "", err
-			}
+			diff.modifyIndex(oldIndex.createIndex, stmt)
 		case *ast.CreateSequenceStmt:
 			if IsSystemSchema(stmt.SequenceDef.SequenceName.Schema) {
 				continue
@@ -1032,9 +1030,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 			}
 			oldSequence.existsInNew = true
 			// Modify the sequence.
-			if err := diff.modifySequenceExceptOwnedBy(oldSequence.createSequence, stmt); err != nil {
-				return "", err
-			}
+			diff.modifySequenceExceptOwnedBy(oldSequence.createSequence, stmt)
 		case *ast.AlterSequenceStmt:
 			if !onlySetOwnedBy(stmt) {
 				return "", errors.Errorf("expect OwnedBy only, but found %v", stmt)
@@ -1049,9 +1045,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 				continue
 			}
 			oldSequence.ownedByInfo.existsInNew = true
-			if err := diff.modifySequenceOwnedBy(oldSequence.ownedByInfo.ownedBy, stmt); err != nil {
-				return "", err
-			}
+			diff.modifySequenceOwnedBy(oldSequence.ownedByInfo.ownedBy, stmt)
 		case *ast.CreateExtensionStmt:
 			if IsSystemSchema(stmt.Schema) {
 				continue
@@ -1064,9 +1058,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 			}
 			oldExtension.existsInNew = true
 			// Modify the extension.
-			if err := diff.modifyExtension(oldExtension.createExtension, stmt); err != nil {
-				return "", err
-			}
+			diff.modifyExtension(oldExtension.createExtension, stmt)
 		case *ast.CreateFunctionStmt:
 			if IsSystemSchema(stmt.Function.Schema) {
 				continue
@@ -1083,9 +1075,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 			}
 			oldFunction.existsInNew = true
 			// Modify the function.
-			if err := diff.modifyFunction(oldFunction.createFunction, stmt); err != nil {
-				return "", err
-			}
+			diff.modifyFunction(oldFunction.createFunction, stmt)
 		case *ast.CreateTriggerStmt:
 			if IsSystemSchema(stmt.Trigger.Table.Schema) {
 				continue
@@ -1098,9 +1088,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 			}
 			oldTrigger.existsInNew = true
 			// Modify the trigger.
-			if err := diff.modifyTrigger(oldTrigger.createTrigger, stmt); err != nil {
-				return "", err
-			}
+			diff.modifyTrigger(oldTrigger.createTrigger, stmt)
 		case *ast.CreateTypeStmt:
 			if IsSystemSchema(stmt.Type.TypeName().Schema) {
 				continue
@@ -1157,9 +1145,7 @@ func SchemaDiff(_ base.DiffContext, oldStmt, newStmt string) (string, error) {
 	}
 
 	// Drop remaining old objects.
-	if err := diff.dropObject(); err != nil {
-		return "", err
-	}
+	diff.dropObject()
 
 	return diff.deparse()
 }
@@ -1222,7 +1208,7 @@ func (diff *diffNode) appendAddConstraint(table *ast.TableDef, constraintList []
 	}
 }
 
-func (diff *diffNode) dropObject() error {
+func (diff *diffNode) dropObject() {
 	// Drop the remaining old schema.
 	if dropSchemaStmt := dropSchema(diff.oldSchemaMap); dropSchemaStmt != nil {
 		diff.dropSchemaList = append(diff.dropSchemaList, dropSchemaStmt)
@@ -1277,8 +1263,6 @@ func (diff *diffNode) dropObject() error {
 
 	// Drop the remaining old comment.
 	diff.dropComment(diff.oldSchemaMap)
-
-	return nil
 }
 
 func (diff *diffNode) modifyTableByColumn(oldTableInfo *tableInfo, newTable *ast.CreateTableStmt) error {
@@ -1573,7 +1557,7 @@ func (diff *diffNode) modifyColumn(tableName *ast.TableDef, oldColumn *ast.Colum
 	return nil
 }
 
-func (diff *diffNode) modifyExtension(oldExtension *ast.CreateExtensionStmt, newExtension *ast.CreateExtensionStmt) error {
+func (diff *diffNode) modifyExtension(oldExtension *ast.CreateExtensionStmt, newExtension *ast.CreateExtensionStmt) {
 	// TODO(rebelice): not use Text(), it only works for pg_dump.
 	if oldExtension.Text() != newExtension.Text() {
 		diff.dropExtensionList = append(diff.dropExtensionList, &ast.DropExtensionStmt{
@@ -1581,16 +1565,14 @@ func (diff *diffNode) modifyExtension(oldExtension *ast.CreateExtensionStmt, new
 		})
 		diff.createExtensionList = append(diff.createExtensionList, newExtension)
 	}
-	return nil
 }
 
-func (diff *diffNode) modifyFunction(oldFunction *ast.CreateFunctionStmt, newFunction *ast.CreateFunctionStmt) error {
+func (diff *diffNode) modifyFunction(oldFunction *ast.CreateFunctionStmt, newFunction *ast.CreateFunctionStmt) {
 	// TODO(rebelice): not use Text(), it only works for pg_dump.
 	if oldFunction.Text() != newFunction.Text() {
 		diff.dropFunctionList = append(diff.dropFunctionList, oldFunction)
 		diff.createFunctionList = append(diff.createFunctionList, newFunction)
 	}
-	return nil
 }
 
 func isSubsequenceEnum(oldType ast.UserDefinedType, newType ast.UserDefinedType) bool {
@@ -1702,7 +1684,7 @@ func (diff *diffNode) modifyType(oldType *ast.CreateTypeStmt, newType *ast.Creat
 	return nil
 }
 
-func (diff *diffNode) modifyTrigger(oldTrigger *ast.CreateTriggerStmt, newTrigger *ast.CreateTriggerStmt) error {
+func (diff *diffNode) modifyTrigger(oldTrigger *ast.CreateTriggerStmt, newTrigger *ast.CreateTriggerStmt) {
 	// TODO(rebelice): not use Text(), it only works for pg_dump.
 	if oldTrigger.Text() != newTrigger.Text() {
 		diff.dropTriggerList = append(diff.dropTriggerList, &ast.DropTriggerStmt{
@@ -1710,10 +1692,9 @@ func (diff *diffNode) modifyTrigger(oldTrigger *ast.CreateTriggerStmt, newTrigge
 		})
 		diff.createTriggerList = append(diff.createTriggerList, newTrigger)
 	}
-	return nil
 }
 
-func (diff *diffNode) modifyIndex(oldIndex *ast.CreateIndexStmt, newIndex *ast.CreateIndexStmt) error {
+func (diff *diffNode) modifyIndex(oldIndex *ast.CreateIndexStmt, newIndex *ast.CreateIndexStmt) {
 	// TODO(rebelice): not use Text(), it only works for pg_dump.
 	if oldIndex.Text() != newIndex.Text() {
 		diff.dropIndexList = append(diff.dropIndexList, &ast.DropIndexStmt{
@@ -1726,17 +1707,15 @@ func (diff *diffNode) modifyIndex(oldIndex *ast.CreateIndexStmt, newIndex *ast.C
 		})
 		diff.createIndexList = append(diff.createIndexList, newIndex)
 	}
-	return nil
 }
 
-func (diff *diffNode) modifySequenceOwnedBy(oldSequenceOwnedBy *ast.AlterSequenceStmt, newSequenceOwnedBy *ast.AlterSequenceStmt) error {
+func (diff *diffNode) modifySequenceOwnedBy(oldSequenceOwnedBy *ast.AlterSequenceStmt, newSequenceOwnedBy *ast.AlterSequenceStmt) {
 	if !isEqualColumnNameDef(oldSequenceOwnedBy.OwnedBy, newSequenceOwnedBy.OwnedBy) {
 		diff.setDefaultList = append(diff.setDefaultList, newSequenceOwnedBy)
 	}
-	return nil
 }
 
-func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenceStmt, newSequence *ast.CreateSequenceStmt) error {
+func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenceStmt, newSequence *ast.CreateSequenceStmt) {
 	isEqual := true
 	alterSequence := &ast.AlterSequenceStmt{
 		Name: oldSequence.SequenceDef.SequenceName,
@@ -1749,13 +1728,13 @@ func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenc
 	}
 
 	// compare increment
-	if !isEqualInt32Pointer(oldSequence.SequenceDef.IncrementBy, newSequence.SequenceDef.IncrementBy) {
+	if !isEqualInt64Pointer(oldSequence.SequenceDef.IncrementBy, newSequence.SequenceDef.IncrementBy) {
 		alterSequence.IncrementBy = newSequence.SequenceDef.IncrementBy
 		isEqual = false
 	}
 
 	// compare min value
-	if !isEqualInt32Pointer(oldSequence.SequenceDef.MinValue, newSequence.SequenceDef.MinValue) {
+	if !isEqualInt64Pointer(oldSequence.SequenceDef.MinValue, newSequence.SequenceDef.MinValue) {
 		if newSequence.SequenceDef.MinValue == nil {
 			alterSequence.NoMinValue = true
 		} else {
@@ -1765,7 +1744,7 @@ func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenc
 	}
 
 	// compare max value
-	if !isEqualInt32Pointer(oldSequence.SequenceDef.MaxValue, newSequence.SequenceDef.MaxValue) {
+	if !isEqualInt64Pointer(oldSequence.SequenceDef.MaxValue, newSequence.SequenceDef.MaxValue) {
 		if newSequence.SequenceDef.MaxValue == nil {
 			alterSequence.NoMaxValue = true
 		} else {
@@ -1775,7 +1754,7 @@ func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenc
 	}
 
 	// compare start with
-	if !isEqualInt32Pointer(oldSequence.SequenceDef.StartWith, newSequence.SequenceDef.StartWith) {
+	if !isEqualInt64Pointer(oldSequence.SequenceDef.StartWith, newSequence.SequenceDef.StartWith) {
 		if newSequence.SequenceDef.StartWith != nil {
 			alterSequence.StartWith = newSequence.SequenceDef.StartWith
 			isEqual = false
@@ -1783,7 +1762,7 @@ func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenc
 	}
 
 	// compare cache
-	if !isEqualInt32Pointer(oldSequence.SequenceDef.Cache, newSequence.SequenceDef.Cache) {
+	if !isEqualInt64Pointer(oldSequence.SequenceDef.Cache, newSequence.SequenceDef.Cache) {
 		if newSequence.SequenceDef.Cache != nil {
 			alterSequence.Cache = newSequence.SequenceDef.Cache
 			isEqual = false
@@ -1799,7 +1778,6 @@ func (diff *diffNode) modifySequenceExceptOwnedBy(oldSequence *ast.CreateSequenc
 	if !isEqual {
 		diff.alterSequenceExceptOwnedByList = append(diff.alterSequenceExceptOwnedByList, alterSequence)
 	}
-	return nil
 }
 
 func isEqualTableDef(tableA *ast.TableDef, tableB *ast.TableDef) bool {
@@ -1840,7 +1818,7 @@ func isEqualColumnNameDef(columnA *ast.ColumnNameDef, columnB *ast.ColumnNameDef
 	return columnA.ColumnName == columnB.ColumnName
 }
 
-func isEqualInt32Pointer(a *int32, b *int32) bool {
+func isEqualInt64Pointer(a *int64, b *int64) bool {
 	if a == nil && b == nil {
 		return true
 	}
@@ -2470,8 +2448,14 @@ func (diff *diffNode) dropConstraint(m schemaMap) {
 					constraintInfoList = append(constraintInfoList, constraintInfo)
 				}
 			}
-			sort.Slice(constraintInfoList, func(i, j int) bool {
-				return constraintInfoList[i].id < constraintInfoList[j].id
+			slices.SortFunc(constraintInfoList, func(i, j *constraintInfo) int {
+				if i.id < j.id {
+					return -1
+				}
+				if i.id > j.id {
+					return 1
+				}
+				return 0
 			})
 			var dropConstraintList []*ast.ConstraintDef
 			for _, constraintInfo := range constraintInfoList {
@@ -2497,8 +2481,14 @@ func dropMaterializedView(m schemaMap) []*ast.CreateMaterializedViewStmt {
 	if len(materializedViewList) == 0 {
 		return nil
 	}
-	sort.Slice(materializedViewList, func(i, j int) bool {
-		return materializedViewList[i].id < materializedViewList[j].id
+	slices.SortFunc(materializedViewList, func(i, j *materializedViewInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var materializedViewDefList []*ast.CreateMaterializedViewStmt
@@ -2522,8 +2512,14 @@ func dropView(m schemaMap) []*ast.CreateViewStmt {
 	if len(viewList) == 0 {
 		return nil
 	}
-	sort.Slice(viewList, func(i, j int) bool {
-		return viewList[i].id < viewList[j].id
+	slices.SortFunc(viewList, func(i, j *viewInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var viewDefList []*ast.CreateViewStmt
@@ -2547,8 +2543,14 @@ func dropTable(m schemaMap) []*ast.CreateTableStmt {
 	if len(tableList) == 0 {
 		return nil
 	}
-	sort.Slice(tableList, func(i, j int) bool {
-		return tableList[i].id < tableList[j].id
+	slices.SortFunc(tableList, func(i, j *tableInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var result []*ast.CreateTableStmt
@@ -2569,8 +2571,14 @@ func dropSchema(m schemaMap) *ast.DropSchemaStmt {
 	if len(schemaList) == 0 {
 		return nil
 	}
-	sort.Slice(schemaList, func(i, j int) bool {
-		return schemaList[i].id < schemaList[j].id
+	slices.SortFunc(schemaList, func(i, j *schemaInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var schemaNameList []string
@@ -2596,8 +2604,14 @@ func dropExtension(m schemaMap) *ast.DropExtensionStmt {
 	if len(extensionList) == 0 {
 		return nil
 	}
-	sort.Slice(extensionList, func(i, j int) bool {
-		return extensionList[i].id < extensionList[j].id
+	slices.SortFunc(extensionList, func(i, j *extensionInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var extensionNameList []string
@@ -2623,8 +2637,14 @@ func dropFunction(m schemaMap) []*ast.CreateFunctionStmt {
 	if len(functionList) == 0 {
 		return nil
 	}
-	sort.Slice(functionList, func(i, j int) bool {
-		return functionList[i].id < functionList[j].id
+	slices.SortFunc(functionList, func(i, j *functionInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var result []*ast.CreateFunctionStmt
@@ -2653,8 +2673,14 @@ func (diff *diffNode) dropComment(m schemaMap) {
 			views = append(views, view)
 		}
 	}
-	sort.Slice(tables, func(i, j int) bool {
-		return tables[i].id < tables[j].id
+	slices.SortFunc(tables, func(i, j *tableInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	for _, table := range tables {
@@ -2677,8 +2703,14 @@ func (diff *diffNode) dropComment(m schemaMap) {
 				comment: v,
 			})
 		}
-		sort.Slice(columnCommentList, func(i, j int) bool {
-			return columnCommentList[i].column < columnCommentList[j].column
+		slices.SortFunc(columnCommentList, func(i, j commentInfo) int {
+			if i.column < j.column {
+				return -1
+			}
+			if i.column > j.column {
+				return 1
+			}
+			return 0
 		})
 		for _, columnComment := range columnCommentList {
 			diff.setCommentList = append(diff.setCommentList, &ast.CommentStmt{
@@ -2692,8 +2724,14 @@ func (diff *diffNode) dropComment(m schemaMap) {
 		}
 	}
 
-	sort.Slice(views, func(i, j int) bool {
-		return views[i].id < views[j].id
+	slices.SortFunc(views, func(i, j *viewInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	for _, view := range views {
@@ -2716,8 +2754,14 @@ func (diff *diffNode) dropComment(m schemaMap) {
 				comment: v,
 			})
 		}
-		sort.Slice(columnCommentList, func(i, j int) bool {
-			return columnCommentList[i].column < columnCommentList[j].column
+		slices.SortFunc(columnCommentList, func(i, j commentInfo) int {
+			if i.column < j.column {
+				return -1
+			}
+			if i.column > j.column {
+				return 1
+			}
+			return 0
 		})
 		for _, columnComment := range columnCommentList {
 			diff.setCommentList = append(diff.setCommentList, &ast.CommentStmt{
@@ -2746,8 +2790,14 @@ func (diff *diffNode) dropTypeStmt(m schemaMap) {
 	if len(typeList) == 0 {
 		return
 	}
-	sort.Slice(typeList, func(i, j int) bool {
-		return typeList[i].id < typeList[j].id
+	slices.SortFunc(typeList, func(i, j *typeInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	for _, tp := range typeList {
@@ -2773,8 +2823,14 @@ func (diff *diffNode) dropTriggerStmt(m schemaMap) {
 	if len(triggerList) == 0 {
 		return
 	}
-	sort.Slice(triggerList, func(i, j int) bool {
-		return triggerList[i].id < triggerList[j].id
+	slices.SortFunc(triggerList, func(i, j *triggerInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	for _, trigger := range triggerList {
@@ -2807,8 +2863,14 @@ func dropIndex(m schemaMap) *ast.DropIndexStmt {
 	if len(indexList) == 0 {
 		return nil
 	}
-	sort.Slice(indexList, func(i, j int) bool {
-		return indexList[i].id < indexList[j].id
+	slices.SortFunc(indexList, func(i, j *indexInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var indexDefList []*ast.IndexDef
@@ -2838,8 +2900,14 @@ func (diff *diffNode) dropSequenceOwnedBy(m schemaMap) {
 	if len(sequenceOwnedByList) == 0 {
 		return
 	}
-	sort.Slice(sequenceOwnedByList, func(i, j int) bool {
-		return sequenceOwnedByList[i].id < sequenceOwnedByList[j].id
+	slices.SortFunc(sequenceOwnedByList, func(i, j *sequenceOwnedByInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	for _, sequenceOwnedBy := range sequenceOwnedByList {
@@ -2865,8 +2933,14 @@ func dropSequence(m schemaMap) *ast.DropSequenceStmt {
 	if len(sequenceList) == 0 {
 		return nil
 	}
-	sort.Slice(sequenceList, func(i, j int) bool {
-		return sequenceList[i].id < sequenceList[j].id
+	slices.SortFunc(sequenceList, func(i, j *sequenceInfo) int {
+		if i.id < j.id {
+			return -1
+		}
+		if i.id > j.id {
+			return 1
+		}
+		return 0
 	})
 
 	var sequenceNameList []*ast.SequenceNameDef

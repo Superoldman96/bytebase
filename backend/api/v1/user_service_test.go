@@ -4,23 +4,23 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestListUserFilter(t *testing.T) {
 	testCases := []struct {
 		input string
 		want  *store.ListResourceFilter
-		error error
+		error *connect.Error
 	}{
 		{
 			input: `title == "ed"`,
-			error: status.Errorf(codes.InvalidArgument, "unsupport variable %q", "title"),
+			error: connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unsupport variable %q", "title")),
 		},
 		{
 			input: `name == "ed"`,
@@ -62,7 +62,10 @@ func TestListUserFilter(t *testing.T) {
 		err := parseListUserFilter(find, tc.input)
 		if tc.error != nil {
 			require.Error(t, err)
-			require.Equal(t, tc.error, err)
+			connectErr := new(connect.Error)
+			require.True(t, errors.As(err, &connectErr))
+			require.Equal(t, tc.error.Message(), connectErr.Message())
+			require.Equal(t, tc.error.Code(), connectErr.Code())
 		} else {
 			require.NoError(t, err)
 			require.Equal(t, tc.want.Where, find.Filter.Where)

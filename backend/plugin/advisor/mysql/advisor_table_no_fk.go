@@ -10,9 +10,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -115,7 +116,7 @@ func (checker *tableNoFKChecker) handleTableConstraintDef(tableName string, ctx 
 				Code:          advisor.TableHasFK.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Foreign key is not allowed in the table `%s`", tableName),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 			})
 		default:
 		}

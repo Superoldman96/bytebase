@@ -1,5 +1,6 @@
 import vueI18n from "@intlify/eslint-plugin-vue-i18n";
 import vueTsEslintConfig from "@vue/eslint-config-typescript";
+import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended";
 import pluginVue from "eslint-plugin-vue";
 
 export default [
@@ -13,11 +14,14 @@ export default [
     rootDir: import.meta.dirname,
   }),
   ...vueI18n.configs["flat/recommended"],
+  eslintPluginPrettierRecommended,
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/proto/**"],
+    ignores: ["**/dist/**", "**/node_modules/**", "**/proto-es/**"],
   },
   {
     rules: {
+      "no-console": ["error", { allow: ["warn", "error", "debug", "assert"] }],
+      "no-debugger": "error",
       "no-empty-pattern": "error",
       "vue/no-ref-as-operand": "error",
       "no-useless-escape": "error",
@@ -35,7 +39,7 @@ export default [
           enableFix: true,
         },
       ],
-      "@intlify/vue-i18n/no-missing-keys": "off",
+      "@intlify/vue-i18n/no-missing-keys": "error",
       "@intlify/vue-i18n/no-raw-text": "off",
       "@typescript-eslint/no-explicit-any": "off",
       "vue/no-mutating-props": "error",

@@ -1,11 +1,13 @@
+import { create, fromJson, toJson } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import Emittery from "emittery";
 import { uniqueId } from "lodash-es";
-import { ClientError, Status } from "nice-grpc-common";
 import { defineStore } from "pinia";
 import type { Subscription } from "rxjs";
 import { fromEventPattern, map, Observable } from "rxjs";
 import { markRaw, ref, shallowRef } from "vue";
 import { useCancelableTimeout } from "@/composables/useCancelableTimeout";
+import { pushNotification, useDatabaseV1Store } from "@/store";
 import type {
   SQLResultSetV1,
   StreamingQueryController,
@@ -14,20 +16,24 @@ import type {
   WebTerminalQueryState,
   SQLEditorQueryParams,
 } from "@/types";
-import { Duration } from "@/types/proto/google/protobuf/duration";
 import {
+  AdminExecuteRequestSchema,
+  AdminExecuteResponseSchema,
+  QueryResult_Message_Level,
+  QueryResultSchema,
+} from "@/types/proto-es/v1/sql_service_pb";
+import type {
   AdminExecuteRequest,
   AdminExecuteResponse,
   QueryResult,
-} from "@/types/proto/v1/sql_service";
+} from "@/types/proto-es/v1/sql_service_pb";
 import {
   extractGrpcErrorMessage,
   getErrorCode as extractGrpcStatusCode,
 } from "@/utils/grpcweb";
-import { useDatabaseV1Store } from "../v1";
 
 const ENDPOINT = "/v1:adminExecute";
-const SIG_ABORT = 3000 + Status.ABORTED;
+const SIG_ABORT = 3000 + Code.Aborted;
 const QUERY_TIMEOUT_MS = 5000;
 const MAX_QUERY_ITEM_COUNT = 20;
 
@@ -56,7 +62,7 @@ const createQueryState = (tab: SQLEditorTab): WebTerminalQueryState => {
     tab,
     queryItemList: ref([createInitialQueryItemByTab(tab)]),
     timer: markRaw(useCancelableTimeout(QUERY_TIMEOUT_MS)),
-    controller: createStreamingQueryController(tab),
+    controller: createStreamingQueryController(),
   };
 };
 
@@ -67,15 +73,15 @@ const createInitialQueryItemByTab = (
 };
 
 export const createQueryItemV1 = (
-  sql = "",
+  statement = "",
   status: WebTerminalQueryItemV1["status"] = "IDLE"
 ): WebTerminalQueryItemV1 => ({
   id: uniqueId(),
-  sql,
+  statement,
   status,
 });
 
-const createStreamingQueryController = (tab: SQLEditorTab) => {
+const createStreamingQueryController = () => {
   const status: StreamingQueryController["status"] = ref("DISCONNECTED");
   const events: StreamingQueryController["events"] = markRaw(new Emittery());
   const input$ = fromEventPattern<SQLEditorQueryParams>(
@@ -94,7 +100,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
   };
 
   events.on("query", (params) => {
-    const request = mapRequest(tab, params);
+    const request = mapRequest(params);
     console.debug("query", request);
 
     if (status.value === "DISCONNECTED") {
@@ -105,7 +111,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
   const connect = (
     initialRequest: AdminExecuteRequest | undefined = undefined
   ) => {
-    const request$ = input$.pipe(map((params) => mapRequest(tab, params)));
+    const request$ = input$.pipe(map((params) => mapRequest(params)));
     const abortController = new AbortController();
 
     const url = new URL(`${window.location.origin}${ENDPOINT}`);
@@ -114,9 +120,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
     status.value = "CONNECTED";
 
     const send = (request: AdminExecuteRequest) => {
-      const payload: any = {
-        ...request,
-      };
+      const payload = toJson(AdminExecuteRequestSchema, request);
       console.debug("will send", JSON.stringify(payload));
       ws.send(JSON.stringify(payload));
     };
@@ -139,20 +143,10 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
         try {
           const data = JSON.parse(event.data);
           if (data.result) {
-            const { results } = data.result;
-            if (Array.isArray(results)) {
-              results.forEach((result) => {
-                result.latency = parseDuration(result.latency);
-              });
-            }
-            const response = AdminExecuteResponse.fromJSON(data.result);
+            const response = fromJson(AdminExecuteResponseSchema, data.result);
             subscriber.next(response);
           } else if (data.error) {
-            const err = new ClientError(
-              ENDPOINT,
-              data.error.code,
-              data.error.message
-            );
+            const err = new ConnectError(data.error.message, data.error.code);
             subscriber.error(err);
           }
         } catch (err) {
@@ -162,29 +156,28 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
       ws.addEventListener("error", (event) => {
         console.debug("error", event);
         subscriber.error(
-          new ClientError(ENDPOINT, Status.INTERNAL, "Internal server error")
+          new ConnectError("Internal server error", Code.Internal)
         );
       });
       ws.addEventListener("close", (event) => {
         console.debug("ws close", event.wasClean, event.reason, event.code);
         if (event.code === SIG_ABORT) {
-          subscriber.error(
-            new ClientError(ENDPOINT, Status.ABORTED, event.reason)
-          );
+          subscriber.error(new ConnectError(event.reason, Code.Aborted));
           return;
         }
         subscriber.error(
-          new ClientError(
-            ENDPOINT,
-            Status.DEADLINE_EXCEEDED,
-            `Closed by server ${event.code}`
+          new ConnectError(
+            `Closed by server ${event.code}`,
+            Code.DeadlineExceeded
           )
         );
       });
 
       return () => {
         console.debug("teardown");
-        requestSubscription.unsubscribe();
+        if (requestSubscription) {
+          requestSubscription.unsubscribe();
+        }
       };
     });
 
@@ -216,7 +209,7 @@ const createStreamingQueryController = (tab: SQLEditorTab) => {
           advices: [],
           results: [],
         };
-        if (result.status === Status.ABORTED && !result.error) {
+        if (result.status === Code.Aborted && !result.error) {
           result.error = "Aborted";
         }
 
@@ -261,22 +254,35 @@ const useQueryStateLogic = (qs: WebTerminalQueryState) => {
   qs.controller.events.on("result", (resultSet) => {
     console.debug("event resultSet", resultSet);
     activeQuery().resultSet = resultSet;
+    for (const result of resultSet.results) {
+      for (const message of result.messages) {
+        pushNotification({
+          module: "bytebase",
+          style: "INFO",
+          title: QueryResult_Message_Level[message.level],
+          description: message.content,
+        });
+      }
+    }
     cleanup();
   });
 };
 
 export const mockAffectedV1Rows0 = (): QueryResult => {
-  return QueryResult.fromPartial({
+  return create(QueryResultSchema, {
     columnNames: ["Affected Rows"],
     columnTypeNames: ["BIGINT"],
-    masked: [false],
+    masked: [],
     error: "",
     statement: "",
     rows: [
       {
         values: [
           {
-            int64Value: 0,
+            kind: {
+              case: "int64Value",
+              value: BigInt(0),
+            },
           },
         ],
       },
@@ -284,32 +290,14 @@ export const mockAffectedV1Rows0 = (): QueryResult => {
   });
 };
 
-const mapRequest = (
-  tab: SQLEditorTab,
-  params: SQLEditorQueryParams
-): AdminExecuteRequest => {
+const mapRequest = (params: SQLEditorQueryParams): AdminExecuteRequest => {
   const { connection, statement, explain } = params;
 
   const database = useDatabaseV1Store().getDatabaseByName(connection.database);
-  const request = AdminExecuteRequest.fromPartial({
+  const request = create(AdminExecuteRequestSchema, {
     name: database.name,
     statement: explain ? `EXPLAIN ${statement}` : statement,
     schema: connection.schema,
   });
   return request;
-};
-
-export const parseDuration = (str: string): Duration | undefined => {
-  if (typeof str !== "string") return undefined;
-
-  const matches = str.match(/^([0-9.]+)s$/);
-  if (!matches) return undefined;
-  const totalSeconds = parseFloat(matches[0]);
-  if (Number.isNaN(totalSeconds) || totalSeconds < 0) return undefined;
-  const seconds = Math.floor(totalSeconds);
-  const nanos = (totalSeconds - seconds) * 1e9;
-  return Duration.fromPartial({
-    seconds,
-    nanos,
-  });
 };

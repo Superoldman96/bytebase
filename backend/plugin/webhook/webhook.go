@@ -8,7 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/store"
@@ -78,22 +78,22 @@ type Project struct {
 
 // Context is the context of webhook.
 type Context struct {
-	URL          string
-	Level        Level
-	ActivityType string
-	Title        string
-	TitleZh      string
-	Description  string
-	Link         string
-	ActorID      int
-	ActorName    string
-	ActorEmail   string
-	CreatedTS    int64
-	Issue        *Issue
-	Rollout      *Rollout
-	Stage        *Stage
-	Project      *Project
-	TaskResult   *TaskResult
+	URL         string
+	Level       Level
+	EventType   string
+	Title       string
+	TitleZh     string
+	Description string
+	Link        string
+	ActorID     int
+	ActorName   string
+	ActorEmail  string
+	CreatedTS   int64
+	Issue       *Issue
+	Rollout     *Rollout
+	Stage       *Stage
+	Project     *Project
+	TaskResult  *TaskResult
 	// End users that should be mentioned.
 	MentionEndUsers     []*store.UserMessage
 	MentionUsersByPhone []string

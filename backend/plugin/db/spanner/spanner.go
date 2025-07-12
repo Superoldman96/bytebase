@@ -17,11 +17,11 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	"github.com/bytebase/bytebase/backend/utils"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -50,7 +50,7 @@ type Driver struct {
 	databaseName string
 }
 
-func newDriver(_ db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -301,7 +301,7 @@ func (d *Driver) QueryConn(ctx context.Context, _ *sql.Conn, statement string, q
 			}); err != nil {
 				return nil, err
 			}
-			return util.BuildAffectedRowsResult(rowCount), nil
+			return util.BuildAffectedRowsResult(rowCount, nil), nil
 		}()
 		stop := false
 		if err != nil {

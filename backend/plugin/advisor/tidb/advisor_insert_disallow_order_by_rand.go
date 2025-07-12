@@ -9,8 +9,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -85,7 +86,7 @@ func (checker *insertDisallowOrderByRandChecker) Enter(in ast.Node) (ast.Node, b
 			Code:          code.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("\"%s\" uses ORDER BY RAND in the INSERT statement", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 		})
 	}
 

@@ -9,9 +9,9 @@ import (
 
 	"github.com/pkg/errors"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 const systemSchemas = "'DWEXP','OMC','ORAAUDITOR','LBACSYS','SYS'"
@@ -173,8 +173,8 @@ func getTableColumns(ctx context.Context, txn *sql.Tx, schemaName string) (map[d
 			return nil, err
 		}
 		if defaultStr.Valid {
-			// TODO: use correct default type
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
+			// Store in Default field (migration from DefaultExpression to Default)
+			column.Default = defaultStr.String
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {

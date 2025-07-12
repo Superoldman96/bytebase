@@ -8,8 +8,8 @@ import (
 
 	"github.com/pkg/errors"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func init() {
@@ -25,9 +25,9 @@ func SplitSQL(statement string) ([]base.SingleSQL, error) {
 	var list []base.SingleSQL
 	err := applyMultiStatements(strings.NewReader(statement), func(sql string) error {
 		list = append(list, base.SingleSQL{
-			Text:     sql,
-			LastLine: 0,
-			Empty:    false,
+			Text:  sql,
+			End:   &storepb.Position{Line: 0, Column: 0},
+			Empty: false,
 		})
 		return nil
 	})

@@ -17,18 +17,16 @@
         :autofocus="false"
         :placeholder="$t('database.filter-database')"
         :scope-options="scopeOptions"
+        :override-route-query="false"
       />
 
       <PagedDatabaseTable
         class="mt-2"
-        mode="PROJECT"
+        mode="PROJECT_SHORT"
         :parent="project"
         :filter="filter"
         :custom-click="true"
-        :selected-database-names="state.selectedDatabaseNameList"
-        @update:selected-databases="
-          state.selectedDatabaseNameList = Array.from($event)
-        "
+        v-model:selected-database-names="state.selectedDatabaseNameList"
       />
 
       <template #footer>
@@ -76,7 +74,7 @@ import {
   instanceNamePrefix,
   environmentNamePrefix,
 } from "@/store/modules/v1/common";
-import type { Engine } from "@/types/proto/v1/common";
+import type { Engine } from "@/types/proto-es/v1/common_pb";
 import { CommonFilterScopeIdList, extractProjectResourceName } from "@/utils";
 import type { SearchParams, SearchScope } from "@/utils";
 import AdvancedSearch from "../AdvancedSearch";

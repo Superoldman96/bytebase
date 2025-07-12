@@ -4,20 +4,7 @@
     tabindex="0"
     v-bind="$attrs"
   >
-    <BBAttention
-      v-if="database.drifted"
-      type="warning"
-      :title="$t('database.drifted.schema-drift-detected.self')"
-      :description="$t('database.drifted.schema-drift-detected.description')"
-      :link="'https://www.bytebase.com/docs/change-database/drift-detection/?source=console'"
-      :action-text="
-        database.project !== DEFAULT_PROJECT_NAME
-          ? $t('changelog.establish-baseline')
-          : ''
-      "
-      @click="doCreateBaselineIssue"
-    >
-    </BBAttention>
+    <DriftedDatabaseAlert :database="database" />
 
     <main class="flex-1 relative">
       <!-- Highlight Panel -->
@@ -40,18 +27,11 @@
                     class="w-5 h-5"
                   />
                 </h1>
-                <div class="flex items-center">
+                <div class="flex items-center space-x-1">
                   <span class="textinfolabel">
                     {{ database.name }}
                   </span>
-                  <NButton
-                    v-if="isSupported"
-                    quaternary
-                    size="tiny"
-                    @click="handleCopyDatabaseName(database.name)"
-                  >
-                    <ClipboardCopyIcon class="w-4 h-4" />
-                  </NButton>
+                  <CopyButton :content="database.name" />
                 </div>
               </div>
             </div>
@@ -110,7 +90,6 @@
             :type="'default'"
             :text="false"
             :database="database"
-            @finish="updateAnomalyList"
           />
           <NButton
             v-if="allowTransferDatabase"
@@ -137,11 +116,7 @@
 
     <NTabs v-if="ready" v-model:value="state.selectedTab">
       <NTabPane name="overview" :tab="$t('common.overview')">
-        <DatabaseOverviewPanel
-          class="mt-2"
-          :database="database"
-          :anomaly-list="anomalyList"
-        />
+        <DatabaseOverviewPanel class="mt-2" :database="database" />
       </NTabPane>
       <NTabPane
         v-if="
@@ -219,14 +194,12 @@
 
 <script lang="ts" setup>
 import { useTitle } from "@vueuse/core";
-import { useClipboard } from "@vueuse/core";
 import dayjs from "dayjs";
-import { ArrowRightLeftIcon, ClipboardCopyIcon } from "lucide-vue-next";
+import { ArrowRightLeftIcon } from "lucide-vue-next";
 import { NButton, NTabPane, NTabs } from "naive-ui";
-import { computed, reactive, watch, ref, watchEffect } from "vue";
-import { useI18n } from "vue-i18n";
-import { useRouter, useRoute } from "vue-router";
-import { BBAttention, BBModal } from "@/bbkit";
+import { computed, reactive, watch } from "vue";
+import { useRouter, useRoute, type LocationQueryRaw } from "vue-router";
+import { BBModal } from "@/bbkit";
 import SchemaEditorModal from "@/components/AlterSchemaPrepForm/SchemaEditorModal.vue";
 import DatabaseChangelogPanel from "@/components/Database/DatabaseChangelogPanel.vue";
 import DatabaseOverviewPanel from "@/components/Database/DatabaseOverviewPanel.vue";
@@ -238,6 +211,7 @@ import {
   SQLEditorButtonV1,
   SchemaDiagramButton,
 } from "@/components/DatabaseDetail";
+import DriftedDatabaseAlert from "@/components/DatabaseDetail/DriftedDatabaseAlert.vue";
 import SyncDatabaseButton from "@/components/DatabaseDetail/SyncDatabaseButton.vue";
 import TransferOutDatabaseForm from "@/components/TransferOutDatabaseForm";
 import { Drawer } from "@/components/v2";
@@ -247,27 +221,20 @@ import {
   ProductionEnvironmentV1Icon,
   ProjectV1Name,
 } from "@/components/v2";
+import { CopyButton } from "@/components/v2";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import {
-  useAnomalyV1Store,
   useAppFeature,
   useEnvironmentV1Store,
   useDatabaseV1ByName,
-  pushNotification,
 } from "@/store";
 import {
   databaseNamePrefix,
   instanceNamePrefix,
 } from "@/store/modules/v1/common";
-import {
-  UNKNOWN_PROJECT_NAME,
-  unknownEnvironment,
-  isValidDatabaseName,
-  DEFAULT_PROJECT_NAME,
-} from "@/types";
-import type { Anomaly } from "@/types/proto/v1/anomaly_service";
-import { State } from "@/types/proto/v1/common";
-import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
+import { UNKNOWN_PROJECT_NAME, unknownEnvironment } from "@/types";
+import { State } from "@/types/proto-es/v1/common_pb";
+import { DatabaseChangeMode } from "@/types/proto-es/v1/setting_service_pb";
 import {
   instanceV1HasAlterSchema,
   isDatabaseV1Queryable,
@@ -301,7 +268,6 @@ const props = defineProps<{
   databaseName: string;
 }>();
 
-const { t } = useI18n();
 const router = useRouter();
 
 const state = reactive<LocalState>({
@@ -313,7 +279,6 @@ const state = reactive<LocalState>({
   selectedTab: "overview",
 });
 const route = useRoute();
-const anomalyList = ref<Anomaly[]>([]);
 const {
   allowSyncDatabase,
   allowUpdateDatabase,
@@ -322,9 +287,6 @@ const {
   allowAlterSchema,
   allowListChangelogs,
 } = useDatabaseDetailContext();
-const disableSchemaEditor = useAppFeature(
-  "bb.feature.issue.disable-schema-editor"
-);
 const databaseChangeMode = useAppFeature("bb.feature.database-change-mode");
 
 watch(
@@ -358,15 +320,6 @@ const { database, ready } = useDatabaseV1ByName(
 
 const project = computed(() => database.value.projectEntity);
 
-watchEffect(async () => {
-  if (isValidDatabaseName(database.value.name)) {
-    anomalyList.value = await useAnomalyV1Store().fetchAnomalyList(
-      database.value.project,
-      { database: database.value.name }
-    );
-  }
-});
-
 const hasSchemaDiagramFeature = computed((): boolean => {
   return instanceV1HasAlterSchema(database.value.instanceResource);
 });
@@ -386,8 +339,7 @@ const createMigration = async (
   if (type === "bb.issue.database.schema.update") {
     if (
       database.value.state === State.ACTIVE &&
-      allowUsingSchemaEditor([database.value]) &&
-      !disableSchemaEditor.value
+      allowUsingSchemaEditor([database.value])
     ) {
       state.showSchemaEditorModal = true;
       return;
@@ -404,7 +356,7 @@ const createMigration = async (
   const tz = "UTC" + dayjs().format("ZZ");
   issueNameParts.push(`${datetime} ${tz}`);
 
-  const query: Record<string, any> = {
+  const query: LocationQueryRaw = {
     template: type,
     name: issueNameParts.join(" "),
     databaseList: database.value.name,
@@ -425,13 +377,6 @@ const handleGotoSQLEditorFailed = () => {
   state.showIncorrectProjectModal = true;
 };
 
-const updateAnomalyList = async () => {
-  anomalyList.value = await useAnomalyV1Store().fetchAnomalyList(
-    database.value.project,
-    { database: database.value.name }
-  );
-};
-
 const environment = computed(() => {
   return (
     useEnvironmentV1Store().getEnvironmentByName(
@@ -441,37 +386,4 @@ const environment = computed(() => {
 });
 
 useTitle(computed(() => database.value.databaseName));
-
-const { copy: copyTextToClipboard, isSupported } = useClipboard({
-  legacy: true,
-});
-const handleCopyDatabaseName = (name: string) => {
-  if (!isSupported.value) {
-    return;
-  }
-  copyTextToClipboard(name).then(() => {
-    pushNotification({
-      module: "bytebase",
-      style: "SUCCESS",
-      title: "Database full name copied.",
-    });
-  });
-};
-
-const doCreateBaselineIssue = () => {
-  router.push({
-    name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
-    params: {
-      projectId: extractProjectResourceName(database.value.project),
-      issueSlug: "create",
-    },
-    query: {
-      template: "bb.issue.database.schema.baseline",
-      name: t("changelog.establish-database-baseline", {
-        name: database.value.databaseName,
-      }),
-      databaseList: database.value.name,
-    },
-  });
-};
 </script>

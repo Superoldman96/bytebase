@@ -4,15 +4,15 @@ import (
 	"context"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/store/model"
-	"github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 type rollbackCase struct {
@@ -47,11 +47,23 @@ func TestBackup(t *testing.T) {
 			IsCaseSensitive:         false,
 		}, t.Input, "db", "backupDB", "_rollback")
 		a.NoError(err)
-		sort.Slice(result, func(i, j int) bool {
-			if result[i].TargetTableName == result[j].TargetTableName {
-				return result[i].Statement < result[j].Statement
+		slices.SortFunc(result, func(a, b base.BackupStatement) int {
+			if a.TargetTableName == b.TargetTableName {
+				if a.Statement < b.Statement {
+					return -1
+				}
+				if a.Statement > b.Statement {
+					return 1
+				}
+				return 0
 			}
-			return result[i].TargetTableName < result[j].TargetTableName
+			if a.TargetTableName < b.TargetTableName {
+				return -1
+			}
+			if a.TargetTableName > b.TargetTableName {
+				return 1
+			}
+			return 0
 		})
 
 		if record {

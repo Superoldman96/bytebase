@@ -16,11 +16,11 @@ import (
 
 	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/common/log"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
 	crparser "github.com/bytebase/bytebase/backend/plugin/parser/cockroachdb"
 	pgparser "github.com/bytebase/bytebase/backend/plugin/parser/pg"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // SyncInstance syncs the instance.
@@ -534,9 +534,8 @@ func getTableColumns(txn *sql.Tx) (map[db.TableKey][]*storepb.ColumnMetadata, er
 			return nil, err
 		}
 		if defaultStr.Valid {
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{
-				DefaultExpression: defaultStr.String,
-			}
+			// Store in Default field (migration from DefaultExpression to Default)
+			column.Default = defaultStr.String
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {

@@ -15,20 +15,14 @@
           </template>
           <template #plan>
             <span class="font-bold text-accent">
-              {{
-                $t(
-                  `subscription.plan.${planTypeToString(
-                    PlanType.ENTERPRISE
-                  )}.title`
-                )
-              }}
+              {{ $t(`subscription.plan.enterprise.title`) }}
             </span>
           </template>
         </i18n-t>
       </p>
       <div class="mt-7 flex justify-end">
         <NButton
-          v-if="subscriptionStore.canTrial"
+          v-if="subscriptionStore.showTrial"
           type="primary"
           @click.prevent="trialSubscription"
         >
@@ -59,8 +53,7 @@ import { BBModal } from "@/bbkit";
 import { useLanguage } from "@/composables/useLanguage";
 import { SETTING_ROUTE_WORKSPACE_SUBSCRIPTION } from "@/router/dashboard/workspaceSetting";
 import { useSubscriptionV1Store } from "@/store";
-import { planTypeToString, ENTERPRISE_INQUIRE_LINK } from "@/types";
-import { PlanType } from "@/types/proto/v1/subscription_service";
+import { ENTERPRISE_INQUIRE_LINK } from "@/types";
 import WeChatQRModal from "./WeChatQRModal.vue";
 
 interface LocalState {

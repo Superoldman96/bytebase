@@ -10,9 +10,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -81,7 +82,7 @@ func (checker *noLeadingWildcardLikeChecker) EnterPredicateExprLike(ctx *mysql.P
 				Code:          advisor.StatementLeadingWildcardLike.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("\"%s\" uses leading wildcard LIKE", checker.text),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 			})
 		}
 	}

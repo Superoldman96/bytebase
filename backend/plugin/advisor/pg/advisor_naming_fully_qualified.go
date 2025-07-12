@@ -10,10 +10,11 @@ import (
 	pgquery "github.com/pganalyze/pg_query_go/v6"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func init() {
@@ -169,7 +170,7 @@ func (checker *FullyQualifiedObjectNameChecker) appendAdviceByObjName(objName st
 			Code:          advisor.NamingNotFullyQualifiedName,
 			Title:         checker.title,
 			Content:       fmt.Sprintf("unqualified object name: '%s'", objName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+			StartPosition: common.ConvertPGParserLineToPosition(checker.line),
 		})
 	}
 }

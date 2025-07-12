@@ -4,7 +4,7 @@ import (
 	"crypto/md5"
 	"fmt"
 	"log/slog"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,8 +15,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common/log"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 )
 
 // MaskData is the data to be masked.
@@ -163,8 +163,13 @@ func (m *RangeMasker) formatRanges(maxLength int32) []*MaskRangeSlice {
 		}
 	}
 
-	sort.SliceStable(mergedMaskRangeSlice, func(i, j int) bool {
-		return mergedMaskRangeSlice[i].Start < mergedMaskRangeSlice[j].Start
+	slices.SortStableFunc(mergedMaskRangeSlice, func(a, b *MaskRangeSlice) int {
+		if a.Start < b.Start {
+			return -1
+		} else if a.Start > b.Start {
+			return 1
+		}
+		return 0
 	})
 
 	return mergedMaskRangeSlice

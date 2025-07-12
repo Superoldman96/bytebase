@@ -4,7 +4,7 @@ import {
   useWrappedReviewStepsV1,
 } from "@/components/IssueV1/logic";
 import type { ComposedIssue } from "@/types";
-import { Issue_Approver_Status } from "@/types/proto/v1/issue_service";
+import { Issue_Approver_Status } from "@/types/proto-es/v1/issue_service_pb";
 import { isUserIncludedInList } from "@/utils";
 import type { SearchParams } from "../common";
 import { getValueFromSearchParams } from "../common";
@@ -33,7 +33,7 @@ export const filterIssueByApprover = (
   const reviewContext = extractReviewContext(issue);
   const steps = useWrappedReviewStepsV1(issue, reviewContext);
 
-  const currentStep = steps.value?.find((step) => step.status === "CURRENT");
+  const currentStep = steps.value.find((step) => step.status === "CURRENT");
   if (!currentStep) return false;
   // We support "approver:{email}" by now
   // Planning to support "approver:[{email_1}, {email_2}, ...]" and

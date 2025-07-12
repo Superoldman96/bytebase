@@ -1,8 +1,12 @@
 version: v2
-name: buf.build/bytebase/bytebase
+modules:
+  - path: v1
+    name: buf.build/bytebase/bytebase
+  - path: store
+    name: buf.build/bytebase/store
+
 deps:
   - buf.build/googleapis/googleapis
-  - buf.build/grpc-ecosystem/grpc-gateway
 lint:
   use:
     - BASIC

@@ -9,8 +9,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -82,7 +83,7 @@ func (checker *tableDisallowPartitionChecker) Enter(in ast.Node) (ast.Node, bool
 			Code:          code.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Table partition is forbidden, but \"%s\" creates", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 		})
 	}
 

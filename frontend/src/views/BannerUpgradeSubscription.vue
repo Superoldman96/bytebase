@@ -16,7 +16,7 @@
                 >{{
                   t("subscription.plan-features", {
                     plan: t(
-                      `subscription.plan.${planTypeToString(neededPlan)}.title`
+                      `subscription.plan.${PlanType[neededPlan].toLowerCase()}.title`
                     ),
                   })
                 }}</span
@@ -49,14 +49,15 @@
     <div class="pl-4 my-2">
       <ul class="list-disc list-inside">
         <li v-for="feature in unlicensedFeatures" :key="feature">
-          {{
-            $t(`dynamic.subscription.features.${feature.split(".").join("-")}.title`)
-          }}
+          {{ $t(`dynamic.subscription.features.${feature}.title`) }}
           ({{
             $t(
-              `subscription.plan.${planTypeToString(
-                subscriptionStore.getMinimumRequiredPlan(feature as FeatureType)
-              )}.title`
+              `subscription.plan.${PlanType[
+                subscriptionStore.getMinimumRequiredPlan(
+                  PlanFeature[feature as keyof typeof PlanFeature] ??
+                    PlanFeature.FEATURE_UNSPECIFIED
+                )
+              ].toLowerCase()}.title`
             )
           }})
         </li>
@@ -72,19 +73,16 @@
 
 <script lang="ts" setup>
 import { NButton } from "naive-ui";
-import { reactive } from "vue";
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { BBModal } from "@/bbkit";
 import { SETTING_ROUTE_WORKSPACE_SUBSCRIPTION } from "@/router/dashboard/workspaceSetting";
-import { useSubscriptionV1Store, useActuatorV1Store } from "@/store";
-import type { FeatureType } from "@/types";
-import { planTypeToString } from "@/types";
+import { useActuatorV1Store, useSubscriptionV1Store } from "@/store";
 import {
+  PlanFeature,
   PlanType,
-  planTypeToNumber,
-} from "@/types/proto/v1/subscription_service";
+} from "@/types/proto-es/v1/subscription_service_pb";
 
 interface LocalState {
   showModal: boolean;
@@ -101,8 +99,7 @@ const state = reactive<LocalState>({
 const showBanner = computed(() => {
   return (
     unlicensedFeatures.value.length > 0 &&
-    planTypeToNumber(neededPlan.value) >
-      planTypeToNumber(subscriptionStore.currentPlan)
+    neededPlan.value > subscriptionStore.currentPlan
   );
 });
 
@@ -114,10 +111,11 @@ const neededPlan = computed(() => {
   let plan = PlanType.FREE;
 
   for (const feature of unlicensedFeatures.value) {
-    const requiredPlan = subscriptionStore.getMinimumRequiredPlan(
-      feature as FeatureType
-    );
-    if (planTypeToNumber(requiredPlan) > planTypeToNumber(plan)) {
+    const featureEnum =
+      PlanFeature[feature as keyof typeof PlanFeature] ??
+      PlanFeature.FEATURE_UNSPECIFIED;
+    const requiredPlan = subscriptionStore.getMinimumRequiredPlan(featureEnum);
+    if (requiredPlan > plan) {
       plan = requiredPlan;
     }
   }
@@ -127,7 +125,7 @@ const neededPlan = computed(() => {
 
 const currentPlan = computed(() => {
   return t(
-    `subscription.plan.${planTypeToString(subscriptionStore.currentPlan)}.title`
+    `subscription.plan.${PlanType[subscriptionStore.currentPlan].toLowerCase()}.title`
   );
 });
 

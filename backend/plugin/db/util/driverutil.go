@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/bytebase/bytebase/backend/common"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/utils"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 // FormatErrorWithQuery will format the error with failed query.
@@ -21,7 +21,7 @@ func FormatErrorWithQuery(err error, query string) error {
 	return errors.Wrapf(err, "failed to execute query %q", query)
 }
 
-func BuildAffectedRowsResult(affectedRows int64) *v1pb.QueryResult {
+func BuildAffectedRowsResult(affectedRows int64, messages []*v1pb.QueryResult_Message) *v1pb.QueryResult {
 	return &v1pb.QueryResult{
 		ColumnNames:     []string{"Affected Rows"},
 		ColumnTypeNames: []string{"INT"},
@@ -36,6 +36,7 @@ func BuildAffectedRowsResult(affectedRows int64) *v1pb.QueryResult {
 				},
 			},
 		},
+		Messages: messages,
 	}
 }
 

@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -82,7 +82,7 @@ func (checker *statementDmlDryRunChecker) Enter(in ast.Node) (ast.Node, bool) {
 				Code:          advisor.StatementDMLDryRunFailed.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("\"%s\" dry runs failed: %s", node.Text(), err.Error()),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 			})
 		}
 	}

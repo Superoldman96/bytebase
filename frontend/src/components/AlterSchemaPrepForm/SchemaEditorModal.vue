@@ -93,12 +93,6 @@
     <div class="w-full flex flex-row justify-between items-center">
       <div class="flex flex-row items-center text-sm text-gray-500"></div>
       <div class="flex justify-end items-center space-x-3">
-        <NCheckbox
-          v-if="databaseChangeMode === DatabaseChangeMode.PIPELINE"
-          v-model:checked="state.planOnly"
-        >
-          {{ $t("issue.sql-review-only") }}
-        </NCheckbox>
         <NButton @click="dismissModal">
           {{ $t("common.cancel") }}
         </NButton>
@@ -124,35 +118,30 @@
 
 <script lang="tsx" setup>
 import { cloneDeep, head, uniq } from "lodash-es";
-import { NTabs, NCheckbox, NButton, NTabPane, useDialog } from "naive-ui";
+import { NTabs, NButton, NTabPane, useDialog } from "naive-ui";
 import { v4 as uuidv4 } from "uuid";
 import type { PropType } from "vue";
 import { computed, onMounted, h, reactive, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { useRouter } from "vue-router";
+import { useRouter, type LocationQuery } from "vue-router";
 import { BBModal } from "@/bbkit";
 import { ActionConfirmModal } from "@/components/SchemaEditorLite";
 import SQLUploadButton from "@/components/misc/SQLUploadButton.vue";
-import {
-  PROJECT_V1_ROUTE_ISSUE_DETAIL,
-  PROJECT_V1_ROUTE_REVIEW_CENTER_DETAIL,
-} from "@/router/dashboard/projectV1";
+import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import {
   pushNotification,
   useDatabaseV1Store,
   useNotificationStore,
   useDBSchemaV1Store,
-  useAppFeature,
   useStorageStore,
   useDatabaseCatalogV1Store,
   batchGetOrFetchDatabases,
 } from "@/store";
 import type { ComposedDatabase } from "@/types";
 import { dialectOfEngineV1, isValidProjectName, unknownProject } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
-import type { DatabaseCatalog } from "@/types/proto/v1/database_catalog_service";
-import type { DatabaseMetadata } from "@/types/proto/v1/database_service";
-import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import type { DatabaseCatalog } from "@/types/proto-es/v1/database_catalog_service_pb";
+import type { DatabaseMetadata } from "@/types/proto-es/v1/database_service_pb";
 import {
   TinyTimer,
   defer,
@@ -179,8 +168,6 @@ interface LocalState {
   previewStatus: string;
   targets: EditTarget[];
   isUploadingFile: boolean;
-  // planOnly is used to indicate whether only to create plan.
-  planOnly: boolean;
 }
 
 const props = defineProps({
@@ -193,10 +180,6 @@ const props = defineProps({
     required: true,
   },
   newWindow: {
-    type: Boolean,
-    default: false,
-  },
-  planOnly: {
     type: Boolean,
     default: false,
   },
@@ -218,7 +201,6 @@ const state = reactive<LocalState>({
   previewStatus: "",
   targets: [],
   isUploadingFile: false,
-  planOnly: props.planOnly,
 });
 const databaseV1Store = useDatabaseV1Store();
 const dbCatalogStore = useDatabaseCatalogV1Store();
@@ -226,7 +208,6 @@ const notificationStore = useNotificationStore();
 const dbSchemaStore = useDBSchemaV1Store();
 const { runSQLCheck } = provideSQLCheckContext();
 const $dialog = useDialog();
-const databaseChangeMode = useAppFeature("bb.feature.database-change-mode");
 
 const allowPreviewIssue = computed(() => {
   if (state.selectedTab === "schema-editor") {
@@ -248,12 +229,12 @@ const databaseList = computed(() => {
 });
 
 // Returns the type if it's uniq.
-// Returns Engine.UNRECOGNIZED if there are more than ONE types.
+// Returns Engine.ENGINE_UNSPECIFIED if there are more than ONE types.
 const databaseEngine = computed((): Engine => {
   const engineTypes = uniq(
     databaseList.value.map((db) => db.instanceResource.engine)
   );
-  if (engineTypes.length !== 1) return Engine.UNRECOGNIZED;
+  if (engineTypes.length !== 1) return Engine.ENGINE_UNSPECIFIED;
   return engineTypes[0];
 });
 
@@ -439,7 +420,7 @@ const handlePreviewIssue = async () => {
     // generating one more time below. useful for large schemas
   }
 
-  const query: Record<string, any> = {
+  const query: LocationQuery = {
     template: "bb.issue.database.schema.update",
   };
   query.databaseList = databaseList.value.map((db) => db.name).join(",");
@@ -500,13 +481,12 @@ const handlePreviewIssue = async () => {
   }
 
   const routeInfo = {
-    name: state.planOnly
-      ? PROJECT_V1_ROUTE_REVIEW_CENTER_DETAIL
-      : PROJECT_V1_ROUTE_ISSUE_DETAIL,
+    name: PROJECT_V1_ROUTE_ISSUE_DETAIL,
     params: {
       projectId: extractProjectResourceName(project.value.name),
       issueSlug: "create",
-      planSlug: "create",
+      planId: "create",
+      specId: "placeholder", // This will be replaced with the actual spec ID later.
     },
     query,
   };

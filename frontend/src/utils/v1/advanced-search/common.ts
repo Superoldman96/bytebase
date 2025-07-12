@@ -1,7 +1,7 @@
 import { cloneDeep, pullAt, without } from "lodash-es";
 import { computed } from "vue";
 import { useAppFeature } from "@/store";
-import { DatabaseChangeMode } from "@/types/proto/v1/setting_service";
+import { DatabaseChangeMode } from "@/types/proto-es/v1/setting_service_pb";
 
 export type SemanticIssueStatus = "OPEN" | "CLOSED";
 
@@ -27,9 +27,10 @@ export const AllSearchScopeIdList = [
   // database related search scopes.
   "engine",
   "database-label",
+  "drifted",
+  "table",
   // issue related search scopes.
-  "subscriber",
-  "label",
+  "issue-label",
   "taskType",
   // auditLog related search scopes.
   "method",
@@ -87,6 +88,18 @@ export const buildSearchTextBySearchParams = (
     parts.push(encodeURIComponent(query));
   }
   return parts.join(" ");
+};
+
+export const mergeSearchParams = (base: SearchParams, patch: SearchParams) => {
+  for (const scope of patch.scopes) {
+    if (!base.scopes.find((s) => s.id === scope.id)) {
+      base.scopes.push(scope);
+    }
+  }
+  if (!base.query && patch.query) {
+    base.query = patch.query;
+  }
+  return base;
 };
 
 export const buildSearchParamsBySearchText = (text: string): SearchParams => {

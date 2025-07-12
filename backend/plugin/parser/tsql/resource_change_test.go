@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/store/model"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func TestExtractChangedResources(t *testing.T) {
@@ -20,7 +20,7 @@ func TestExtractChangedResources(t *testing.T) {
 	changedResources := model.NewChangedResources(nil /* dbSchema */)
 	changedResources.AddTable(
 		"DB",
-		"DBO",
+		"dbo",
 		&storepb.ChangedResourceTable{
 			Name: "t1",
 			Ranges: []*storepb.Range{
@@ -44,7 +44,7 @@ func TestExtractChangedResources(t *testing.T) {
 
 	asts, err := ParseTSQL(statement)
 	require.NoError(t, err)
-	got, err := extractChangedResources("DB", "DBO", nil /* dbSchema */, asts.Tree, statement)
+	got, err := extractChangedResources("DB", "dbo", nil /* dbSchema */, asts.Tree, statement)
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }

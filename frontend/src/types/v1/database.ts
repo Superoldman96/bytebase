@@ -1,10 +1,12 @@
+import { create } from "@bufbuild/protobuf";
 import { extractDatabaseResourceName, isNullOrUndefined } from "@/utils";
 import { EMPTY_ID, UNKNOWN_ID } from "../const";
-import { State } from "../proto/v1/common";
-import { Database } from "../proto/v1/database_service";
-import type { Environment } from "../proto/v1/environment_service";
-import type { InstanceResource } from "../proto/v1/instance_service";
-import { unknownEnvironment } from "./environment";
+import { State } from "../proto-es/v1/common_pb";
+import type { Database } from "../proto-es/v1/database_service_pb";
+import { DatabaseSchema$ } from "../proto-es/v1/database_service_pb";
+import type { InstanceResource } from "../proto-es/v1/instance_service_pb";
+import type { Environment } from "../v1/environment";
+import { formatEnvironmentName, unknownEnvironment } from "./environment";
 import { unknownInstance, unknownInstanceResource } from "./instance";
 import type { ComposedProject } from "./project";
 import { unknownProject } from "./project";
@@ -28,12 +30,11 @@ export const unknownDatabase = (): ComposedDatabase => {
   const projectEntity = unknownProject();
   const instanceResource = unknownInstanceResource();
   const effectiveEnvironmentEntity = unknownEnvironment();
-  const database = Database.fromJSON({
+  const database = create(DatabaseSchema$, {
     name: `${instanceResource.name}/databases/${UNKNOWN_ID}`,
-    uid: String(UNKNOWN_ID),
     state: State.ACTIVE,
     project: projectEntity.name,
-    effectiveEnvironment: effectiveEnvironmentEntity.name,
+    effectiveEnvironment: formatEnvironmentName(effectiveEnvironmentEntity.id),
   });
   return {
     ...database,

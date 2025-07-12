@@ -10,8 +10,9 @@ import (
 	driver "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -79,7 +80,7 @@ func (checker *statementMaximumLimitValueChecker) Enter(in ast.Node) (ast.Node, 
 					Code:          advisor.StatementExceedMaximumLimitValue.Int32(),
 					Title:         checker.title,
 					Content:       fmt.Sprintf("The limit value %d exceeds the maximum allowed value %d", limitVal, checker.limitMaxValue),
-					StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+					StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 				})
 			}
 		}

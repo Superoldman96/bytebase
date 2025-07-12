@@ -1,15 +1,13 @@
 <template>
   <div class="flex items-stretch gap-x-3">
-    <template v-if="!hideIssueReviewActions">
-      <ReviewActionButton
-        v-for="action in issueReviewActionList"
-        :key="action"
-        :action="action"
-        @perform-action="
-          (action) => events.emit('perform-issue-review-action', { action })
-        "
-      />
-    </template>
+    <ReviewActionButton
+      v-for="action in issueReviewActionList"
+      :key="action"
+      :action="action"
+      @perform-action="
+        (action) => events.emit('perform-issue-review-action', { action })
+      "
+    />
 
     <IssueStatusActionButtonGroup
       :display-mode="displayMode"
@@ -30,11 +28,11 @@ import {
   taskRolloutActionDisplayName,
   useIssueContext,
 } from "@/components/IssueV1";
-import { useCurrentUserV1, useAppFeature, extractUserId } from "@/store";
+import { useCurrentUserV1, extractUserId, useCurrentProjectV1 } from "@/store";
 import {
   IssueStatus,
   Issue_Approver_Status,
-} from "@/types/proto/v1/issue_service";
+} from "@/types/proto-es/v1/issue_service_pb";
 import {
   isDatabaseChangeRelatedIssue,
   hasWorkspacePermissionV2,
@@ -46,11 +44,9 @@ import ReviewActionButton from "./ReviewActionButton.vue";
 
 const { t } = useI18n();
 const currentUser = useCurrentUserV1();
-const hideIssueReviewActions = useAppFeature(
-  "bb.feature.issue.hide-review-actions"
-);
 const { issue, phase, reviewContext, events, selectedTask, selectedStage } =
   useIssueContext();
+const { project } = useCurrentProjectV1();
 const { ready, status, done } = reviewContext;
 
 const shouldShowApproveOrReject = computed(() => {
@@ -63,7 +59,7 @@ const shouldShowApproveOrReject = computed(() => {
 
   // Hide review actions if self-approval is disabled.
   if (
-    !issue.value.projectEntity.allowSelfApproval &&
+    !project.value.allowSelfApproval &&
     currentUser.value.email === extractUserId(issue.value.creator)
   ) {
     return false;
@@ -121,7 +117,7 @@ const forceRolloutActionList = computed((): ExtraActionOption[] => {
 
   if (
     !hasWorkspacePermissionV2("bb.taskRuns.create") &&
-    !hasProjectPermissionV2(issue.value.projectEntity, "bb.taskRuns.create")
+    !hasProjectPermissionV2(project.value, "bb.taskRuns.create")
   ) {
     // Only for users with permission to create task runs.
     return [];
@@ -160,7 +156,6 @@ const forceRolloutActionList = computed((): ExtraActionOption[] => {
 });
 
 const displayMode = computed(() => {
-  if (hideIssueReviewActions.value) return "BUTTON";
   return issueReviewActionList.value.length > 0 ? "DROPDOWN" : "BUTTON";
 });
 </script>

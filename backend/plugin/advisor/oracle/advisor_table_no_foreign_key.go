@@ -9,8 +9,9 @@ import (
 	parser "github.com/bytebase/plsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -73,7 +74,7 @@ func (l *tableNoForeignKeyListener) generateAdvice() ([]*storepb.Advice, error) 
 				Code:          advisor.TableHasFK.Int32(),
 				Title:         l.title,
 				Content:       fmt.Sprintf("Foreign key is not allowed in the table %s.", normalizeIdentifierName(tableName)),
-				StartPosition: advisor.ConvertANTLRLineToPosition(l.tableLine[tableName]),
+				StartPosition: common.ConvertANTLRLineToPosition(l.tableLine[tableName]),
 			})
 		}
 	}

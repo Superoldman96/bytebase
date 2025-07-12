@@ -9,6 +9,7 @@
     />
     <DatabaseSyncCell v-if="view === 'DATABASE_SYNC'" v-bind="props" />
     <PriorBackupCell v-if="view === 'PRIOR_BACKUP'" v-bind="props" />
+    <RetryInfoCell v-if="view === 'RETRY_INFO'" v-bind="props" />
     <span v-if="view === 'N/A'">-</span>
   </NEllipsis>
 </template>
@@ -16,13 +17,14 @@
 <script setup lang="ts">
 import { NEllipsis } from "naive-ui";
 import { computed } from "vue";
-import { TaskRunLogEntry_Type } from "@/types/proto/v1/rollout_service";
-import type { Sheet } from "@/types/proto/v1/sheet_service";
+import { TaskRunLogEntry_Type } from "@/types/proto-es/v1/rollout_service_pb";
+import type { Sheet } from "@/types/proto-es/v1/sheet_service_pb";
 import type { FlattenLogEntry } from "../common";
 import AffectedRowsCell from "./AffectedRowsCell.vue";
 import DatabaseSyncCell from "./DatabaseSyncCell.vue";
 import ErrorCell from "./ErrorCell.vue";
 import PriorBackupCell from "./PriorBackupCell.vue";
+import RetryInfoCell from "./RetryInfoCell.vue";
 import StatusUpdateCell from "./StatusUpdateCell.vue";
 import TransactionControlCell from "./TransactionControlCell.vue";
 
@@ -33,7 +35,8 @@ type View =
   | "STATUS_UPDATE"
   | "TRANSACTION_CONTROL"
   | "DATABASE_SYNC"
-  | "PRIOR_BACKUP";
+  | "PRIOR_BACKUP"
+  | "RETRY_INFO";
 
 const props = defineProps<{
   entry: FlattenLogEntry;
@@ -48,6 +51,7 @@ const view = computed((): View => {
     transactionControl,
     databaseSync,
     priorBackup,
+    retryInfo,
   } = props.entry;
   if (type === TaskRunLogEntry_Type.COMMAND_EXECUTE && commandExecute) {
     if (!commandExecute.raw.response) {
@@ -80,6 +84,9 @@ const view = computed((): View => {
       return "ERROR";
     }
     return "PRIOR_BACKUP";
+  }
+  if (type === TaskRunLogEntry_Type.RETRY_INFO && retryInfo) {
+    return "RETRY_INFO";
   }
   return "N/A";
 });

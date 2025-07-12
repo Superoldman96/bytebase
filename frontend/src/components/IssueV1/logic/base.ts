@@ -6,8 +6,8 @@ import { useRoute, useRouter } from "vue-router";
 import { PROJECT_V1_ROUTE_ISSUE_DETAIL } from "@/router/dashboard/projectV1";
 import { useUIStateStore } from "@/store";
 import { emptyStage, emptyTask } from "@/types";
-import type { PlanCheckRun } from "@/types/proto/v1/plan_service";
-import { Stage, Task } from "@/types/proto/v1/rollout_service";
+import type { PlanCheckRun } from "@/types/proto-es/v1/plan_service_pb";
+import type { Stage, Task } from "@/types/proto-es/v1/rollout_service_pb";
 import {
   activeStageInRollout,
   activeTaskInStageV1,
@@ -51,27 +51,21 @@ export const useBaseIssueContext = (
     const taskSlug = route.query.task as string;
     const stageList = rollout.value?.stages || [];
 
-    // Index is used when `isCreating === true`
-    // UID is used when otherwise
+    // Stage slug is now always the environment ID
     if (stageSlug) {
-      const indexOrUID = indexOrUIDFromSlug(stageSlug);
-      if (isCreating.value) {
-        if (indexOrUID < stageList.length) {
-          return stageList[indexOrUID];
-        }
-      } else {
-        const stageFound = stageList.find(
-          (stage) => extractStageUID(stage.name) === String(indexOrUID)
-        );
-        if (stageFound) {
-          return stageFound;
-        }
+      const stageFound = stageList.find(
+        (stage) => extractStageUID(stage.name) === stageSlug
+      );
+      if (stageFound) {
+        return stageFound;
       }
-    } else if (!isCreating.value && taskSlug) {
+    } else if (taskSlug) {
       const taskUID = String(uidFromSlug(taskSlug));
       for (const stage of stageList) {
         if (
-          stage.tasks.findIndex((task) => extractTaskUID(task.name) === taskUID)
+          stage.tasks.findIndex(
+            (task) => extractTaskUID(task.name) === taskUID
+          ) >= 0
         ) {
           return stage;
         }
@@ -113,12 +107,10 @@ export const useBaseIssueContext = (
   });
 
   events.on("select-task", ({ task }) => {
-    const stages = rollout.value?.stages || [];
     const stage = stageForTask(issue.value, task);
     if (!stage) return;
-    const stageParam = isCreating.value
-      ? String(stages.indexOf(stage))
-      : stageV1Slug(stage);
+    // Always use stage slug (environment ID)
+    const stageParam = stageV1Slug(stage);
     const taskParam = isCreating.value
       ? String(stage.tasks.indexOf(task))
       : taskV1Slug(task);
@@ -145,9 +137,6 @@ export const useBaseIssueContext = (
     return reviewContext.done.value ? "ROLLOUT" : "REVIEW";
   });
 
-  const isLegacyIssue = computed(() => {
-    return !issue.value.plan && !issue.value.planEntity;
-  });
   const formatOnSave = computed({
     get: () => uiStateStore.editorFormatStatementOnSave,
     set: (value: boolean) => uiStateStore.setEditorFormatStatementOnSave(value),
@@ -178,7 +167,6 @@ export const useBaseIssueContext = (
 
   return {
     phase,
-    isLegacyIssue,
     events,
     releaserCandidates,
     reviewContext,

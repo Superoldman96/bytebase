@@ -1,8 +1,5 @@
 <template>
-  <form class="w-full space-y-4 mx-auto">
-    <p class="text-lg font-medium leading-7 text-main">
-      {{ $t("common.general") }}
-    </p>
+  <form class="w-full space-y-4">
     <div>
       <div class="font-medium">
         {{ $t("common.name") }} <span class="text-red-600">*</span>
@@ -32,7 +29,7 @@ import { computed, reactive } from "vue";
 import ResourceIdField from "@/components/v2/Form/ResourceIdField.vue";
 import { useProjectV1Store } from "@/store";
 import { DEFAULT_PROJECT_NAME } from "@/types";
-import type { Project } from "@/types/proto/v1/project_service";
+import type { Project } from "@/types/proto-es/v1/project_service_pb";
 import { extractProjectResourceName } from "@/utils";
 
 interface LocalState {

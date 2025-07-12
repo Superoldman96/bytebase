@@ -5,30 +5,45 @@ import (
 	"fmt"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/pkg/errors"
 	"google.golang.org/genproto/googleapis/type/expr"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
-	enterprise "github.com/bytebase/bytebase/backend/enterprise/api"
+	"github.com/bytebase/bytebase/backend/enterprise"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
+	"github.com/bytebase/bytebase/backend/generated-go/v1/v1connect"
 	"github.com/bytebase/bytebase/backend/store"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+)
+
+var (
+	// allowedResourceTypes includes allowed resource types for each policy type.
+	allowedResourceTypes = map[storepb.Policy_Type][]storepb.Policy_Resource{
+		storepb.Policy_ROLLOUT:                                {storepb.Policy_ENVIRONMENT},
+		storepb.Policy_TAG:                                    {storepb.Policy_ENVIRONMENT, storepb.Policy_PROJECT},
+		storepb.Policy_DISABLE_COPY_DATA:                      {storepb.Policy_ENVIRONMENT, storepb.Policy_PROJECT},
+		storepb.Policy_EXPORT_DATA:                            {storepb.Policy_WORKSPACE},
+		storepb.Policy_QUERY_DATA:                             {storepb.Policy_WORKSPACE},
+		storepb.Policy_MASKING_RULE:                           {storepb.Policy_WORKSPACE},
+		storepb.Policy_MASKING_EXCEPTION:                      {storepb.Policy_PROJECT},
+		storepb.Policy_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW: {storepb.Policy_WORKSPACE, storepb.Policy_PROJECT},
+		storepb.Policy_IAM:                                    {storepb.Policy_WORKSPACE},
+		storepb.Policy_DATA_SOURCE_QUERY:                      {storepb.Policy_ENVIRONMENT, storepb.Policy_PROJECT},
+	}
 )
 
 // OrgPolicyService implements the workspace policy service.
 type OrgPolicyService struct {
-	v1pb.UnimplementedOrgPolicyServiceServer
+	v1connect.UnimplementedOrgPolicyServiceHandler
 	store          *store.Store
-	licenseService enterprise.LicenseService
+	licenseService *enterprise.LicenseService
 }
 
 // NewOrgPolicyService creates a new OrgPolicyService.
-func NewOrgPolicyService(store *store.Store, licenseService enterprise.LicenseService) *OrgPolicyService {
+func NewOrgPolicyService(store *store.Store, licenseService *enterprise.LicenseService) *OrgPolicyService {
 	return &OrgPolicyService{
 		store:          store,
 		licenseService: licenseService,
@@ -36,23 +51,23 @@ func NewOrgPolicyService(store *store.Store, licenseService enterprise.LicenseSe
 }
 
 // GetPolicy gets a policy in a specific resource.
-func (s *OrgPolicyService) GetPolicy(ctx context.Context, request *v1pb.GetPolicyRequest) (*v1pb.Policy, error) {
-	policy, _, err := s.findPolicyMessage(ctx, request.Name)
+func (s *OrgPolicyService) GetPolicy(ctx context.Context, req *connect.Request[v1pb.GetPolicyRequest]) (*connect.Response[v1pb.Policy], error) {
+	policy, _, err := s.findPolicyMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	response, err := s.convertToPolicy(ctx, policy)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return response, nil
+	return connect.NewResponse(response), nil
 }
 
 // ListPolicies lists policies in a specific resource.
-func (s *OrgPolicyService) ListPolicies(ctx context.Context, request *v1pb.ListPoliciesRequest) (*v1pb.ListPoliciesResponse, error) {
-	resourceType, resource, err := getPolicyResourceTypeAndResource(request.Parent)
+func (s *OrgPolicyService) ListPolicies(ctx context.Context, req *connect.Request[v1pb.ListPoliciesRequest]) (*connect.Response[v1pb.ListPoliciesResponse], error) {
+	resourceType, resource, err := getPolicyResourceTypeAndResource(req.Msg.Parent)
 	if err != nil {
 		return nil, err
 	}
@@ -60,27 +75,27 @@ func (s *OrgPolicyService) ListPolicies(ctx context.Context, request *v1pb.ListP
 	find := &store.FindPolicyMessage{
 		ResourceType: &resourceType,
 		Resource:     resource,
-		ShowAll:      request.ShowDeleted,
+		ShowAll:      req.Msg.ShowDeleted,
 	}
 
-	if v := request.PolicyType; v != nil {
-		policyType, err := convertPolicyType(v.String())
+	if v := req.Msg.PolicyType; v != nil {
+		policyType, err := convertV1PBToStorePBPolicyType(*v)
 		if err != nil {
-			return nil, status.Error(codes.InvalidArgument, err.Error())
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		find.Type = &policyType
 	}
 
 	policies, err := s.store.ListPoliciesV2(ctx, find)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	response := &v1pb.ListPoliciesResponse{}
 	for _, policy := range policies {
 		p, err := s.convertToPolicy(ctx, policy)
 		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
+			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 		if p.Type == v1pb.PolicyType_POLICY_TYPE_UNSPECIFIED {
 			// skip unknown type policy and environment tier policy
@@ -88,36 +103,52 @@ func (s *OrgPolicyService) ListPolicies(ctx context.Context, request *v1pb.ListP
 		}
 		response.Policies = append(response.Policies, p)
 	}
-	return response, nil
+	return connect.NewResponse(response), nil
 }
 
 // CreatePolicy creates a policy in a specific resource.
-func (s *OrgPolicyService) CreatePolicy(ctx context.Context, request *v1pb.CreatePolicyRequest) (*v1pb.Policy, error) {
-	if request.Policy == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "policy must be set")
+func (s *OrgPolicyService) CreatePolicy(ctx context.Context, req *connect.Request[v1pb.CreatePolicyRequest]) (*connect.Response[v1pb.Policy], error) {
+	if req.Msg.Policy == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("policy must be set"))
+	}
+
+	if err := s.checkPolicyFeatureGuard(req.Msg.Policy.Type); err != nil {
+		return nil, err
 	}
 
 	// TODO(d): validate policy.
-	return s.createPolicyMessage(ctx, request.Parent, request.Policy)
+	response, err := s.createPolicyMessage(ctx, req.Msg.Parent, req.Msg.Policy)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(response), nil
 }
 
 // UpdatePolicy updates a policy in a specific resource.
-func (s *OrgPolicyService) UpdatePolicy(ctx context.Context, request *v1pb.UpdatePolicyRequest) (*v1pb.Policy, error) {
-	if request.Policy == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "policy must be set")
+func (s *OrgPolicyService) UpdatePolicy(ctx context.Context, req *connect.Request[v1pb.UpdatePolicyRequest]) (*connect.Response[v1pb.Policy], error) {
+	if req.Msg.Policy == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("policy must be set"))
 	}
 
-	policy, parent, err := s.findPolicyMessage(ctx, request.Policy.Name)
+	if err := s.checkPolicyFeatureGuard(req.Msg.Policy.Type); err != nil {
+		return nil, err
+	}
+
+	policy, parent, err := s.findPolicyMessage(ctx, req.Msg.Policy.Name)
 	if err != nil {
-		st := status.Convert(err)
-		if st.Code() == codes.NotFound && request.AllowMissing {
-			return s.createPolicyMessage(ctx, parent, request.Policy)
+		connectErr := connect.CodeOf(err)
+		if connectErr == connect.CodeNotFound && req.Msg.AllowMissing {
+			response, err := s.createPolicyMessage(ctx, parent, req.Msg.Policy)
+			if err != nil {
+				return nil, err
+			}
+			return connect.NewResponse(response), nil
 		}
 		return nil, err
 	}
 
-	if request.UpdateMask == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "update_mask must be set")
+	if req.Msg.UpdateMask == nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("update_mask must be set"))
 	}
 
 	patch := &store.UpdatePolicyMessage{
@@ -125,56 +156,56 @@ func (s *OrgPolicyService) UpdatePolicy(ctx context.Context, request *v1pb.Updat
 		Type:         policy.Type,
 		Resource:     policy.Resource,
 	}
-	for _, path := range request.UpdateMask.Paths {
+	for _, path := range req.Msg.UpdateMask.Paths {
 		switch path {
 		case "inherit_from_parent":
-			patch.InheritFromParent = &request.Policy.InheritFromParent
+			patch.InheritFromParent = &req.Msg.Policy.InheritFromParent
 		case "payload":
-			if err := validatePolicyPayload(policy.Type, request.Policy); err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid policy: %v", err)
+			if err := validatePolicyPayload(policy.Type, req.Msg.Policy); err != nil {
+				return nil, connect.NewError(connect.CodeInvalidArgument, errors.Wrap(err, "invalid policy"))
 			}
-			payloadStr, err := s.convertPolicyPayloadToString(ctx, request.Policy)
+			payloadStr, err := s.convertPolicyPayloadToString(ctx, req.Msg.Policy)
 			if err != nil {
 				return nil, err
 			}
 			patch.Payload = &payloadStr
 		case "enforce":
-			patch.Enforce = &request.Policy.Enforce
+			patch.Enforce = &req.Msg.Policy.Enforce
 		}
 	}
 
 	p, err := s.store.UpdatePolicyV2(ctx, patch)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	response, err := s.convertToPolicy(ctx, p)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return response, nil
+	return connect.NewResponse(response), nil
 }
 
 // DeletePolicy deletes a policy for a specific resource.
-func (s *OrgPolicyService) DeletePolicy(ctx context.Context, request *v1pb.DeletePolicyRequest) (*emptypb.Empty, error) {
-	policy, _, err := s.findPolicyMessage(ctx, request.Name)
+func (s *OrgPolicyService) DeletePolicy(ctx context.Context, req *connect.Request[v1pb.DeletePolicyRequest]) (*connect.Response[emptypb.Empty], error) {
+	policy, _, err := s.findPolicyMessage(ctx, req.Msg.Name)
 	if err != nil {
 		return nil, err
 	}
 
 	if err := s.store.DeletePolicyV2(ctx, policy); err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	return &emptypb.Empty{}, nil
+	return connect.NewResponse(&emptypb.Empty{}), nil
 }
 
 // findPolicyMessage finds the policy and the parent name by the policy name.
 func (s *OrgPolicyService) findPolicyMessage(ctx context.Context, policyName string) (*store.PolicyMessage, string, error) {
 	tokens := strings.Split(policyName, common.PolicyNamePrefix)
 	if len(tokens) != 2 {
-		return nil, "", status.Errorf(codes.InvalidArgument, "invalid request %s", policyName)
+		return nil, "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid request %s", policyName))
 	}
 
 	policyParent := tokens[0]
@@ -185,13 +216,19 @@ func (s *OrgPolicyService) findPolicyMessage(ctx context.Context, policyName str
 	if err != nil {
 		return nil, policyParent, err
 	}
-	if resource == nil && resourceType != base.PolicyResourceTypeWorkspace {
-		return nil, policyParent, status.Errorf(codes.InvalidArgument, "resource for %s must be specific", resourceType)
+	if resource == nil && resourceType != storepb.Policy_WORKSPACE {
+		return nil, policyParent, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("resource for %s must be specific", resourceType))
 	}
 
-	policyType, err := convertPolicyType(tokens[1])
+	// Parse the policy type from the string in the policy name
+	v1PolicyType, ok := v1pb.PolicyType_value[strings.ToUpper(tokens[1])]
+	if !ok {
+		return nil, policyParent, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid policy type %v", tokens[1]))
+	}
+
+	policyType, err := convertV1PBToStorePBPolicyType(v1pb.PolicyType(v1PolicyType))
 	if err != nil {
-		return nil, policyParent, status.Error(codes.InvalidArgument, err.Error())
+		return nil, policyParent, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	policy, err := s.store.GetPolicyV2(ctx, &store.FindPolicyMessage{
@@ -200,56 +237,44 @@ func (s *OrgPolicyService) findPolicyMessage(ctx context.Context, policyName str
 		Resource:     resource,
 	})
 	if err != nil {
-		return nil, policyParent, status.Error(codes.Internal, err.Error())
+		return nil, policyParent, connect.NewError(connect.CodeInternal, err)
 	}
 	if policy == nil {
-		return nil, policyParent, status.Errorf(codes.NotFound, "policy %q not found", policyName)
+		return nil, policyParent, connect.NewError(connect.CodeNotFound, errors.Errorf("policy %q not found", policyName))
 	}
 
 	return policy, policyParent, nil
 }
 
-func getPolicyResourceTypeAndResource(requestName string) (base.PolicyResourceType, *string, error) {
+func getPolicyResourceTypeAndResource(requestName string) (storepb.Policy_Resource, *string, error) {
 	if requestName == "" {
-		return base.PolicyResourceTypeWorkspace, nil, nil
+		return storepb.Policy_WORKSPACE, nil, nil
 	}
 
 	if strings.HasPrefix(requestName, common.ProjectNamePrefix) {
 		projectID, err := common.GetProjectID(requestName)
 		if err != nil {
-			return base.PolicyResourceTypeUnknown, nil, status.Error(codes.InvalidArgument, err.Error())
+			return storepb.Policy_RESOURCE_UNSPECIFIED, nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		if projectID == "-" {
-			return base.PolicyResourceTypeProject, nil, nil
+			return storepb.Policy_PROJECT, nil, nil
 		}
-		return base.PolicyResourceTypeProject, &requestName, nil
+		return storepb.Policy_PROJECT, &requestName, nil
 	}
 
 	if strings.HasPrefix(requestName, common.EnvironmentNamePrefix) {
 		// environment policy request name should be environments/{environment id}
 		environmentID, err := common.GetEnvironmentID(requestName)
 		if err != nil {
-			return base.PolicyResourceTypeUnknown, nil, status.Error(codes.InvalidArgument, err.Error())
+			return storepb.Policy_RESOURCE_UNSPECIFIED, nil, connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		if environmentID == "-" {
-			return base.PolicyResourceTypeEnvironment, nil, nil
+			return storepb.Policy_ENVIRONMENT, nil, nil
 		}
-		return base.PolicyResourceTypeEnvironment, &requestName, nil
+		return storepb.Policy_ENVIRONMENT, &requestName, nil
 	}
 
-	if strings.HasPrefix(requestName, common.InstanceNamePrefix) {
-		// instance policy request name should be instances/{instance id}
-		instanceID, err := common.GetInstanceID(requestName)
-		if err != nil {
-			return base.PolicyResourceTypeUnknown, nil, status.Error(codes.InvalidArgument, err.Error())
-		}
-		if instanceID == "-" {
-			return base.PolicyResourceTypeInstance, nil, nil
-		}
-		return base.PolicyResourceTypeInstance, &requestName, nil
-	}
-
-	return base.PolicyResourceTypeUnknown, nil, status.Errorf(codes.InvalidArgument, "unknown request name %s", requestName)
+	return storepb.Policy_RESOURCE_UNSPECIFIED, nil, connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unknown request name %s", requestName))
 }
 
 func (s *OrgPolicyService) createPolicyMessage(ctx context.Context, parent string, policy *v1pb.Policy) (*v1pb.Policy, error) {
@@ -258,9 +283,9 @@ func (s *OrgPolicyService) createPolicyMessage(ctx context.Context, parent strin
 		return nil, err
 	}
 
-	policyType, err := convertPolicyType(policy.Type.String())
+	policyType, err := convertV1PBToStorePBPolicyType(policy.Type)
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
 	if err := validatePolicyType(policyType, resourceType); err != nil {
@@ -268,7 +293,7 @@ func (s *OrgPolicyService) createPolicyMessage(ctx context.Context, parent strin
 	}
 
 	if err := validatePolicyPayload(policyType, policy); err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid policy: %v", err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.Wrap(err, "invalid policy"))
 	}
 
 	payloadStr, err := s.convertPolicyPayloadToString(ctx, policy)
@@ -288,58 +313,71 @@ func (s *OrgPolicyService) createPolicyMessage(ctx context.Context, parent strin
 
 	p, err := s.store.CreatePolicyV2(ctx, create)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	response, err := s.convertToPolicy(ctx, p)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	return response, nil
 }
 
-func validatePolicyType(policyType base.PolicyType, policyResourceType base.PolicyResourceType) error {
-	for _, rt := range base.AllowedResourceTypes[policyType] {
+func validatePolicyType(policyType storepb.Policy_Type, policyResourceType storepb.Policy_Resource) error {
+	allowedTypes, ok := allowedResourceTypes[policyType]
+	if !ok {
+		return connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unknown policy type %v", policyType))
+	}
+	for _, rt := range allowedTypes {
 		if rt == policyResourceType {
 			return nil
 		}
 	}
-	return status.Errorf(codes.InvalidArgument, "policy %v is not allowed in resource %v", policyType, policyResourceType)
+	return connect.NewError(connect.CodeInvalidArgument, errors.Errorf("policy %v is not allowed in resource %v", policyType, policyResourceType))
 }
 
-func validatePolicyPayload(policyType base.PolicyType, policy *v1pb.Policy) error {
+func (s *OrgPolicyService) checkPolicyFeatureGuard(policyType v1pb.PolicyType) error {
+	if policyType == v1pb.PolicyType_DATA_QUERY || policyType == v1pb.PolicyType_DATA_SOURCE_QUERY {
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_QUERY_POLICY); err != nil {
+			return connect.NewError(connect.CodePermissionDenied, err)
+		}
+	}
+	return nil
+}
+
+func validatePolicyPayload(policyType storepb.Policy_Type, policy *v1pb.Policy) error {
 	switch policyType {
-	case base.PolicyTypeMaskingRule:
+	case storepb.Policy_MASKING_RULE:
 		maskingRulePolicy, ok := policy.Policy.(*v1pb.Policy_MaskingRulePolicy)
 		if !ok {
-			return status.Errorf(codes.InvalidArgument, "unmatched policy type %v and policy %v", policyType, policy.Policy)
+			return connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unmatched policy type %v and policy %v", policyType, policy.Policy))
 		}
 		if maskingRulePolicy.MaskingRulePolicy == nil {
-			return status.Errorf(codes.InvalidArgument, "masking rule policy must be set")
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("masking rule policy must be set"))
 		}
 		for _, rule := range maskingRulePolicy.MaskingRulePolicy.Rules {
 			if rule.Id == "" {
-				return status.Errorf(codes.InvalidArgument, "masking rule must have ID set")
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("masking rule must have ID set"))
 			}
 			if _, err := common.ValidateMaskingRuleCELExpr(rule.Condition.Expression); err != nil {
-				return status.Errorf(codes.InvalidArgument, "invalid masking rule expression: %v", err)
+				return connect.NewError(connect.CodeInvalidArgument, errors.Wrap(err, "invalid masking rule expression"))
 			}
 		}
-	case base.PolicyTypeMaskingException:
+	case storepb.Policy_MASKING_EXCEPTION:
 		maskingExceptionPolicy, ok := policy.Policy.(*v1pb.Policy_MaskingExceptionPolicy)
 		if !ok {
-			return status.Errorf(codes.InvalidArgument, "unmatched policy type %v and policy %v", policyType, policy.Policy)
+			return connect.NewError(connect.CodeInvalidArgument, errors.Errorf("unmatched policy type %v and policy %v", policyType, policy.Policy))
 		}
 		if maskingExceptionPolicy.MaskingExceptionPolicy == nil {
-			return status.Errorf(codes.InvalidArgument, "masking exception policy must be set")
+			return connect.NewError(connect.CodeInvalidArgument, errors.New("masking exception policy must be set"))
 		}
 		for _, exception := range maskingExceptionPolicy.MaskingExceptionPolicy.MaskingExceptions {
 			if exception.Action == v1pb.MaskingExceptionPolicy_MaskingException_ACTION_UNSPECIFIED {
-				return status.Errorf(codes.InvalidArgument, "masking exception must have action set")
+				return connect.NewError(connect.CodeInvalidArgument, errors.New("masking exception must have action set"))
 			}
 			if _, err := common.ValidateMaskingExceptionCELExpr(exception.Condition); err != nil {
-				return status.Error(codes.InvalidArgument, fmt.Sprintf("invalid masking exception expression: %v", err))
+				return connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid masking exception expression: %v", err))
 			}
 			if err := validateMember(exception.Member); err != nil {
 				return err
@@ -354,11 +392,6 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(ctx context.Context, pol
 	switch policy.Type {
 	case v1pb.PolicyType_ROLLOUT_POLICY:
 		rolloutPolicy := convertToStorePBRolloutPolicy(policy.GetRolloutPolicy())
-		if !rolloutPolicy.Automatic {
-			if err := s.licenseService.IsFeatureEnabled(base.FeatureRolloutPolicy); err != nil {
-				return "", status.Error(codes.PermissionDenied, err.Error())
-			}
-		}
 		payloadBytes, err := protojson.Marshal(rolloutPolicy)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal rollout policy")
@@ -374,64 +407,52 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(ctx context.Context, pol
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_DISABLE_COPY_DATA:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureAccessControl); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_RESTRICT_COPYING_DATA); err != nil {
+			return "", connect.NewError(connect.CodePermissionDenied, err)
 		}
-		payload, err := convertToDisableCopyDataPolicyPayload(policy.GetDisableCopyDataPolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToDisableCopyDataPolicyPayload(policy.GetDisableCopyDataPolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_DATA_EXPORT:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureAccessControl); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_QUERY_POLICY); err != nil {
+			return "", connect.NewError(connect.CodePermissionDenied, err)
 		}
-		payload, err := convertToExportDataPolicyPayload(policy.GetExportDataPolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToExportDataPolicyPayload(policy.GetExportDataPolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_DATA_QUERY:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureAccessControl); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_QUERY_POLICY); err != nil {
+			return "", connect.NewError(connect.CodePermissionDenied, err)
 		}
-		payload, err := convertToQueryDataPolicyPayload(policy.GetQueryDataPolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToQueryDataPolicyPayload(policy.GetQueryDataPolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_MASKING_RULE:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureSensitiveData); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_DATA_MASKING); err != nil {
+			return "", connect.NewError(connect.CodePermissionDenied, err)
 		}
-		payload, err := convertToStorePBMskingRulePolicy(policy.GetMaskingRulePolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToStorePBMskingRulePolicy(policy.GetMaskingRulePolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal masking rule policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_MASKING_EXCEPTION:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureSensitiveData); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
+		if err := s.licenseService.IsFeatureEnabled(v1pb.PlanFeature_FEATURE_DATA_MASKING); err != nil {
+			return "", connect.NewError(connect.CodePermissionDenied, err)
 		}
 		payload, err := s.convertToStorePBMaskingExceptionPolicyPayload(ctx, policy.GetMaskingExceptionPolicy())
 		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
+			return "", connect.NewError(connect.CodeInvalidArgument, err)
 		}
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
@@ -439,23 +460,14 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(ctx context.Context, pol
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW:
-		if err := s.licenseService.IsFeatureEnabled(base.FeatureAccessControl); err != nil {
-			return "", status.Error(codes.PermissionDenied, err.Error())
-		}
-		payload, err := convertToRestrictIssueCreationForSQLReviewPayload(policy.GetRestrictIssueCreationForSqlReviewPolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToRestrictIssueCreationForSQLReviewPayload(policy.GetRestrictIssueCreationForSqlReviewPolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal restrict issue creation for SQL review policy")
 		}
 		return string(payloadBytes), nil
 	case v1pb.PolicyType_DATA_SOURCE_QUERY:
-		payload, err := convertToDataSourceQueryPayload(policy.GetDataSourceQueryPolicy())
-		if err != nil {
-			return "", status.Error(codes.InvalidArgument, err.Error())
-		}
+		payload := convertToDataSourceQueryPayload(policy.GetDataSourceQueryPolicy())
 		payloadBytes, err := protojson.Marshal(payload)
 		if err != nil {
 			return "", errors.Wrap(err, "failed to marshal data source query policy")
@@ -463,20 +475,18 @@ func (s *OrgPolicyService) convertPolicyPayloadToString(ctx context.Context, pol
 		return string(payloadBytes), nil
 	}
 
-	return "", status.Errorf(codes.InvalidArgument, "invalid policy %v", policy.Type)
+	return "", connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid policy %v", policy.Type))
 }
 
 func (s *OrgPolicyService) convertToPolicy(ctx context.Context, policyMessage *store.PolicyMessage) (*v1pb.Policy, error) {
 	resourceType := v1pb.PolicyResourceType_RESOURCE_TYPE_UNSPECIFIED
 	switch policyMessage.ResourceType {
-	case base.PolicyResourceTypeWorkspace:
+	case storepb.Policy_WORKSPACE:
 		resourceType = v1pb.PolicyResourceType_WORKSPACE
-	case base.PolicyResourceTypeEnvironment:
+	case storepb.Policy_ENVIRONMENT:
 		resourceType = v1pb.PolicyResourceType_ENVIRONMENT
-	case base.PolicyResourceTypeProject:
+	case storepb.Policy_PROJECT:
 		resourceType = v1pb.PolicyResourceType_PROJECT
-	case base.PolicyResourceTypeInstance:
-		resourceType = v1pb.PolicyResourceType_INSTANCE
 	}
 	policy := &v1pb.Policy{
 		InheritFromParent: policyMessage.InheritFromParent,
@@ -484,17 +494,15 @@ func (s *OrgPolicyService) convertToPolicy(ctx context.Context, policyMessage *s
 		ResourceType:      resourceType,
 	}
 
-	pType := v1pb.PolicyType_POLICY_TYPE_UNSPECIFIED
+	pType := convertStorePBToV1PBPolicyType(policyMessage.Type)
 	switch policyMessage.Type {
-	case base.PolicyTypeRollout:
-		pType = v1pb.PolicyType_ROLLOUT_POLICY
+	case storepb.Policy_ROLLOUT:
 		payload, err := convertToV1RolloutPolicyPayload(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
 		policy.Policy = payload
-	case base.PolicyTypeTag:
-		pType = v1pb.PolicyType_TAG
+	case storepb.Policy_TAG:
 		p := &v1pb.TagPolicy{}
 		if err := common.ProtojsonUnmarshaler.Unmarshal([]byte(policyMessage.Payload), p); err != nil {
 			return nil, errors.Wrapf(err, "failed to unmarshal rollout policy payload")
@@ -502,62 +510,49 @@ func (s *OrgPolicyService) convertToPolicy(ctx context.Context, policyMessage *s
 		policy.Policy = &v1pb.Policy_TagPolicy{
 			TagPolicy: p,
 		}
-	case base.PolicyTypeDisableCopyData:
-		pType = v1pb.PolicyType_DISABLE_COPY_DATA
+	case storepb.Policy_DISABLE_COPY_DATA:
 		payload, err := convertToV1PBDisableCopyDataPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
 		policy.Policy = payload
-	case base.PolicyTypeExportData:
-		pType = v1pb.PolicyType_DATA_EXPORT
+	case storepb.Policy_EXPORT_DATA:
 		payload, err := convertToV1PBExportDataPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
 		policy.Policy = payload
-	case base.PolicyTypeQueryData:
-		pType = v1pb.PolicyType_DATA_QUERY
+	case storepb.Policy_QUERY_DATA:
 		payload, err := convertToV1PBQueryDataPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
 		policy.Policy = payload
-	case base.PolicyTypeMaskingRule:
-		pType = v1pb.PolicyType_MASKING_RULE
+	case storepb.Policy_MASKING_RULE:
 		maskingRulePolicy := &storepb.MaskingRulePolicy{}
 		if err := common.ProtojsonUnmarshaler.Unmarshal([]byte(policyMessage.Payload), maskingRulePolicy); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal masking rule policy")
 		}
-		payload, err := convertToV1PBMaskingRulePolicy(maskingRulePolicy)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to convert masking rule policy")
-		}
+		payload := convertToV1PBMaskingRulePolicy(maskingRulePolicy)
 		policy.Policy = &v1pb.Policy_MaskingRulePolicy{
 			MaskingRulePolicy: payload,
 		}
-	case base.PolicyTypeMaskingException:
-		pType = v1pb.PolicyType_MASKING_EXCEPTION
+	case storepb.Policy_MASKING_EXCEPTION:
 		maskingRulePolicy := &storepb.MaskingExceptionPolicy{}
 		if err := common.ProtojsonUnmarshaler.Unmarshal([]byte(policyMessage.Payload), maskingRulePolicy); err != nil {
 			return nil, errors.Wrap(err, "failed to unmarshal masking exception policy")
 		}
-		payload, err := s.convertToV1PBMaskingExceptionPolicyPayload(ctx, maskingRulePolicy)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to convert masking exception policy")
-		}
+		payload := s.convertToV1PBMaskingExceptionPolicyPayload(ctx, maskingRulePolicy)
 		policy.Policy = &v1pb.Policy_MaskingExceptionPolicy{
 			MaskingExceptionPolicy: payload,
 		}
-	case base.PolicyTypeRestrictIssueCreationForSQLReview:
-		pType = v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW
+	case storepb.Policy_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW:
 		payload, err := convertToV1PBRestrictIssueCreationForSQLReviewPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
 		}
 		policy.Policy = payload
-	case base.PolicyTypeDataSourceQuery:
-		pType = v1pb.PolicyType_DATA_SOURCE_QUERY
+	case storepb.Policy_DATA_SOURCE_QUERY:
 		payload, err := convertToV1PBDataSourceQueryPolicy(policyMessage.Payload)
 		if err != nil {
 			return nil, err
@@ -702,25 +697,25 @@ func convertToV1PBQueryDataPolicy(payloadStr string) (*v1pb.Policy_QueryDataPoli
 	}, nil
 }
 
-func convertToDisableCopyDataPolicyPayload(policy *v1pb.DisableCopyDataPolicy) (*storepb.DisableCopyDataPolicy, error) {
+func convertToDisableCopyDataPolicyPayload(policy *v1pb.DisableCopyDataPolicy) *storepb.DisableCopyDataPolicy {
 	return &storepb.DisableCopyDataPolicy{
 		Active: policy.Active,
-	}, nil
+	}
 }
 
-func convertToExportDataPolicyPayload(policy *v1pb.ExportDataPolicy) (*storepb.ExportDataPolicy, error) {
+func convertToExportDataPolicyPayload(policy *v1pb.ExportDataPolicy) *storepb.ExportDataPolicy {
 	return &storepb.ExportDataPolicy{
 		Disable: policy.Disable,
-	}, nil
+	}
 }
 
-func convertToQueryDataPolicyPayload(policy *v1pb.QueryDataPolicy) (*storepb.QueryDataPolicy, error) {
+func convertToQueryDataPolicyPayload(policy *v1pb.QueryDataPolicy) *storepb.QueryDataPolicy {
 	return &storepb.QueryDataPolicy{
 		Timeout: policy.Timeout,
-	}, nil
+	}
 }
 
-func convertToStorePBMskingRulePolicy(policy *v1pb.MaskingRulePolicy) (*storepb.MaskingRulePolicy, error) {
+func convertToStorePBMskingRulePolicy(policy *v1pb.MaskingRulePolicy) *storepb.MaskingRulePolicy {
 	var rules []*storepb.MaskingRulePolicy_MaskingRule
 	for _, rule := range policy.Rules {
 		rules = append(rules, &storepb.MaskingRulePolicy_MaskingRule{
@@ -737,10 +732,10 @@ func convertToStorePBMskingRulePolicy(policy *v1pb.MaskingRulePolicy) (*storepb.
 
 	return &storepb.MaskingRulePolicy{
 		Rules: rules,
-	}, nil
+	}
 }
 
-func convertToV1PBMaskingRulePolicy(policy *storepb.MaskingRulePolicy) (*v1pb.MaskingRulePolicy, error) {
+func convertToV1PBMaskingRulePolicy(policy *storepb.MaskingRulePolicy) *v1pb.MaskingRulePolicy {
 	var rules []*v1pb.MaskingRulePolicy_MaskingRule
 	for _, rule := range policy.Rules {
 		rules = append(rules, &v1pb.MaskingRulePolicy_MaskingRule{
@@ -757,7 +752,7 @@ func convertToV1PBMaskingRulePolicy(policy *storepb.MaskingRulePolicy) (*v1pb.Ma
 
 	return &v1pb.MaskingRulePolicy{
 		Rules: rules,
-	}, nil
+	}
 }
 
 func (s *OrgPolicyService) convertToStorePBMaskingExceptionPolicyPayload(ctx context.Context, policy *v1pb.MaskingExceptionPolicy) (*storepb.MaskingExceptionPolicy, error) {
@@ -784,7 +779,7 @@ func (s *OrgPolicyService) convertToStorePBMaskingExceptionPolicyPayload(ctx con
 	}, nil
 }
 
-func (s *OrgPolicyService) convertToV1PBMaskingExceptionPolicyPayload(ctx context.Context, policy *storepb.MaskingExceptionPolicy) (*v1pb.MaskingExceptionPolicy, error) {
+func (s *OrgPolicyService) convertToV1PBMaskingExceptionPolicyPayload(ctx context.Context, policy *storepb.MaskingExceptionPolicy) *v1pb.MaskingExceptionPolicy {
 	var exceptions []*v1pb.MaskingExceptionPolicy_MaskingException
 	for _, exception := range policy.MaskingExceptions {
 		memberInBinding := convertToV1MemberInBinding(ctx, s.store, exception.Member)
@@ -806,7 +801,7 @@ func (s *OrgPolicyService) convertToV1PBMaskingExceptionPolicyPayload(ctx contex
 
 	return &v1pb.MaskingExceptionPolicy{
 		MaskingExceptions: exceptions,
-	}, nil
+	}
 }
 
 func convertToV1PBRestrictIssueCreationForSQLReviewPolicy(payloadStr string) (*v1pb.Policy_RestrictIssueCreationForSqlReviewPolicy, error) {
@@ -821,10 +816,10 @@ func convertToV1PBRestrictIssueCreationForSQLReviewPolicy(payloadStr string) (*v
 	}, nil
 }
 
-func convertToRestrictIssueCreationForSQLReviewPayload(policy *v1pb.RestrictIssueCreationForSQLReviewPolicy) (*storepb.RestrictIssueCreationForSQLReviewPolicy, error) {
+func convertToRestrictIssueCreationForSQLReviewPayload(policy *v1pb.RestrictIssueCreationForSQLReviewPolicy) *storepb.RestrictIssueCreationForSQLReviewPolicy {
 	return &storepb.RestrictIssueCreationForSQLReviewPolicy{
 		Disallow: policy.Disallow,
-	}, nil
+	}
 }
 
 func convertToV1PBDataSourceQueryPolicy(payloadStr string) (*v1pb.Policy_DataSourceQueryPolicy, error) {
@@ -842,35 +837,58 @@ func convertToV1PBDataSourceQueryPolicy(payloadStr string) (*v1pb.Policy_DataSou
 	}, nil
 }
 
-func convertToDataSourceQueryPayload(policy *v1pb.DataSourceQueryPolicy) (*storepb.DataSourceQueryPolicy, error) {
+func convertToDataSourceQueryPayload(policy *v1pb.DataSourceQueryPolicy) *storepb.DataSourceQueryPolicy {
 	return &storepb.DataSourceQueryPolicy{
 		AdminDataSourceRestriction: storepb.DataSourceQueryPolicy_Restriction(policy.AdminDataSourceRestriction),
 		DisallowDdl:                policy.DisallowDdl,
 		DisallowDml:                policy.DisallowDml,
-	}, nil
+	}
 }
 
-func convertPolicyType(pType string) (base.PolicyType, error) {
-	var policyType base.PolicyType
-	switch strings.ToUpper(pType) {
-	case v1pb.PolicyType_ROLLOUT_POLICY.String():
-		return base.PolicyTypeRollout, nil
-	case v1pb.PolicyType_TAG.String():
-		return base.PolicyTypeTag, nil
-	case v1pb.PolicyType_MASKING_RULE.String():
-		return base.PolicyTypeMaskingRule, nil
-	case v1pb.PolicyType_MASKING_EXCEPTION.String():
-		return base.PolicyTypeMaskingException, nil
-	case v1pb.PolicyType_DISABLE_COPY_DATA.String():
-		return base.PolicyTypeDisableCopyData, nil
-	case v1pb.PolicyType_DATA_EXPORT.String():
-		return base.PolicyTypeExportData, nil
-	case v1pb.PolicyType_DATA_QUERY.String():
-		return base.PolicyTypeQueryData, nil
-	case v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW.String():
-		return base.PolicyTypeRestrictIssueCreationForSQLReview, nil
-	case v1pb.PolicyType_DATA_SOURCE_QUERY.String():
-		return base.PolicyTypeDataSourceQuery, nil
+func convertV1PBToStorePBPolicyType(pType v1pb.PolicyType) (storepb.Policy_Type, error) {
+	switch pType {
+	case v1pb.PolicyType_ROLLOUT_POLICY:
+		return storepb.Policy_ROLLOUT, nil
+	case v1pb.PolicyType_TAG:
+		return storepb.Policy_TAG, nil
+	case v1pb.PolicyType_MASKING_RULE:
+		return storepb.Policy_MASKING_RULE, nil
+	case v1pb.PolicyType_MASKING_EXCEPTION:
+		return storepb.Policy_MASKING_EXCEPTION, nil
+	case v1pb.PolicyType_DISABLE_COPY_DATA:
+		return storepb.Policy_DISABLE_COPY_DATA, nil
+	case v1pb.PolicyType_DATA_EXPORT:
+		return storepb.Policy_EXPORT_DATA, nil
+	case v1pb.PolicyType_DATA_QUERY:
+		return storepb.Policy_QUERY_DATA, nil
+	case v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW:
+		return storepb.Policy_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW, nil
+	case v1pb.PolicyType_DATA_SOURCE_QUERY:
+		return storepb.Policy_DATA_SOURCE_QUERY, nil
 	}
-	return policyType, errors.Errorf("invalid policy type %v", pType)
+	return storepb.Policy_TYPE_UNSPECIFIED, errors.Errorf("invalid policy type %v", pType)
+}
+
+func convertStorePBToV1PBPolicyType(pType storepb.Policy_Type) v1pb.PolicyType {
+	switch pType {
+	case storepb.Policy_ROLLOUT:
+		return v1pb.PolicyType_ROLLOUT_POLICY
+	case storepb.Policy_TAG:
+		return v1pb.PolicyType_TAG
+	case storepb.Policy_MASKING_RULE:
+		return v1pb.PolicyType_MASKING_RULE
+	case storepb.Policy_MASKING_EXCEPTION:
+		return v1pb.PolicyType_MASKING_EXCEPTION
+	case storepb.Policy_DISABLE_COPY_DATA:
+		return v1pb.PolicyType_DISABLE_COPY_DATA
+	case storepb.Policy_EXPORT_DATA:
+		return v1pb.PolicyType_DATA_EXPORT
+	case storepb.Policy_QUERY_DATA:
+		return v1pb.PolicyType_DATA_QUERY
+	case storepb.Policy_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW:
+		return v1pb.PolicyType_RESTRICT_ISSUE_CREATION_FOR_SQL_REVIEW
+	case storepb.Policy_DATA_SOURCE_QUERY:
+		return v1pb.PolicyType_DATA_SOURCE_QUERY
+	}
+	return v1pb.PolicyType_POLICY_TYPE_UNSPECIFIED
 }

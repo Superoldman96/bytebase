@@ -5,9 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/bytebase/bytebase/backend/base"
 	"github.com/bytebase/bytebase/backend/common"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 func TestCheck(t *testing.T) {
@@ -71,7 +70,7 @@ func TestCheck(t *testing.T) {
 				Bindings: []*storepb.Binding{
 					{
 						Role:    "roles/workspaceAdmin",
-						Members: []string{"users/321", base.AllUsers},
+						Members: []string{"users/321", common.AllUsers},
 					},
 				},
 			},

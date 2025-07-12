@@ -8,10 +8,11 @@ import (
 	parser "github.com/bytebase/tsql-parser"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/tsql"
 
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 func init() {
@@ -100,7 +101,7 @@ func (checker *IndexNotRedundantChecker) EnterCreate_index(ctx *parser.Create_in
 			Code:   advisor.RedundantIndex.Int32(),
 			Content: fmt.Sprintf("Redundant indexes with the same prefix ('%s' and '%s') in '%s.%s' is not allowed",
 				metaIdxName, statIdxName, findIdxKey.schemaName, findIdxKey.tblName),
-			StartPosition: advisor.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
+			StartPosition: common.ConvertANTLRLineToPosition(ctx.GetStart().GetLine()),
 		})
 	}
 }
@@ -116,8 +117,8 @@ type IndexMap = map[FindIndexesKey][]*storepb.IndexMetadata
 // Return the name of the index if redundant prefixes are found.
 func containRedundantPrefix(metaIdxList []*storepb.IndexMetadata, statColumnList *parser.IColumn_name_list_with_orderContext) string {
 	for _, metaIndex := range metaIdxList {
-		if statColumnList != nil && len((*statColumnList).AllId_()) != 0 && len(metaIdxList) != 0 {
-			statIdxCol, _ := tsql.NormalizeTSQLIdentifier((*statColumnList).AllId_()[0])
+		if statColumnList != nil && len((*statColumnList).AllColumn_name_with_order()) != 0 && len(metaIdxList) != 0 {
+			statIdxCol, _ := tsql.NormalizeTSQLIdentifier((*statColumnList).AllColumn_name_with_order()[0].Id_())
 			if metaIndex.Expressions[0] == statIdxCol {
 				return metaIndex.Name
 			}

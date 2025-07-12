@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	"github.com/bytebase/bytebase/backend/common"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 )
 
 func TestGetResourceFromRequest(t *testing.T) {
@@ -76,7 +76,7 @@ func TestGetResourceFromRequest(t *testing.T) {
 		},
 		{
 			request: &v1pb.UpdateSubscriptionRequest{
-				Patch: &v1pb.PatchSubscription{License: "123"},
+				License: "123",
 			},
 			method: "/bytebase.v1.SubscriptionService/UpdateSubscription",
 			want: []*common.Resource{

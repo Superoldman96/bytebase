@@ -42,7 +42,13 @@
                 v-model:value="resourceId"
                 resource-type="changelist"
                 :resource-title="title"
-                :validate="validateResourceId"
+                :fetch-resource="
+                  (resourceId: ResourceId) =>
+                    changelistStore.getOrFetchChangelistByName(
+                      `${projectName}/changelists/${resourceId}`,
+                      true /* silent */
+                    )
+                "
               />
             </div>
           </div>
@@ -132,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import { create as createProto } from "@bufbuild/protobuf";
 import { asyncComputed } from "@vueuse/core";
 import { UploadIcon } from "lucide-vue-next";
 import {
@@ -144,7 +151,6 @@ import {
   type UploadFileInfo,
   NSelect,
 } from "naive-ui";
-import { Status } from "nice-grpc-common";
 import { zindexable as vZindexable } from "vdirs";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -158,21 +164,21 @@ import {
   ResourceIdField,
 } from "@/components/v2";
 import { pushNotification, useChangelistStore, useSheetV1Store } from "@/store";
-import type { ResourceId, ValidatedMessage } from "@/types";
+import type { ResourceId } from "@/types";
 import type { ComposedProject } from "@/types";
 import {
-  Changelist,
-  Changelist_Change as Change,
-} from "@/types/proto/v1/changelist_service";
-import { Engine } from "@/types/proto/v1/common";
-import { Sheet } from "@/types/proto/v1/sheet_service";
+  ChangelistSchema,
+  Changelist_ChangeSchema as ChangeSchema,
+  CreateChangelistRequestSchema,
+} from "@/types/proto-es/v1/changelist_service_pb";
+import { Engine } from "@/types/proto-es/v1/common_pb";
+import { SheetSchema } from "@/types/proto-es/v1/sheet_service_pb";
 import {
   ENCODINGS,
   extractChangelistResourceName,
   setSheetStatement,
   type Encoding,
 } from "@/utils";
-import { getErrorCode } from "@/utils/grpcweb";
 import { readUpload, type ParsedFile } from "../import";
 import { useChangelistDashboardContext } from "./context";
 
@@ -197,6 +203,7 @@ const projectName = ref<string>(props.project.name);
 const isLoading = ref(false);
 const resourceId = ref("");
 const resourceIdField = ref<InstanceType<typeof ResourceIdField>>();
+const changelistStore = useChangelistStore();
 
 const encodingOptions = computed(() =>
   ENCODINGS.map((encoding) => ({
@@ -216,38 +223,6 @@ const errors = asyncComputed(() => {
 
   return errors;
 }, []);
-
-const validateResourceId = async (
-  resourceId: ResourceId
-): Promise<ValidatedMessage[]> => {
-  if (!resourceId) {
-    return [];
-  }
-
-  try {
-    const name = `${projectName.value}/changelists/${resourceId}`;
-    const maybeExistedChangelist =
-      await useChangelistStore().getOrFetchChangelistByName(
-        name,
-        true /* silent */
-      );
-    if (maybeExistedChangelist) {
-      return [
-        {
-          type: "error",
-          message: t("resource-id.validation.duplicated", {
-            resource: t("resource.changelist"),
-          }),
-        },
-      ];
-    }
-  } catch (error) {
-    if (getErrorCode(error) !== Status.NOT_FOUND) {
-      throw error;
-    }
-  }
-  return [];
-};
 
 const uploadFileList = ref<UploadFileInfo[]>([]);
 const files = ref<ParsedFile[]>([]);
@@ -294,9 +269,9 @@ const doCreate = async () => {
     const createdSheets = await Promise.all(
       files.value.map(async (f) => {
         const { name, arrayBuffer } = f;
-        const sheet = Sheet.fromPartial({
+        const sheet = createProto(SheetSchema, {
           title: name,
-          engine: Engine.ENGINE_UNSPECIFIED, // TODO(jim)
+          engine: Engine.ENGINE_UNSPECIFIED,
         });
         const content = new TextDecoder(state.encoding).decode(arrayBuffer);
         setSheetStatement(sheet, content);
@@ -308,19 +283,21 @@ const doCreate = async () => {
       })
     );
     const changes = createdSheets.map((sheet) =>
-      Change.fromPartial({
+      createProto(ChangeSchema, {
         sheet: sheet.name,
       })
     );
 
-    const created = await useChangelistStore().createChangelist({
-      parent: projectName.value,
-      changelist: Changelist.fromPartial({
-        description: title.value,
-        changes,
-      }),
-      changelistId: resourceId.value,
-    });
+    const created = await useChangelistStore().createChangelist(
+      createProto(CreateChangelistRequestSchema, {
+        parent: projectName.value,
+        changelist: createProto(ChangelistSchema, {
+          description: title.value,
+          changes,
+        }),
+        changelistId: resourceId.value,
+      })
+    );
     showCreatePanel.value = false;
     pushNotification({
       module: "bytebase",

@@ -9,9 +9,9 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 // SyncInstance syncs the instance.
@@ -149,7 +149,7 @@ func getTables(txn *sql.Tx) ([]*storepb.TableMetadata, error) {
 				column.Nullable = !notNull
 				if defaultStr.Valid {
 					// TODO: use correct default type
-					column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
+					column.DefaultExpression = defaultStr.String
 				}
 
 				table.Columns = append(table.Columns, column)
@@ -183,7 +183,7 @@ func getIndices(txn *sql.Tx) (map[string][]*storepb.IndexMetadata, error) {
 	for rows.Next() {
 		var tableName, statement string
 		index := &storepb.IndexMetadata{}
-		if err := rows.Scan(tableName, &index.Name, &statement); err != nil {
+		if err := rows.Scan(&tableName, &index.Name, &statement); err != nil {
 			return nil, err
 		}
 		index.Unique = strings.Contains(statement, " UNIQUE INDEX ")

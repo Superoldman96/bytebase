@@ -5,15 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/db/util"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -244,8 +244,14 @@ func (d *Driver) getStreamSchema(ctx context.Context, database string) (map[stri
 	}
 
 	for _, streamList := range streamMap {
-		sort.Slice(streamList, func(i, j int) bool {
-			return streamList[i].Name < streamList[j].Name
+		slices.SortFunc(streamList, func(i, j *storepb.StreamMetadata) int {
+			if i.Name < j.Name {
+				return -1
+			}
+			if i.Name > j.Name {
+				return 1
+			}
+			return 0
 		})
 	}
 	return streamMap, nil
@@ -380,8 +386,14 @@ func (d *Driver) getTaskSchema(ctx context.Context, database string) (map[string
 	}
 
 	for _, taskList := range taskMap {
-		sort.Slice(taskList, func(i, j int) bool {
-			return taskList[i].Name < taskList[j].Name
+		slices.SortFunc(taskList, func(i, j *storepb.TaskMetadata) int {
+			if i.Name < j.Name {
+				return -1
+			}
+			if i.Name > j.Name {
+				return 1
+			}
+			return 0
 		})
 	}
 	return taskMap, nil
@@ -439,8 +451,8 @@ func (d *Driver) getTableSchema(ctx context.Context, database string) (map[strin
 			return nil, nil, err
 		}
 		if defaultStr.Valid {
-			// TODO: use correct default type
-			column.DefaultValue = &storepb.ColumnMetadata_DefaultExpression{DefaultExpression: defaultStr.String}
+			// Store in Default field (migration from DefaultExpression to Default)
+			column.Default = defaultStr.String
 		}
 		isNullBool, err := util.ConvertYesNo(nullable)
 		if err != nil {

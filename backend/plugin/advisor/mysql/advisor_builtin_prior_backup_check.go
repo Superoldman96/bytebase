@@ -3,15 +3,14 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -26,7 +25,7 @@ type StatementPriorBackupCheckAdvisor struct {
 }
 
 func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx advisor.Context) ([]*storepb.Advice, error) {
-	if checkCtx.PreUpdateBackupDetail == nil || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
+	if !checkCtx.EnablePriorBackup || checkCtx.ChangeType != storepb.PlanCheckRunConfig_DML {
 		return nil, nil
 	}
 
@@ -44,13 +43,11 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 
 	if len(checkCtx.Statements) > common.MaxSheetCheckSize {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("The size of the SQL statements exceeds the maximum limit of %d bytes for backup", common.MaxSheetCheckSize),
-			Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 1,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("The size of the SQL statements exceeds the maximum limit of %d bytes for backup", common.MaxSheetCheckSize),
+			Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
@@ -64,21 +61,19 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 				Title:         title,
 				Content:       "Prior backup cannot deal with mixed DDL and DML statements",
 				Code:          advisor.BuiltinPriorBackupCheck.Int32(),
-				StartPosition: advisor.ConvertANTLRLineToPosition(stmt.BaseLine),
+				StartPosition: common.ConvertANTLRLineToPosition(stmt.BaseLine),
 			})
 		}
 	}
 
-	databaseName := extractDatabaseName(checkCtx.PreUpdateBackupDetail.Database)
+	databaseName := common.BackupDatabaseNameOfEngine(storepb.Engine_MYSQL)
 	if !advisor.DatabaseExists(ctx, checkCtx, databaseName) {
 		adviceList = append(adviceList, &storepb.Advice{
-			Status:  level,
-			Title:   title,
-			Content: fmt.Sprintf("Need database %q to do prior backup but it does not exist", checkCtx.PreUpdateBackupDetail.Database),
-			Code:    advisor.DatabaseNotExists.Int32(),
-			StartPosition: &storepb.Position{
-				Line: 1,
-			},
+			Status:        level,
+			Title:         title,
+			Content:       fmt.Sprintf("Need database %q to do prior backup but it does not exist", databaseName),
+			Code:          advisor.DatabaseNotExists.Int32(),
+			StartPosition: common.FirstLinePosition,
 		})
 	}
 
@@ -100,13 +95,11 @@ func (*StatementPriorBackupCheckAdvisor) Check(ctx context.Context, checkCtx adv
 			}
 			if stmtType != item.StatementType {
 				adviceList = append(adviceList, &storepb.Advice{
-					Status:  level,
-					Title:   title,
-					Content: fmt.Sprintf("Prior backup cannot handle mixed DML statements on the same table %q", key),
-					Code:    advisor.BuiltinPriorBackupCheck.Int32(),
-					StartPosition: &storepb.Position{
-						Line: 1,
-					},
+					Status:        level,
+					Title:         title,
+					Content:       fmt.Sprintf("Prior backup cannot handle mixed DML statements on the same table %q", key),
+					Code:          advisor.BuiltinPriorBackupCheck.Int32(),
+					StartPosition: common.FirstLinePosition,
 				})
 				break
 			}
@@ -134,9 +127,4 @@ func prepareTransformation(databaseName string, parseResult []*mysqlparser.Parse
 	}
 
 	return result, nil
-}
-
-func extractDatabaseName(databaseUID string) string {
-	segments := strings.Split(databaseUID, "/")
-	return segments[len(segments)-1]
 }

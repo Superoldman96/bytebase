@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	"github.com/antlr4-go/antlr/v4"
+
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 )
 
 // SingleSQL is a separate SQL split from multi-SQL.
@@ -12,18 +15,10 @@ type SingleSQL struct {
 	// BaseLine is the line number of the first line of the SQL in the original SQL.
 	// HINT: ZERO based.
 	BaseLine int
-	// FirstStatementLine is the line number of the first non-comment and non-blank line of the SQL in the original SQL.
-	// HINT: ZERO based.
-	FirstStatementLine int
-	// FirstStatementColumn is the column number of the first non-comment and non-blank line of the SQL in the original SQL.
-	// HINT: ZERO based.
-	FirstStatementColumn int
-	// LastLine is the line number of the last line of the SQL in the original SQL.
-	// HINT: ZERO based.
-	LastLine int
-	// LastColumn is the column number of the last line of the SQL in the original SQL.
-	// HINT: ZERO based.
-	LastColumn int
+	// The inclusive start position of the SQL starts in the original SQL.
+	Start *storepb.Position
+	// The inclusive end position of the SQL ends in the original SQL.
+	End *storepb.Position
 	// The sql is empty, such as `/* comments */;` or just `;`.
 	Empty bool
 
@@ -39,8 +34,7 @@ type SingleSQL struct {
 
 // SyntaxError is a syntax error.
 type SyntaxError struct {
-	Line       int
-	Column     int
+	Position   *storepb.Position
 	Message    string
 	RawMessage string
 }
@@ -52,32 +46,54 @@ func (e *SyntaxError) Error() string {
 
 // ParseErrorListener is a custom error listener for PLSQL parser.
 type ParseErrorListener struct {
-	BaseLine int
-	Err      *SyntaxError
+	BaseLine  int
+	Err       *SyntaxError
+	Statement string
 }
 
 // SyntaxError returns the errors.
 func (l *ParseErrorListener) SyntaxError(_ antlr.Recognizer, token any, line, column int, message string, _ antlr.RecognitionException) {
-	if l.Err == nil {
-		errMessage := ""
-		if token, ok := token.(*antlr.CommonToken); ok {
-			stream := token.GetInputStream()
-			start := token.GetStart() - 40
-			if start < 0 {
-				start = 0
-			}
-			stop := token.GetStop()
-			if stop >= stream.Size() {
-				stop = stream.Size() - 1
-			}
-			errMessage = fmt.Sprintf("related text: %s", stream.GetTextFromInterval(antlr.NewInterval(start, stop)))
+	if l.Err != nil {
+		return
+	}
+
+	errMessage := ""
+	if token, ok := token.(*antlr.CommonToken); ok {
+		stream := token.GetInputStream()
+		start := token.GetStart() - 40
+		if start < 0 {
+			start = 0
 		}
+		stop := token.GetStop()
+		if stop >= stream.Size() {
+			stop = stream.Size() - 1
+		}
+		errMessage = fmt.Sprintf("related text: %s", stream.GetTextFromInterval(antlr.NewInterval(start, stop)))
+	}
+	if l.Statement == "" {
 		l.Err = &SyntaxError{
-			Line:       line + l.BaseLine,
-			Column:     column,
-			Message:    fmt.Sprintf("Syntax error at line %d:%d \n%s", line+l.BaseLine, column, errMessage),
+			Position: &storepb.Position{
+				Line:   int32(line + l.BaseLine),
+				Column: int32(column),
+			},
 			RawMessage: message,
+			Message:    fmt.Sprintf("Syntax error at line %d:%d \n%s", line+l.BaseLine, column, errMessage),
 		}
+		return
+	}
+
+	p := common.ConvertANTLRPositionToPosition(&common.ANTLRPosition{
+		Line:   int32(line),
+		Column: int32(column),
+	}, l.Statement)
+	p.Line += int32(l.BaseLine)
+	l.Err = &SyntaxError{
+		Position: &storepb.Position{
+			Line:   p.Line,
+			Column: p.Column,
+		},
+		RawMessage: message,
+		Message:    fmt.Sprintf("Syntax error at line %d:%d \n%s", p.Line, p.Column, errMessage),
 	}
 }
 

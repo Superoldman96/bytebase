@@ -21,8 +21,8 @@
 import { ChevronRightIcon } from "lucide-vue-next";
 import { computed } from "vue";
 import { EnvironmentV1Name } from "@/components/v2";
-import { useAppFeature, useDatabaseV1ByName } from "@/store";
-import { type SQLEditorTab, UNKNOWN_ENVIRONMENT_NAME } from "@/types";
+import { useDatabaseV1ByName } from "@/store";
+import { type SQLEditorTab, UNKNOWN_ID } from "@/types";
 import { isValidInstanceName, isValidDatabaseName } from "@/types";
 
 const props = defineProps<{
@@ -40,9 +40,6 @@ const instance = computed(() => {
 });
 
 const hideEnvironment = computed(() => {
-  return (
-    useAppFeature("bb.feature.sql-editor.hide-environments").value ||
-    database.value.effectiveEnvironmentEntity?.name === UNKNOWN_ENVIRONMENT_NAME
-  );
+  return database.value.effectiveEnvironmentEntity?.id === String(UNKNOWN_ID);
 });
 </script>

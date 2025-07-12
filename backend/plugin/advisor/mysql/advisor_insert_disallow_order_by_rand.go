@@ -12,9 +12,10 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -105,7 +106,7 @@ func (checker *insertDisallowOrderByRandChecker) EnterQueryExpression(ctx *mysql
 				Code:          advisor.InsertUseOrderByRand.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("\"%s\" uses ORDER BY RAND in the INSERT statement", checker.text),
-				StartPosition: advisor.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
+				StartPosition: common.ConvertANTLRLineToPosition(checker.baseLine + ctx.GetStart().GetLine()),
 			})
 		}
 	}

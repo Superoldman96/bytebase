@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -127,7 +127,7 @@ func (checker *columnCommentConventionChecker) Enter(in ast.Node) (ast.Node, boo
 				Code:          advisor.CommentEmpty.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("Column `%s`.`%s` requires comments", column.table, column.column),
-				StartPosition: advisor.ConvertANTLRLineToPosition(column.line),
+				StartPosition: common.ConvertANTLRLineToPosition(column.line),
 			})
 		}
 		if checker.payload.MaxLength >= 0 && len(column.comment) > checker.payload.MaxLength {
@@ -136,7 +136,7 @@ func (checker *columnCommentConventionChecker) Enter(in ast.Node) (ast.Node, boo
 				Code:          advisor.CommentTooLong.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("The length of column `%s`.`%s` comment should be within %d characters", column.table, column.column, checker.payload.MaxLength),
-				StartPosition: advisor.ConvertANTLRLineToPosition(column.line),
+				StartPosition: common.ConvertANTLRLineToPosition(column.line),
 			})
 		}
 		if checker.payload.RequiredClassification {
@@ -146,7 +146,7 @@ func (checker *columnCommentConventionChecker) Enter(in ast.Node) (ast.Node, boo
 					Code:          advisor.CommentMissingClassification.Int32(),
 					Title:         checker.title,
 					Content:       fmt.Sprintf("Column `%s`.`%s` comment requires classification", column.table, column.column),
-					StartPosition: advisor.ConvertANTLRLineToPosition(column.line),
+					StartPosition: common.ConvertANTLRLineToPosition(column.line),
 				})
 			}
 		}

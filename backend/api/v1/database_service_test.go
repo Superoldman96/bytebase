@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
-	"github.com/bytebase/bytebase/backend/base"
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/store"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 func TestIsSecretValid(t *testing.T) {
@@ -128,7 +128,7 @@ func TestListDatabaseFilter(t *testing.T) {
 	testCases := []struct {
 		input string
 		want  *store.ListResourceFilter
-		error error
+		error *connect.Error
 	}{
 		{
 			input: `environment == "environments/test"`,
@@ -143,7 +143,7 @@ func TestListDatabaseFilter(t *testing.T) {
 		},
 		{
 			input: `environment == "test"`,
-			error: status.Errorf(codes.InvalidArgument, "invalid environment filter %q", "test"),
+			error: connect.NewError(connect.CodeInvalidArgument, errors.Errorf("invalid environment filter %q", "test")),
 		},
 		{
 			input: `project == "projects/sample"`,
@@ -176,7 +176,7 @@ func TestListDatabaseFilter(t *testing.T) {
 			input: `(label == "region:asia" || label == "tenant:bytebase") && exclude_unassigned == true`,
 			want: &store.ListResourceFilter{
 				Where: `(((db.metadata->'labels'->>'region' = ANY($1)) OR (db.metadata->'labels'->>'tenant' = ANY($2))) AND (db.project != $3))`,
-				Args:  []any{"asia", "bytebase", base.DefaultProjectID},
+				Args:  []any{"asia", "bytebase", common.DefaultProjectID},
 			},
 		},
 	}
@@ -185,7 +185,10 @@ func TestListDatabaseFilter(t *testing.T) {
 		filter, err := getListDatabaseFilter(tc.input)
 		if tc.error != nil {
 			require.Error(t, err)
-			require.Equal(t, tc.error, err)
+			connectErr := new(connect.Error)
+			require.True(t, errors.As(err, &connectErr))
+			require.Equal(t, tc.error.Message(), connectErr.Message())
+			require.Equal(t, tc.error.Code(), connectErr.Code())
 		} else {
 			require.NoError(t, err)
 			require.Equal(t, tc.want.Where, filter.Where)

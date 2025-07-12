@@ -3,14 +3,15 @@ package pg
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -100,13 +101,13 @@ func (checker *columnRequirementChecker) Visit(node ast.Node) ast.Visitor {
 
 	if len(missingColumns) > 0 {
 		// Order it cause the random iteration order in Go, see https://go.dev/blog/maps
-		sort.Strings(missingColumns)
+		slices.Sort(missingColumns)
 		checker.adviceList = append(checker.adviceList, &storepb.Advice{
 			Status:        checker.level,
 			Code:          advisor.NoRequiredColumn.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Table %q requires columns: %s", table.Name, strings.Join(missingColumns, ", ")),
-			StartPosition: advisor.ConvertANTLRLineToPosition(node.LastLine()),
+			StartPosition: common.ConvertPGParserLineToPosition(node.LastLine()),
 		})
 	}
 

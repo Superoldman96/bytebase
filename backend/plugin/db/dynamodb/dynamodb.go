@@ -5,7 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -16,10 +16,10 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
+	v1pb "github.com/bytebase/bytebase/backend/generated-go/v1"
 	"github.com/bytebase/bytebase/backend/plugin/db"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
-	v1pb "github.com/bytebase/bytebase/proto/generated-go/v1"
 )
 
 var (
@@ -38,7 +38,7 @@ type Driver struct {
 	awsConfig aws.Config
 }
 
-func newDriver(_ db.DriverConfig) db.Driver {
+func newDriver() db.Driver {
 	return &Driver{}
 }
 
@@ -114,15 +114,9 @@ func (d *Driver) Execute(ctx context.Context, statement string, opts db.ExecuteO
 		})
 		if err != nil {
 			return 0, &db.ErrorWithPosition{
-				Err: errors.Wrap(err, "failed to execute statement"),
-				Start: &storepb.TaskRunResult_Position{
-					Line:   int32(statement.FirstStatementLine),
-					Column: int32(statement.FirstStatementColumn),
-				},
-				End: &storepb.TaskRunResult_Position{
-					Line:   int32(statement.LastLine),
-					Column: int32(statement.LastColumn),
-				},
+				Err:   errors.Wrap(err, "failed to execute statement"),
+				Start: statement.Start,
+				End:   statement.End,
 			}
 		}
 		opts.LogCommandResponse([]int32{int32(currentIndex)}, 0, []int32{}, "")
@@ -239,7 +233,7 @@ func (d *Driver) querySinglePartiQL(ctx context.Context, statement string, query
 	for key := range rowMap {
 		sortedColumnNames = append(sortedColumnNames, key)
 	}
-	sort.Strings(sortedColumnNames)
+	slices.Sort(sortedColumnNames)
 	columnTypes := make([]string, 0, len(sortedColumnNames))
 	for _, key := range sortedColumnNames {
 		columnTypes = append(columnTypes, columnTypeMap[key])

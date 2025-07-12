@@ -12,10 +12,11 @@ import (
 
 	mysql "github.com/bytebase/mysql-parser"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	mysqlparser "github.com/bytebase/bytebase/backend/plugin/parser/mysql"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -194,7 +195,7 @@ func (checker *indexPkTypeChecker) addAdvice(tableName, columnName, columnType s
 			Code:          advisor.IndexPKType.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Columns in primary key must be INT/BIGINT but `%s`.`%s` is %s", tableName, columnName, columnType),
-			StartPosition: advisor.ConvertANTLRLineToPosition(lineNumber),
+			StartPosition: common.ConvertANTLRLineToPosition(lineNumber),
 		})
 	}
 }

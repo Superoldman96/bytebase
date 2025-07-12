@@ -5,14 +5,15 @@ package pg
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/advisor/catalog"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -93,8 +94,14 @@ func (checker *indexTotalNumberLimitChecker) generateAdvice() []*storepb.Advice 
 	for _, table := range checker.tableLine {
 		tableList = append(tableList, table)
 	}
-	sort.Slice(tableList, func(i, j int) bool {
-		return tableList[i].line < tableList[j].line
+	slices.SortFunc(tableList, func(i, j tableLine) int {
+		if i.line < j.line {
+			return -1
+		}
+		if i.line > j.line {
+			return 1
+		}
+		return 0
 	})
 
 	for _, table := range tableList {
@@ -108,7 +115,7 @@ func (checker *indexTotalNumberLimitChecker) generateAdvice() []*storepb.Advice 
 				Code:          advisor.IndexCountExceedsLimit.Int32(),
 				Title:         checker.title,
 				Content:       fmt.Sprintf("The count of index in table %q.%q should be no more than %d, but found %d", table.schema, table.table, checker.max, tableInfo.CountIndex()),
-				StartPosition: advisor.ConvertANTLRLineToPosition(table.line),
+				StartPosition: common.ConvertPGParserLineToPosition(table.line),
 			})
 		}
 	}

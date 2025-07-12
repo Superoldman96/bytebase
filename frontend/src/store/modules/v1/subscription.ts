@@ -1,21 +1,28 @@
+import { create } from "@bufbuild/protobuf";
 import dayjs from "dayjs";
 import { defineStore } from "pinia";
 import type { Ref } from "vue";
 import { computed } from "vue";
-import { subscriptionServiceClient } from "@/grpcweb";
-import type { FeatureType } from "@/types";
-import { PLANS, getDateForPbTimestamp, instanceLimitFeature } from "@/types";
+import { subscriptionServiceClientConnect } from "@/grpcweb";
+import {
+  PLANS,
+  hasFeature as checkFeature,
+  hasInstanceFeature as checkInstanceFeature,
+  getDateForPbTimestampProtoEs,
+  getMinimumRequiredPlan,
+  instanceLimitFeature,
+} from "@/types";
 import type {
   Instance,
   InstanceResource,
-} from "@/types/proto/v1/instance_service";
-import type { Subscription } from "@/types/proto/v1/subscription_service";
+} from "@/types/proto-es/v1/instance_service_pb";
+import type { Subscription } from "@/types/proto-es/v1/subscription_service_pb";
 import {
+  GetSubscriptionRequestSchema,
+  UpdateSubscriptionRequestSchema,
+  PlanFeature,
   PlanType,
-  planTypeFromJSON,
-  planTypeToNumber,
-} from "@/types/proto/v1/subscription_service";
-import { useSettingV1Store } from "./setting";
+} from "@/types/proto-es/v1/subscription_service_pb";
 
 // The threshold of days before the license expiration date to show the warning.
 // Default is 7 days.
@@ -24,21 +31,23 @@ export const LICENSE_EXPIRATION_THRESHOLD = 7;
 interface SubscriptionState {
   subscription: Subscription | undefined;
   trialingDays: number;
-  featureMatrix: Map<FeatureType, boolean[]>;
 }
 
 export const useSubscriptionV1Store = defineStore("subscription_v1", {
   state: (): SubscriptionState => ({
     subscription: undefined,
     trialingDays: 14,
-    featureMatrix: new Map<FeatureType, boolean[]>(),
   }),
   getters: {
-    instanceCountLimit(): number {
+    instanceCountLimit(state): number {
       const limit =
         PLANS.find((plan) => plan.type === this.currentPlan)
           ?.maximumInstanceCount ?? 0;
       if (limit < 0) {
+        const instanceLimitInLicense = state.subscription?.instances ?? 0;
+        if (instanceLimitInLicense > 0) {
+          return instanceLimitInLicense;
+        }
         return Number.MAX_VALUE;
       }
       return limit;
@@ -55,7 +64,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
         case PlanType.FREE:
           return limit;
         default: {
-          const seatCount = state.subscription?.seatCount ?? 0;
+          const seatCount = state.subscription?.seats ?? 0;
           if (seatCount < 0) {
             return Number.MAX_VALUE;
           }
@@ -67,7 +76,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       }
     },
     instanceLicenseCount(state): number {
-      const count = state.subscription?.instanceCount ?? 0;
+      const count = state.subscription?.activeInstances ?? 0;
       if (count < 0) {
         return Number.MAX_VALUE;
       }
@@ -77,7 +86,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       if (!state.subscription) {
         return PlanType.FREE;
       }
-      return planTypeFromJSON(state.subscription.plan);
+      return state.subscription.plan;
     },
     isFreePlan(): boolean {
       return this.currentPlan == PlanType.FREE;
@@ -92,7 +101,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       }
 
       return dayjs(
-        getDateForPbTimestamp(state.subscription.expiresTime)
+        getDateForPbTimestampProtoEs(state.subscription.expiresTime)
       ).format("YYYY/MM/DD HH:mm:ss");
     },
     isTrialing(state): boolean {
@@ -107,7 +116,7 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
         return false;
       }
       return dayjs(
-        getDateForPbTimestamp(state.subscription.expiresTime)
+        getDateForPbTimestampProtoEs(state.subscription.expiresTime)
       ).isBefore(new Date());
     },
     daysBeforeExpire(state): number {
@@ -120,53 +129,18 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       }
 
       const expiresTime = dayjs(
-        getDateForPbTimestamp(state.subscription.expiresTime)
+        getDateForPbTimestampProtoEs(state.subscription.expiresTime)
       );
       return Math.max(expiresTime.diff(new Date(), "day"), 0);
     },
-    isNearExpireTime(state): boolean {
-      if (
-        !state.subscription ||
-        !state.subscription?.trialing ||
-        this.isFreePlan
-      ) {
-        return false;
-      }
-
-      const daysBeforeExpire = this.daysBeforeExpire;
-      if (daysBeforeExpire <= 0) return false;
-
-      const trialEndTime = dayjs(
-        getDateForPbTimestamp(state.subscription.expiresTime)
-      );
-      const total = trialEndTime.diff(
-        getDateForPbTimestamp(state.subscription.startedTime),
-        "day"
-      );
-      return daysBeforeExpire / total < 0.5;
-    },
-    existTrialLicense(): boolean {
-      const settingStore = useSettingV1Store();
-      return !!settingStore.getSettingByName("bb.enterprise.trial");
-    },
-    canTrial(state): boolean {
+    showTrial(state): boolean {
       if (!this.isSelfHostLicense) {
-        return false;
-      }
-      if (this.existTrialLicense) {
         return false;
       }
       if (!state.subscription || this.isFreePlan) {
         return true;
       }
-      return this.canUpgradeTrial;
-    },
-    canUpgradeTrial(): boolean {
-      return (
-        this.isSelfHostLicense &&
-        this.isTrialing &&
-        this.currentPlan < PlanType.ENTERPRISE
-      );
+      return false;
     },
     isSelfHostLicense(): boolean {
       return import.meta.env.MODE.toLowerCase() !== "release-aws";
@@ -179,61 +153,57 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
     setSubscription(subscription: Subscription) {
       this.subscription = subscription;
     },
-    hasFeature(type: FeatureType) {
-      const matrix = this.featureMatrix.get(type);
-      if (!Array.isArray(matrix)) {
+    hasFeature(feature: PlanFeature) {
+      if (this.isExpired) {
         return false;
       }
-
-      return !this.isExpired && matrix[planTypeToNumber(this.currentPlan) - 1];
+      return checkFeature(this.currentPlan, feature);
     },
     hasInstanceFeature(
-      type: FeatureType,
+      feature: PlanFeature,
       instance: Instance | InstanceResource | undefined = undefined
     ) {
-      // DONOT check instance license fo FREE plan.
+      // For FREE plan, don't check instance activation
       if (this.currentPlan === PlanType.FREE) {
-        return this.hasFeature(type);
+        return this.hasFeature(feature);
       }
-      if (!instanceLimitFeature.has(type) || !instance) {
-        return this.hasFeature(type);
+
+      // If no instance provided or feature is not instance-limited
+      if (!instance || !instanceLimitFeature.has(feature)) {
+        return this.hasFeature(feature);
       }
-      return this.hasFeature(type) && instance.activation;
+
+      return checkInstanceFeature(
+        this.currentPlan,
+        feature,
+        instance.activation
+      );
     },
     instanceMissingLicense(
-      type: FeatureType,
+      feature: PlanFeature,
       instance: Instance | InstanceResource | undefined = undefined
     ) {
-      // TODO(ed) refresh instance before check license:
-      if (!instanceLimitFeature.has(type)) {
+      // Only relevant for instance-limited features
+      if (!instanceLimitFeature.has(feature)) {
         return false;
       }
       if (!instance) {
         return false;
       }
-      return hasFeature(type) && !instance.activation;
+      // Feature is available in plan but instance is not activated
+      return this.hasFeature(feature) && !instance.activation;
     },
     currentPlanGTE(plan: PlanType): boolean {
-      return planTypeToNumber(this.currentPlan) >= planTypeToNumber(plan);
+      return this.currentPlan >= plan;
     },
-    getMinimumRequiredPlan(type: FeatureType): PlanType {
-      const matrix = this.featureMatrix.get(type);
-      if (!Array.isArray(matrix)) {
-        return PlanType.FREE;
-      }
-
-      for (let i = 0; i < matrix.length; i++) {
-        if (matrix[i]) {
-          return planTypeFromJSON(i + 1) as PlanType;
-        }
-      }
-      return PlanType.FREE;
+    getMinimumRequiredPlan(feature: PlanFeature): PlanType {
+      return getMinimumRequiredPlan(feature);
     },
     async fetchSubscription() {
       try {
-        const subscription = await subscriptionServiceClient.getSubscription(
-          {}
-        );
+        const request = create(GetSubscriptionRequestSchema, {});
+        const subscription =
+          await subscriptionServiceClientConnect.getSubscription(request);
         this.setSubscription(subscription);
         return subscription;
       } catch (e) {
@@ -241,50 +211,28 @@ export const useSubscriptionV1Store = defineStore("subscription_v1", {
       }
     },
     async patchSubscription(license: string) {
-      const subscription = await subscriptionServiceClient.updateSubscription({
-        patch: {
-          license,
-        },
+      const request = create(UpdateSubscriptionRequestSchema, {
+        license,
       });
+      const subscription =
+        await subscriptionServiceClientConnect.updateSubscription(request);
       this.setSubscription(subscription);
       return subscription;
-    },
-    async fetchFeatureMatrix() {
-      try {
-        const featureMatrix = await subscriptionServiceClient.getFeatureMatrix(
-          {}
-        );
-
-        const stateMatrix = new Map<FeatureType, boolean[]>();
-        for (const feature of featureMatrix.features) {
-          const featureType = feature.name as FeatureType;
-          stateMatrix.set(
-            featureType,
-            [PlanType.FREE, PlanType.TEAM, PlanType.ENTERPRISE].map((type) => {
-              return feature.matrix[type] ?? false;
-            })
-          );
-        }
-
-        this.featureMatrix = stateMatrix;
-      } catch (e) {
-        console.error(e);
-      }
     },
   },
 });
 
-export const hasFeature = (type: FeatureType) => {
+export const hasFeature = (feature: PlanFeature) => {
   const store = useSubscriptionV1Store();
-  return store.hasFeature(type);
+  return store.hasFeature(feature);
 };
 
 export const featureToRef = (
-  type: FeatureType,
+  feature: PlanFeature,
   instance: Instance | InstanceResource | undefined = undefined
 ): Ref<boolean> => {
   const store = useSubscriptionV1Store();
-  return computed(() => store.hasInstanceFeature(type, instance));
+  return computed(() => store.hasInstanceFeature(feature, instance));
 };
 
 export const useCurrentPlan = () => {

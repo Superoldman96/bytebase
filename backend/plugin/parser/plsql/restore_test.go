@@ -3,15 +3,16 @@ package plsql
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/store/model"
-	"github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 type restoreCase struct {
@@ -55,12 +56,12 @@ func TestRestore(t *testing.T) {
 				Table:    t.BackupTable,
 			},
 			StartPosition: &store.Position{
-				Line:   1,
+				Line:   0,
 				Column: 0,
 			},
 			EndPosition: &store.Position{
-				Line:   1000000000,
-				Column: 1,
+				Line:   math.MaxInt32,
+				Column: 0,
 			},
 		})
 		a.NoError(err)
@@ -101,6 +102,11 @@ func fixedMockDatabaseMetadataGetter(_ context.Context, _ string, database strin
 								Name:        "T_GENERATED_PK",
 								Expressions: []string{"B"},
 								Primary:     true,
+								Unique:      true,
+							},
+							{
+								Name:        "T_GENERATED_UK",
+								Expressions: []string{"A"},
 								Unique:      true,
 							},
 						},

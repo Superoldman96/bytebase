@@ -6,9 +6,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -67,7 +68,7 @@ func (checker *noSelectAllChecker) Visit(node ast.Node) ast.Visitor {
 					Code:          advisor.StatementSelectAll.Int32(),
 					Title:         checker.title,
 					Content:       fmt.Sprintf("\"%s\" uses SELECT all", checker.text),
-					StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+					StartPosition: common.ConvertPGParserLineToPosition(checker.line),
 				})
 				break
 			}

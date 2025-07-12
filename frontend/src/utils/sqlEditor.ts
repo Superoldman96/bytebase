@@ -12,7 +12,7 @@ import type {
   CoreSQLEditorTab,
   SQLEditorConnection,
   SQLEditorTab,
-  SQLEditorTabQueryContext,
+  QueryDataSourceType,
 } from "@/types";
 import {
   DEFAULT_SQL_EDITOR_TAB_MODE,
@@ -20,15 +20,14 @@ import {
   isValidInstanceName,
   UNKNOWN_DATABASE_NAME,
 } from "@/types";
-import { Engine } from "@/types/proto/v1/common";
 import {
   DataSourceType,
   type InstanceResource,
-} from "@/types/proto/v1/instance_service";
+} from "@/types/proto-es/v1/instance_service_pb";
 import {
   DataSourceQueryPolicy_Restriction,
   PolicyType,
-} from "@/types/proto/v1/org_policy_service";
+} from "@/types/proto-es/v1/org_policy_service_pb";
 import { instanceV1AllowsCrossDatabaseQuery } from "./v1/instance";
 
 export const defaultSQLEditorTab = (): SQLEditorTab => {
@@ -170,20 +169,6 @@ export const tryConnectToCoreSQLEditorTab = (
   tabStore.updateCurrentTab(tab);
 };
 
-export const emptySQLEditorTabQueryContext = (): SQLEditorTabQueryContext => ({
-  beginTimestampMS: Date.now(),
-  abortController: new AbortController(),
-  status: "IDLE",
-  results: new Map(),
-  params: {
-    connection: emptySQLEditorConnection(),
-    engine: Engine.MYSQL,
-    explain: false,
-    statement: "",
-    selection: null,
-  },
-});
-
 export const getAdminDataSourceRestrictionOfDatabase = (
   database: ComposedDatabase
 ) => {
@@ -193,13 +178,17 @@ export const getAdminDataSourceRestrictionOfDatabase = (
     policyType: PolicyType.DATA_SOURCE_QUERY,
   });
   const projectLevelAdminDSRestriction =
-    projectLevelPolicy?.dataSourceQueryPolicy?.adminDataSourceRestriction;
+    projectLevelPolicy?.policy?.case === "dataSourceQueryPolicy"
+      ? projectLevelPolicy.policy.value.adminDataSourceRestriction
+      : undefined;
   const envLevelPolicy = policyStore.getPolicyByParentAndType({
     parentPath: database.effectiveEnvironment,
     policyType: PolicyType.DATA_SOURCE_QUERY,
   });
   const envLevelAdminDSRestriction =
-    envLevelPolicy?.dataSourceQueryPolicy?.adminDataSourceRestriction;
+    envLevelPolicy?.policy?.case === "dataSourceQueryPolicy"
+      ? envLevelPolicy.policy.value.adminDataSourceRestriction
+      : undefined;
   return {
     environmentPolicy:
       envLevelAdminDSRestriction ??
@@ -210,18 +199,8 @@ export const getAdminDataSourceRestrictionOfDatabase = (
   };
 };
 
-export const ensureDataSourceSelection = (
-  current: string | undefined,
-  database: ComposedDatabase
-) => {
+const getDataSourceBehavior = (database: ComposedDatabase) => {
   const restriction = getAdminDataSourceRestrictionOfDatabase(database);
-  const adminDataSource = database.instanceResource.dataSources.find(
-    (ds) => ds.type === DataSourceType.ADMIN
-  )!;
-  const readonlyDataSources = database.instanceResource.dataSources.filter(
-    (ds) => ds.type === DataSourceType.READ_ONLY
-  );
-
   let behavior: "RO" | "FALLBACK" | "ALLOW_ADMIN";
   if (
     restriction.environmentPolicy ===
@@ -238,33 +217,38 @@ export const ensureDataSourceSelection = (
   } else {
     behavior = "ALLOW_ADMIN";
   }
-  if (behavior === "ALLOW_ADMIN") {
-    if (current) {
-      return current;
-    }
-    return adminDataSource.id;
-  }
-  if (behavior === "FALLBACK") {
-    if (current) {
-      return current;
-    }
-    return head(readonlyDataSources)?.id ?? adminDataSource.id;
-  }
-  if (behavior === "RO") {
-    if (
-      current &&
-      readonlyDataSources.findIndex((ds) => ds.id === current) >= 0
-    ) {
-      return current;
-    }
-    return head(readonlyDataSources)?.id;
-  }
-  console.warn(
-    "[SQL Editor] failed to ensureDataSourceSelection",
-    current,
-    behavior,
-    database,
-    restriction
+  return behavior;
+};
+
+export const getValidDataSourceByPolicy = (
+  database: ComposedDatabase,
+  type?: QueryDataSourceType
+) => {
+  const adminDataSource = database.instanceResource.dataSources.find(
+    (ds) => ds.type === DataSourceType.ADMIN
+  )!;
+  const readonlyDataSources = database.instanceResource.dataSources.filter(
+    (ds) => ds.type === DataSourceType.READ_ONLY
   );
-  return undefined;
+
+  const behavior = getDataSourceBehavior(database);
+
+  switch (behavior) {
+    case "ALLOW_ADMIN":
+    // ALLOW_ADMIN means no policy restriction.
+    case "FALLBACK": {
+      // FALLBACK means try to use read-only data source, it can also accept admin data source if no read-only data source exists.
+      switch (type) {
+        case DataSourceType.ADMIN:
+          return adminDataSource.id;
+        default:
+          // try to use read-only data source first.
+          return head(readonlyDataSources)?.id ?? adminDataSource.id;
+      }
+    }
+    case "RO": {
+      // RO only accept the read-only data source.
+      return head(readonlyDataSources)?.id;
+    }
+  }
 };

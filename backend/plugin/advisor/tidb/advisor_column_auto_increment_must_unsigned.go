@@ -10,8 +10,9 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/mysql"
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -105,7 +106,7 @@ func (checker *columnAutoIncrementMustUnsignedChecker) Enter(in ast.Node) (ast.N
 			Code:          advisor.AutoIncrementColumnSigned.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("Auto-increment column `%s`.`%s` is not UNSIGNED type", column.table, column.column),
-			StartPosition: advisor.ConvertANTLRLineToPosition(checker.line),
+			StartPosition: common.ConvertANTLRLineToPosition(checker.line),
 		})
 	}
 

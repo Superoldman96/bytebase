@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package bytebase.v1;
+
+import "google/api/annotations.proto";
+import "google/api/client.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "v1/annotation.proto";
+
+option go_package = "github.com/bytebase/bytebase/backend/generated-go/v1";
+
+service SubscriptionService {
+  // GetSubscription returns the current subscription.
+  // If there is no license, we will return a free plan subscription without expiration time.
+  // If there is expired license, we will return a free plan subscription with the expiration time of the expired license.
+  // Permissions required: None
+  rpc GetSubscription(GetSubscriptionRequest) returns (Subscription) {
+    option (google.api.http) = {get: "/v1/subscription"};
+    option (google.api.method_signature) = "";
+    option (bytebase.v1.allow_without_credential) = true;
+  }
+
+  // Permissions required: bb.settings.set
+  rpc UpdateSubscription(UpdateSubscriptionRequest) returns (Subscription) {
+    option (google.api.http) = {
+      patch: "/v1/subscription"
+      body: "license"
+    };
+    option (google.api.method_signature) = "patch";
+    option (bytebase.v1.permission) = "bb.settings.set";
+    option (bytebase.v1.auth_method) = IAM;
+  }
+}
+
+message GetSubscriptionRequest {}
+
+message UpdateSubscriptionRequest {
+  string license = 1;
+}
+
+enum PlanType {
+  PLAN_TYPE_UNSPECIFIED = 0;
+
+  FREE = 1;
+
+  TEAM = 2;
+
+  ENTERPRISE = 3;
+}
+
+message Subscription {
+  PlanType plan = 1 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  int32 seats = 2 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  int32 instances = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  int32 active_instances = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  google.protobuf.Timestamp expires_time = 5 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  bool trialing = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  string org_name = 7 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+// PlanFeature represents the available features in Bytebase
+enum PlanFeature {
+  FEATURE_UNSPECIFIED = 0;
+
+  // Database Change Management
+  FEATURE_DATABASE_CHANGE = 1;
+  FEATURE_GIT_BASED_SCHEMA_VERSION_CONTROL = 2;
+  FEATURE_DECLARATIVE_SCHEMA_MIGRATION = 3;
+  FEATURE_COMPARE_AND_SYNC_SCHEMA = 4;
+  FEATURE_ONLINE_SCHEMA_CHANGE = 5;
+  FEATURE_PRE_DEPLOYMENT_SQL_REVIEW = 6;
+  FEATURE_AUTOMATIC_BACKUP_BEFORE_DATA_CHANGES = 7;
+  FEATURE_ONE_CLICK_DATA_ROLLBACK = 8;
+  FEATURE_MULTI_DATABASE_BATCH_CHANGES = 9;
+  FEATURE_PROGRESSIVE_ENVIRONMENT_DEPLOYMENT = 10;
+  FEATURE_SCHEDULED_ROLLOUT_TIME = 11;
+  FEATURE_DATABASE_CHANGELOG = 12;
+  FEATURE_SCHEMA_DRIFT_DETECTION = 13;
+  FEATURE_CHANGELIST = 14;
+  FEATURE_SCHEMA_TEMPLATE = 15;
+  FEATURE_ROLLOUT_POLICY = 16;
+
+  // SQL Editor & Development
+  FEATURE_WEB_BASED_SQL_EDITOR = 17;
+  FEATURE_SQL_EDITOR_ADMIN_MODE = 18;
+  FEATURE_NATURAL_LANGUAGE_TO_SQL = 19;
+  FEATURE_AI_QUERY_EXPLANATION = 20;
+  FEATURE_AI_QUERY_SUGGESTIONS = 21;
+  FEATURE_AUTO_COMPLETE = 22;
+  FEATURE_SCHEMA_DIAGRAM = 23;
+  FEATURE_SCHEMA_EDITOR = 24;
+  FEATURE_DATA_EXPORT = 25;
+  FEATURE_DATA_OFFLINE_EXPORT = 26;
+  FEATURE_QUERY_HISTORY = 27;
+  FEATURE_SAVED_AND_SHARED_SQL_SCRIPTS = 28;
+  FEATURE_BATCH_QUERY = 29;
+  FEATURE_INSTANCE_READ_ONLY_CONNECTION = 30;
+  FEATURE_QUERY_POLICY = 31;
+  FEATURE_RESTRICT_COPYING_DATA = 32;
+
+  // Security & Compliance
+  FEATURE_IAM = 33;
+  FEATURE_INSTANCE_SSL_CONNECTION = 34;
+  FEATURE_INSTANCE_CONNECTION_OVER_SSH_TUNNEL = 35;
+  FEATURE_INSTANCE_CONNECTION_IAM_AUTHENTICATION = 36;
+  FEATURE_GOOGLE_AND_GITHUB_SSO = 37;
+  FEATURE_USER_GROUPS = 38;
+  FEATURE_DISALLOW_SELF_SERVICE_SIGNUP = 39;
+  FEATURE_DATABASE_SECRET_VARIABLES = 40;
+  FEATURE_CUSTOM_INSTANCE_SYNC_TIME = 41;
+  FEATURE_CUSTOM_INSTANCE_CONNECTION_LIMIT = 42;
+  FEATURE_RISK_ASSESSMENT = 43;
+  FEATURE_APPROVAL_WORKFLOW = 44;
+  FEATURE_AUDIT_LOG = 45;
+  FEATURE_ENTERPRISE_SSO = 46;
+  FEATURE_TWO_FA = 47;
+  FEATURE_PASSWORD_RESTRICTIONS = 48;
+  FEATURE_DISALLOW_PASSWORD_SIGNIN = 49;
+  FEATURE_CUSTOM_ROLES = 50;
+  FEATURE_REQUEST_ROLE_WORKFLOW = 51;
+  FEATURE_DATA_MASKING = 52;
+  FEATURE_DATA_CLASSIFICATION = 53;
+  FEATURE_SCIM = 54;
+  FEATURE_DIRECTORY_SYNC = 55;
+  FEATURE_SIGN_IN_FREQUENCY_CONTROL = 56;
+  FEATURE_EXTERNAL_SECRET_MANAGER = 57;
+  FEATURE_USER_EMAIL_DOMAIN_RESTRICTION = 58;
+
+  // Administration & Support
+  FEATURE_PROJECT_MANAGEMENT = 59;
+  FEATURE_ENVIRONMENT_MANAGEMENT = 60;
+  FEATURE_IM_NOTIFICATIONS = 61;
+  FEATURE_TERRAFORM_PROVIDER = 62;
+  FEATURE_DATABASE_GROUPS = 63;
+  FEATURE_ENVIRONMENT_TIERS = 64;
+  FEATURE_DASHBOARD_ANNOUNCEMENT = 65;
+  FEATURE_API_INTEGRATION_GUIDANCE = 66;
+  FEATURE_CUSTOM_LOGO = 67;
+  FEATURE_WATERMARK = 68;
+  FEATURE_ROADMAP_PRIORITIZATION = 69;
+  FEATURE_CUSTOM_MSA = 70;
+  FEATURE_COMMUNITY_SUPPORT = 71;
+  FEATURE_EMAIL_SUPPORT = 72;
+  FEATURE_DEDICATED_SUPPORT_WITH_SLA = 73;
+}
+
+// PlanConfig represents the configuration for all plans loaded from plan.yaml
+message PlanConfig {
+  repeated PlanLimitConfig plans = 1;
+  repeated PlanFeature instance_features = 2;
+}
+
+// PlanLimitConfig represents a single plan's configuration
+message PlanLimitConfig {
+  PlanType type = 1;
+  int32 maximum_instance_count = 2;
+  int32 maximum_seat_count = 3;
+  repeated PlanFeature features = 4;
+}

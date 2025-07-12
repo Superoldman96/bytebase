@@ -60,6 +60,7 @@
 </template>
 
 <script setup lang="ts">
+import { create as createProto } from "@bufbuild/protobuf";
 import { computedAsync } from "@vueuse/core";
 import { NButton } from "naive-ui";
 import { zindexable as vZindexable } from "vdirs";
@@ -69,7 +70,7 @@ import { BBAttention, BBSpin } from "@/bbkit";
 import DownloadSheetButton from "@/components/Sheet/DownloadSheetButton.vue";
 import { Drawer, DrawerContent, ErrorTipsButton } from "@/components/v2";
 import { pushNotification, useSheetV1Store } from "@/store";
-import { Sheet } from "@/types/proto/v1/sheet_service";
+import { SheetSchema } from "@/types/proto-es/v1/sheet_service_pb";
 import {
   getSheetStatement,
   setSheetStatement,
@@ -105,8 +106,8 @@ const show = computed(() => {
 
 const isSheetOversize = computed(() => {
   if (!sheet.value) return false;
-  return getStatementSize(getSheetStatement(sheet.value)).lt(
-    sheet.value.contentSize
+  return (
+    getStatementSize(getSheetStatement(sheet.value)) < sheet.value.contentSize
   );
 });
 
@@ -144,7 +145,7 @@ const doSaveChange = async () => {
 
   try {
     isUpdating.value = true;
-    const patch = Sheet.fromPartial({
+    const patch = createProto(SheetSchema, {
       name: sheet.value.name,
     });
     setSheetStatement(patch, statement.value);

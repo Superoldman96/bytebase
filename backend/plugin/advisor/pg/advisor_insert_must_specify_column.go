@@ -8,9 +8,10 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/advisor"
 	"github.com/bytebase/bytebase/backend/plugin/parser/sql/ast"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 var (
@@ -65,7 +66,7 @@ func (checker *insertMustSpecifyColumnChecker) Visit(in ast.Node) ast.Visitor {
 			Code:          advisor.InsertNotSpecifyColumn.Int32(),
 			Title:         checker.title,
 			Content:       fmt.Sprintf("The INSERT statement must specify columns but \"%s\" does not", checker.text),
-			StartPosition: advisor.ConvertANTLRLineToPosition(node.LastLine()),
+			StartPosition: common.ConvertPGParserLineToPosition(node.LastLine()),
 		})
 	}
 

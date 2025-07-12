@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package bytebase.store;
+
+import "google/api/field_behavior.proto";
+import "store/common.proto";
+
+option go_package = "generated-go/store";
+
+message PlanConfig {
+  repeated Spec specs = 1;
+
+  Deployment deployment = 4;
+  message Spec {
+    // A UUID4 string that uniquely identifies the Spec.
+    string id = 5;
+
+    oneof config {
+      CreateDatabaseConfig create_database_config = 1;
+      ChangeDatabaseConfig change_database_config = 2;
+      ExportDataConfig export_data_config = 7;
+    }
+  }
+
+  message CreateDatabaseConfig {
+    // The resource name of the instance on which the database is created.
+    // Format: instances/{instance}
+    string target = 1 [(google.api.field_behavior) = REQUIRED];
+    // The name of the database to create.
+    string database = 2 [(google.api.field_behavior) = REQUIRED];
+    // table is the name of the table, if it is not empty, Bytebase should create a table after creating the database.
+    // For example, in MongoDB, it only creates the database when we first store data in that database.
+    string table = 3 [(google.api.field_behavior) = OPTIONAL];
+    // character_set is the character set of the database.
+    string character_set = 4 [(google.api.field_behavior) = OPTIONAL];
+    // collation is the collation of the database.
+    string collation = 5 [(google.api.field_behavior) = OPTIONAL];
+    // cluster is the cluster of the database. This is only applicable to ClickHouse for "ON CLUSTER <<cluster>>".
+    string cluster = 6 [(google.api.field_behavior) = OPTIONAL];
+    // owner is the owner of the database. This is only applicable to Postgres for "WITH OWNER <<owner>>".
+    string owner = 7 [(google.api.field_behavior) = OPTIONAL];
+    // The environment resource.
+    // Format: environments/prod where prod is the environment resource ID.
+    string environment = 9 [(google.api.field_behavior) = OPTIONAL];
+  }
+
+  message ChangeDatabaseConfig {
+    // The list of targets.
+    // Multi-database format: [instances/{instance-id}/databases/{database-name}].
+    // Single database group format: [projects/{project}/databaseGroups/{databaseGroup}].
+    repeated string targets = 10;
+    // The resource name of the sheet.
+    // Format: projects/{project}/sheets/{sheet}
+    string sheet = 2;
+    // The resource name of the release.
+    // Format: projects/{project}/releases/{release}
+    string release = 9;
+
+    // Type is the database change type.
+    enum Type {
+      TYPE_UNSPECIFIED = 0;
+      // Used for DDL changes including CREATE DATABASE.
+      MIGRATE = 2;
+      // Used for schema changes via state-based schema migration including CREATE DATABASE.
+      MIGRATE_SDL = 3;
+      // Used for DDL changes using gh-ost.
+      MIGRATE_GHOST = 4;
+      // Used for DML change.
+      DATA = 6;
+    }
+    Type type = 3;
+
+    map<string, string> ghost_flags = 7;
+
+    // If set, a backup of the modified data will be created automatically before any changes are applied.
+    bool enable_prior_backup = 8;
+  }
+
+  message ExportDataConfig {
+    // The list of targets.
+    // Multi-database format: [instances/{instance-id}/databases/{database-name}].
+    // Single database group format: [projects/{project}/databaseGroups/{databaseGroup}].
+    repeated string targets = 5;
+    // The resource name of the sheet.
+    // Format: projects/{project}/sheets/{sheet}
+    string sheet = 2;
+    // The format of the exported file.
+    ExportFormat format = 3;
+    // The zip password provide by users.
+    // Leave it empty if no needs to encrypt the zip file.
+    optional string password = 4;
+  }
+
+  message Deployment {
+    // The environments deploy order.
+    repeated string environments = 1;
+    // The database group mapping.
+    repeated DatabaseGroupMapping database_group_mappings = 2;
+
+    message DatabaseGroupMapping {
+      // Format: projects/{project}/databaseGroups/{databaseGroup}.
+      string database_group = 1;
+      // Format: instances/{instance-id}/databases/{database-name}.
+      repeated string databases = 2;
+    }
+  }
+}

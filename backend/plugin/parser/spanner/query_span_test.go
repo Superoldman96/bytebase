@@ -14,9 +14,9 @@ import (
 	parser "github.com/bytebase/google-sql-parser"
 
 	"github.com/bytebase/bytebase/backend/common"
+	storepb "github.com/bytebase/bytebase/backend/generated-go/store"
 	"github.com/bytebase/bytebase/backend/plugin/parser/base"
 	"github.com/bytebase/bytebase/backend/store/model"
-	storepb "github.com/bytebase/bytebase/proto/generated-go/store"
 )
 
 func TestGetQuerySpan(t *testing.T) {
@@ -133,11 +133,15 @@ func TestGetPossibleColumnResources(t *testing.T) {
 		p := parser.NewGoogleSQLParser(stream)
 		// Remove default error listener and add our own error listener.
 		lexer.RemoveErrorListeners()
-		lexerErrorListener := &base.ParseErrorListener{}
+		lexerErrorListener := &base.ParseErrorListener{
+			Statement: tc.inputExpr,
+		}
 		lexer.AddErrorListener(lexerErrorListener)
 
 		p.RemoveErrorListeners()
-		parserErrorListener := &base.ParseErrorListener{}
+		parserErrorListener := &base.ParseErrorListener{
+			Statement: tc.inputExpr,
+		}
 		p.AddErrorListener(parserErrorListener)
 
 		p.BuildParseTrees = true
